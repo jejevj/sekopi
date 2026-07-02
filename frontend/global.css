@@ -4,39 +4,123 @@
 
 @layer base {
   :root {
-    --background: 30 20% 98%;
-    --foreground: 20 14% 10%;
-    --primary: 28 70% 50%;
+    /* ── SekoPi Glassmorphism Theme ─────────────────────────────────────── */
+    /* Primary: #f44444 (merah kopi) */
+    --primary:           0 85% 60%;        /* #f44444 */
     --primary-foreground: 0 0% 100%;
-    --secondary: 30 15% 90%;
-    --secondary-foreground: 20 14% 20%;
-    --muted: 30 10% 95%;
-    --muted-foreground: 20 10% 50%;
-    --accent: 30 20% 92%;
-    --accent-foreground: 20 14% 15%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 30 10% 88%;
-    --input: 30 10% 88%;
-    --ring: 28 70% 50%;
-    --radius: 0.5rem;
-  }
 
-  .dark {
-    --background: 20 14% 8%;
-    --foreground: 30 15% 95%;
-    --primary: 28 65% 55%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 20 10% 18%;
-    --secondary-foreground: 30 10% 85%;
-    --muted: 20 10% 15%;
-    --muted-foreground: 30 8% 55%;
-    --accent: 20 12% 20%;
-    --accent-foreground: 30 12% 88%;
-    --destructive: 0 72% 51%;
+    /* Background: dark glassmorphism */
+    --background:        220 20% 8%;       /* #0f1117 — very dark navy */
+    --foreground:        0 0% 95%;
+
+    --card:              220 20% 12%;      /* glass card base */
+    --card-foreground:   0 0% 95%;
+
+    --secondary:         220 15% 18%;
+    --secondary-foreground: 0 0% 85%;
+
+    --muted:             220 15% 20%;
+    --muted-foreground:  220 10% 55%;
+
+    --accent:            0 70% 50%;        /* lighter red accent */
+    --accent-foreground: 0 0% 100%;
+
+    --destructive:       0 85% 50%;
     --destructive-foreground: 0 0% 100%;
-    --border: 20 10% 22%;
-    --input: 20 10% 22%;
-    --ring: 28 65% 55%;
+
+    --border:            220 15% 22%;
+    --input:             220 15% 16%;
+    --ring:              0 85% 60%;        /* same as primary */
+
+    --radius: 0.75rem;
+
+    /* Glass effect variables */
+    --glass-bg:          rgba(255, 255, 255, 0.05);
+    --glass-border:      rgba(255, 255, 255, 0.10);
+    --glass-blur:        16px;
+    --glass-shadow:      0 8px 32px rgba(0, 0, 0, 0.4);
   }
 }
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    background-image:
+      radial-gradient(ellipse at 20% 20%, rgba(244, 68, 68, 0.15) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 80%, rgba(244, 68, 68, 0.08) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 50%, rgba(30, 30, 60, 0.5) 0%, transparent 80%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+}
+
+/* ── Glassmorphism Utilities ─────────────────────────────────────────────── */
+@layer components {
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+  }
+
+  .glass-card {
+    @apply glass rounded-xl p-6;
+  }
+
+  .glass-sidebar {
+    background: rgba(15, 17, 23, 0.7);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-right: 1px solid var(--glass-border);
+  }
+
+  .glass-navbar {
+    background: rgba(15, 17, 23, 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--glass-border);
+  }
+
+  .glass-input {
+    background: rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--glass-border);
+    @apply rounded-lg text-foreground placeholder:text-muted-foreground;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .glass-input:focus {
+    border-color: #f44444;
+    box-shadow: 0 0 0 3px rgba(244, 68, 68, 0.2);
+    outline: none;
+  }
+
+  .glow-primary {
+    box-shadow: 0 0 20px rgba(244, 68, 68, 0.4), 0 0 40px rgba(244, 68, 68, 0.15);
+  }
+
+  .glow-primary-sm {
+    box-shadow: 0 0 10px rgba(244, 68, 68, 0.3);
+  }
+
+  /* Gradient text merah kopi */
+  .text-gradient-primary {
+    background: linear-gradient(135deg, #f44444 0%, #ff8080 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}
+
+/* ── Scrollbar Glassmorphism ─────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(244, 68, 68, 0.3);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(244, 68, 68, 0.5); }

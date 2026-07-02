@@ -1,33 +1,49 @@
-import { TextInput, View, Text } from "react-native";
-import { cn } from "@/lib/utils/cn";
+import * as React from "react";
+import { cn } from "../../lib/utils";
 
-interface InputProps {
-  value?: string;
-  onChangeText?: (text: string) => void;
-  placeholder?: string;
+export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
-  secureTextEntry?: boolean;
-  className?: string;
   error?: string;
+  leftIcon?: React.ReactNode;
+  rightIcon?: React.ReactNode;
 }
 
-export function Input({ value, onChangeText, placeholder, label, secureTextEntry, className, error }: InputProps) {
-  return (
-    <View className="gap-1.5">
-      {label && <Text className="text-sm font-medium text-foreground">{label}</Text>}
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        secureTextEntry={secureTextEntry}
-        placeholderTextColor="hsl(var(--muted-foreground))"
-        className={cn(
-          "rounded-md border border-input bg-background px-3 py-2 text-foreground",
-          error && "border-destructive",
-          className
+const Input = React.forwardRef<HTMLInputElement, InputProps>(
+  ({ className, label, error, leftIcon, rightIcon, type, ...props }, ref) => {
+    return (
+      <div className="w-full space-y-1.5">
+        {label && (
+          <label className="text-sm font-medium text-foreground/80">{label}</label>
         )}
-      />
-      {error && <Text className="text-sm text-destructive">{error}</Text>}
-    </View>
-  );
-}
+        <div className="relative">
+          {leftIcon && (
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+              {leftIcon}
+            </div>
+          )}
+          <input
+            type={type}
+            className={cn(
+              "glass-input flex h-10 w-full px-3 py-2 text-sm",
+              leftIcon && "pl-10",
+              rightIcon && "pr-10",
+              error && "border-red-500 focus:border-red-500 focus:shadow-[0_0_0_3px_rgba(239,68,68,0.2)]",
+              className
+            )}
+            ref={ref}
+            {...props}
+          />
+          {rightIcon && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+              {rightIcon}
+            </div>
+          )}
+        </div>
+        {error && <p className="text-xs text-red-400">{error}</p>}
+      </div>
+    );
+  }
+);
+Input.displayName = "Input";
+
+export { Input };
