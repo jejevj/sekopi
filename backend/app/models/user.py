@@ -8,10 +8,10 @@ from app.db.base_class import Base
 
 
 class UserRole(str, enum.Enum):
-    ADMIN = "admin"
-    PRODUKSI = "produksi"
-    INVENTORI = "inventori"
-    DRIVER = "driver"
+    ADMIN       = "admin"
+    PRODUKSI    = "produksi"
+    INVENTORI   = "inventori"
+    DRIVER      = "driver"
     SHAREHOLDER = "shareholder"
 
 
