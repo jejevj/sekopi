@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, require_roles
 from app.models.user import User, UserRole
 from app.repositories.production_unit_repo import ProductionUnitRepository
 from app.schemas.production_unit import (
+    ExpiryAlertResponse,
     GenerateUnitsRequest,
     ProductionUnitResponse,
     ScanDeliverRequest,
@@ -24,22 +25,66 @@ async def generate_units(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PRODUKSI)),
 ):
-    """Generate barcode units dari MO yang sudah DONE."""
+    """Generate barcode units dari MO yang sudah DONE. Wajib input expiry_date."""
     service = ProductionUnitService(db)
     try:
-        return await service.generate_units(payload.mo_id, payload.jumlah, current_user.id)
+        return await service.generate_units(
+            payload.mo_id, payload.jumlah, payload.expiry_date, current_user.id
+        )
     except (ValueError, Exception) as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/expiry-alerts", response_model=ExpiryAlertResponse)
+async def expiry_alerts(
+    days: int = Query(default=2, description="Hari ke depan untuk alert"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(
+        UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI, UserRole.SHAREHOLDER
+    )),
+):
+    """Lihat unit yang hampir/sudah expired. Ideal dicek setiap pagi."""
+    service = ProductionUnitService(db)
+    return await service.get_expiry_alerts(days)
+
+
+@router.post("/trigger-mark-expired")
+async def trigger_mark_expired(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN)),
+):
+    """Tandai semua unit expired secara manual. Bisa dijadikan cron job harian."""
+    service = ProductionUnitService(db)
+    return await service.trigger_mark_expired()
 
 
 @router.get("/mo/{mo_id}", response_model=list[ProductionUnitResponse])
 async def get_units_by_mo(
     mo_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI)),
+    current_user: User = Depends(require_roles(
+        UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI
+    )),
 ):
+    """List semua unit dari 1 MO, diurutkan FEFO (expiry terdekat duluan)."""
     repo = ProductionUnitRepository(db)
-    return await repo.get_by_mo(mo_id)
+    from app.services.production_unit_service import _enrich_unit
+    units = await repo.get_by_mo(mo_id)
+    return [_enrich_unit(u) for u in units]
+
+
+@router.get("/ready-fefo", response_model=list[ProductionUnitResponse])
+async def get_ready_fefo(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(
+        UserRole.ADMIN, UserRole.PRODUKSI, UserRole.DRIVER
+    )),
+):
+    """List semua unit READY/DELIVERED diurutkan FEFO — gunakan ini sebagai panduan dispatch."""
+    repo = ProductionUnitRepository(db)
+    from app.services.production_unit_service import _enrich_unit
+    units = await repo.get_ready_fefo()
+    return [_enrich_unit(u) for u in units]
 
 
 @router.get("/barcode/{barcode}", response_model=ProductionUnitResponse)
@@ -51,10 +96,11 @@ async def get_unit_by_barcode(
     )),
 ):
     repo = ProductionUnitRepository(db)
+    from app.services.production_unit_service import _enrich_unit
     unit = await repo.get_by_barcode(barcode)
     if not unit:
         raise HTTPException(status_code=404, detail="Barcode tidak ditemukan")
-    return unit
+    return _enrich_unit(unit)
 
 
 @router.post("/scan/dispatch", response_model=list[ScanResultResponse])
@@ -93,7 +139,7 @@ async def scan_sell(
 @router.post("/scan/void", response_model=ScanResultResponse)
 async def scan_void(
     payload: ScanVoidRequest,
-    db: AsyncStorage = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PRODUKSI)),
 ):
     """Void unit yang rusak atau salah."""
