@@ -2,6 +2,7 @@ from typing import List
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
 
+
 class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str = "changeme-secret-key-sekopi-2026"
@@ -10,6 +11,7 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     DATABASE_URL: str = "sqlite+aiosqlite:///./sekopi.db"
+    ENVIRONMENT: str = "development"
 
     BACKEND_CORS_ORIGINS: List[str] = [
         "http://localhost:8081",
@@ -31,5 +33,6 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         extra = "ignore"
+
 
 settings = Settings()
