@@ -1,11 +1,11 @@
 from datetime import date, datetime, timezone, timedelta
-from sqlalchemy import select, func, and_, case
+from sqlalchemy import select, func, and_, case, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.production_unit import ProductionUnit, StatusUnit
 from app.models.penjualan import Penjualan
 from app.models.manufacturing_order import ManufacturingOrder
-from app.models.return_order import ReturnItem, KondisiKonfirmasi, KategoriReturn
+from app.models.return_order import ReturnItem, KondisiKonfirmasi
 from app.schemas.laporan import (
     BatchProduksiSummary,
     KerugianItem,
@@ -14,7 +14,6 @@ from app.schemas.laporan import (
     PenjualanHarian,
 )
 
-# Estimasi harga satuan jika tidak tersedia dari data penjualan
 DEFAULT_HARGA_SATUAN = 15000.0
 
 
@@ -27,7 +26,7 @@ class LaporanService:
     ) -> LaporanShareholderResponse:
         now = datetime.now(timezone.utc)
 
-        # ── 1. Total unit diproduksi dalam periode ──────────────────────────────
+        # 1. Total diproduksi
         result = await self.db.execute(
             select(func.count(ProductionUnit.id)).where(
                 func.date(ProductionUnit.created_at).between(dari, sampai)
@@ -35,7 +34,7 @@ class LaporanService:
         )
         total_diproduksi = result.scalar() or 0
 
-        # ── 2. Penjualan harian ─────────────────────────────────────────────────
+        # 2. Penjualan harian
         result = await self.db.execute(
             select(
                 func.date(Penjualan.sold_at).label("tanggal"),
@@ -52,15 +51,14 @@ class LaporanService:
                 tanggal=r.tanggal,
                 total_terjual=r.total_terjual,
                 total_pendapatan=float(r.total_pendapatan),
-            )
-            for r in rows
+            ) for r in rows
         ]
         total_terjual = sum(p.total_terjual for p in penjualan_harian)
         total_pendapatan = sum(p.total_pendapatan for p in penjualan_harian)
         jumlah_hari = max((sampai - dari).days + 1, 1)
         rata_harian = total_pendapatan / jumlah_hari
 
-        # ── 3. Unit EXPIRED dalam periode ──────────────────────────────────────
+        # 3. Expired
         result = await self.db.execute(
             select(func.count(ProductionUnit.id)).where(
                 and_(
@@ -71,7 +69,7 @@ class LaporanService:
         )
         total_expired = result.scalar() or 0
 
-        # ── 4. Unit VOID dalam periode ──────────────────────────────────────────
+        # 4. Void
         result = await self.db.execute(
             select(func.count(ProductionUnit.id)).where(
                 and_(
@@ -82,7 +80,7 @@ class LaporanService:
         )
         total_void = result.scalar() or 0
 
-        # ── 5. Unit RUSAK_KONFIRMASI dari return items ──────────────────────────
+        # 5. Rusak dikonfirmasi
         result = await self.db.execute(
             select(func.count(ReturnItem.id)).where(
                 ReturnItem.kondisi_konfirmasi == KondisiKonfirmasi.RUSAK_KONFIRMASI
@@ -90,63 +88,67 @@ class LaporanService:
         )
         total_rusak = result.scalar() or 0
 
-        # ── 6. Rata-rata harga dari penjualan aktual ────────────────────────────
+        # 6. Harga modal rata-rata dari unit (lebih akurat dari harga jual)
         result = await self.db.execute(
-            select(func.avg(Penjualan.harga)).where(
-                func.date(Penjualan.sold_at).between(dari, sampai)
+            select(func.avg(ProductionUnit.harga_modal)).where(
+                and_(
+                    ProductionUnit.harga_modal.isnot(None),
+                    func.date(ProductionUnit.created_at).between(dari, sampai),
+                )
             )
         )
-        avg_harga = float(result.scalar() or DEFAULT_HARGA_SATUAN)
+        avg_modal = result.scalar()
 
-        estimasi_kerugian = (total_expired + total_rusak + total_void) * avg_harga
+        # Fallback: avg harga jual jika harga_modal belum diisi
+        if not avg_modal:
+            result = await self.db.execute(
+                select(func.avg(Penjualan.harga)).where(
+                    func.date(Penjualan.sold_at).between(dari, sampai)
+                )
+            )
+            avg_modal = result.scalar() or DEFAULT_HARGA_SATUAN
 
-        # ── 7. Kerugian detail ──────────────────────────────────────────────────
+        avg_modal = float(avg_modal)
+        estimasi_kerugian = (total_expired + total_rusak + total_void) * avg_modal
+
+        # 7. Kerugian detail
         kerugian_detail_list = [
             KerugianItem(
                 kategori="EXPIRED",
                 jumlah_unit=total_expired,
-                estimasi_kerugian=total_expired * avg_harga,
+                estimasi_kerugian=round(total_expired * avg_modal, 2),
                 keterangan="Unit melewati expiry date sebelum terjual",
             ),
             KerugianItem(
                 kategori="RUSAK_KONFIRMASI",
                 jumlah_unit=total_rusak,
-                estimasi_kerugian=total_rusak * avg_harga,
+                estimasi_kerugian=round(total_rusak * avg_modal, 2),
                 keterangan="Unit dikonfirmasi rusak saat retur driver",
             ),
             KerugianItem(
                 kategori="VOID_LAINNYA",
                 jumlah_unit=max(0, total_void - total_rusak),
-                estimasi_kerugian=max(0, total_void - total_rusak) * avg_harga,
+                estimasi_kerugian=round(max(0, total_void - total_rusak) * avg_modal, 2),
                 keterangan="Unit di-void karena sebab lain",
             ),
         ]
 
-        # ── 8. Breakdown per batch (MO) ─────────────────────────────────────────
+        # 8. Per batch
         result = await self.db.execute(
             select(ManufacturingOrder).where(
                 func.date(ManufacturingOrder.created_at).between(dari, sampai)
             ).order_by(ManufacturingOrder.id)
         )
         mos = result.scalars().all()
-
         by_batch = []
         for mo in mos:
             r = await self.db.execute(
                 select(
                     func.count(ProductionUnit.id).label("total"),
-                    func.sum(
-                        case((ProductionUnit.status == StatusUnit.SOLD, 1), else_=0)
-                    ).label("terjual"),
-                    func.sum(
-                        case((ProductionUnit.status == StatusUnit.RETURNED_GOOD, 1), else_=0)
-                    ).label("sisa"),
-                    func.sum(
-                        case((ProductionUnit.status == StatusUnit.VOID, 1), else_=0)
-                    ).label("rusak"),
-                    func.sum(
-                        case((ProductionUnit.status == StatusUnit.EXPIRED, 1), else_=0)
-                    ).label("expired"),
+                    func.sum(case((ProductionUnit.status == StatusUnit.SOLD, 1), else_=0)).label("terjual"),
+                    func.sum(case((ProductionUnit.status == StatusUnit.RETURNED_GOOD, 1), else_=0)).label("sisa"),
+                    func.sum(case((ProductionUnit.status == StatusUnit.VOID, 1), else_=0)).label("rusak"),
+                    func.sum(case((ProductionUnit.status == StatusUnit.EXPIRED, 1), else_=0)).label("expired"),
                 ).where(ProductionUnit.mo_id == mo.id)
             )
             row = r.one()
@@ -166,7 +168,7 @@ class LaporanService:
                 )
             )
 
-        # ── 9. Efisiensi ────────────────────────────────────────────────────────
+        # 9. Efisiensi
         pct_terjual = round((total_terjual / total_diproduksi * 100) if total_diproduksi > 0 else 0, 2)
         pct_kerugian = round(
             ((total_expired + total_rusak + total_void) / total_diproduksi * 100)

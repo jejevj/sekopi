@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, date, timezone
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, String
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -12,8 +12,8 @@ class StatusUnit(str, enum.Enum):
     DISPATCHED = "dispatched"
     DELIVERED = "delivered"
     SOLD = "sold"
-    RETURNED_GOOD = "returned_good"         # Kembali ke gudang, kondisi baik → bisa READY lagi
-    RETURNED_DAMAGED = "returned_damaged"   # Kembali, diklaim rusak, menunggu konfirmasi
+    RETURNED_GOOD = "returned_good"
+    RETURNED_DAMAGED = "returned_damaged"
     EXPIRED = "expired"
     VOID = "void"
 
@@ -26,6 +26,10 @@ class ProductionUnit(Base):
     mo_id: Mapped[int] = mapped_column(ForeignKey("manufacturing_orders.id"), nullable=False)
     nama_produk: Mapped[str] = mapped_column(String(255), nullable=False)
     expiry_date: Mapped[date] = mapped_column(Date, nullable=False)
+    harga_modal: Mapped[float | None] = mapped_column(
+        Numeric(12, 2), nullable=True,
+        comment="Harga modal per unit, diisi tim produksi. Dipakai untuk hitung kerugian riil."
+    )
     status: Mapped[StatusUnit] = mapped_column(Enum(StatusUnit), default=StatusUnit.READY, nullable=False)
     pengiriman_id: Mapped[int | None] = mapped_column(ForeignKey("pengiriman.id"), nullable=True)
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

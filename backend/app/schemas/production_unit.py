@@ -3,30 +3,47 @@ from pydantic import BaseModel, field_validator
 from app.models.production_unit import StatusUnit
 
 
+class PaginatedResponse(BaseModel):
+    total: int
+    page: int
+    per_page: int
+    total_pages: int
+    items: list
+
+
 class ProductionUnitResponse(BaseModel):
     id: int
     barcode: str
     mo_id: int
     nama_produk: str
     expiry_date: date
+    harga_modal: float | None = None
     status: StatusUnit
     pengiriman_id: int | None = None
     dispatched_at: datetime | None = None
     delivered_at: datetime | None = None
     sold_at: datetime | None = None
     created_at: datetime
-    # computed fields (populated by service)
     hari_tersisa: int | None = None
-    is_expiring_soon: bool = False   # True jika <= 2 hari lagi
+    is_expiring_soon: bool = False
     is_expired: bool = False
 
     model_config = {"from_attributes": True}
 
 
+class PaginatedUnitResponse(BaseModel):
+    total: int
+    page: int
+    per_page: int
+    total_pages: int
+    items: list[ProductionUnitResponse]
+
+
 class GenerateUnitsRequest(BaseModel):
     mo_id: int
     jumlah: int
-    expiry_date: date  # diinput oleh tim produksi
+    expiry_date: date
+    harga_modal: float | None = None  # opsional, diisi tim produksi
 
     @field_validator("expiry_date")
     @classmethod
@@ -64,7 +81,7 @@ class ScanResultResponse(BaseModel):
 
 
 class ExpiryAlertResponse(BaseModel):
-    total_akan_expired: int     # unit yang expired dalam X hari ke depan
-    total_sudah_expired: int    # unit yang sudah lewat expiry date
+    total_akan_expired: int
+    total_sudah_expired: int
     units_expiring_soon: list[ProductionUnitResponse]
     units_expired: list[ProductionUnitResponse]

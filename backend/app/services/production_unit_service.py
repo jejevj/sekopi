@@ -1,4 +1,4 @@
-from datetime import datetime, date, timezone, timedelta
+from datetime import datetime, date, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
@@ -8,6 +8,7 @@ from app.models.manufacturing_order import ManufacturingOrder, StatusMO
 from app.repositories.production_unit_repo import ProductionUnitRepository
 from app.schemas.production_unit import (
     ExpiryAlertResponse,
+    PaginatedUnitResponse,
     ProductionUnitResponse,
     ScanDispatchRequest,
     ScanDeliverRequest,
@@ -16,11 +17,10 @@ from app.schemas.production_unit import (
     ScanResultResponse,
 )
 
-EXPIRY_WARNING_DAYS = 2  # alert jika <= 2 hari lagi expired
+EXPIRY_WARNING_DAYS = 2
 
 
 def _enrich_unit(unit: ProductionUnit) -> ProductionUnitResponse:
-    """Tambahkan computed fields: hari_tersisa, is_expiring_soon, is_expired."""
     today = date.today()
     hari_tersisa = (unit.expiry_date - today).days
     resp = ProductionUnitResponse.model_validate(unit)
@@ -36,9 +36,9 @@ class ProductionUnitService:
         self.repo = ProductionUnitRepository(db)
 
     async def generate_units(
-        self, mo_id: int, jumlah: int, expiry_date: date, user_id: int
+        self, mo_id: int, jumlah: int, expiry_date: date,
+        harga_modal: float | None, user_id: int
     ) -> list[ProductionUnitResponse]:
-        """Generate barcode units setelah MO selesai (status DONE)."""
         from sqlalchemy import select
         result = await self.db.execute(
             select(ManufacturingOrder).where(ManufacturingOrder.id == mo_id)
@@ -57,6 +57,7 @@ class ProductionUnitService:
                 mo_id=mo_id,
                 nama_produk=mo.nama_produk,
                 expiry_date=expiry_date,
+                harga_modal=harga_modal,
                 status=StatusUnit.READY,
             )
             self.db.add(unit)
@@ -67,6 +68,30 @@ class ProductionUnitService:
         for unit in units:
             await self.db.refresh(unit)
         return [_enrich_unit(u) for u in units]
+
+    async def get_by_mo_paginated(
+        self, mo_id: int, page: int = 1, per_page: int = 50
+    ) -> PaginatedUnitResponse:
+        items, total = await self.repo.get_by_mo(mo_id, page, per_page)
+        return PaginatedUnitResponse(
+            total=total,
+            page=page,
+            per_page=per_page,
+            total_pages=-(-total // per_page),  # ceiling division
+            items=[_enrich_unit(u) for u in items],
+        )
+
+    async def get_ready_fefo_paginated(
+        self, page: int = 1, per_page: int = 50
+    ) -> PaginatedUnitResponse:
+        items, total = await self.repo.get_ready_fefo(page, per_page)
+        return PaginatedUnitResponse(
+            total=total,
+            page=page,
+            per_page=per_page,
+            total_pages=-(-total // per_page),
+            items=[_enrich_unit(u) for u in items],
+        )
 
     async def scan_dispatch(
         self, payload: ScanDispatchRequest, user_id: int
@@ -88,14 +113,11 @@ class ProductionUnitService:
             unit.status = StatusUnit.DISPATCHED
             unit.pengiriman_id = payload.pengiriman_id
             unit.dispatched_at = now
-
-            # Warning jika hampir expired
             hari = (unit.expiry_date - today).days
             msg = "Berhasil di-dispatch"
             if hari <= EXPIRY_WARNING_DAYS:
-                msg += f" ⚠️ PERHATIAN: Expiry {hari} hari lagi ({unit.expiry_date}), prioritaskan penjualan!"
+                msg += f" ⚠️ Expiry {hari} hari lagi ({unit.expiry_date}), prioritaskan penjualan!"
             results.append(ScanResultResponse(barcode=barcode, status="ok", message=msg, unit=_enrich_unit(unit)))
-
         await self.db.commit()
         return results
 
@@ -118,13 +140,11 @@ class ProductionUnitService:
                 continue
             unit.status = StatusUnit.DELIVERED
             unit.delivered_at = now
-
             hari = (unit.expiry_date - today).days
             msg = "Berhasil dikonfirmasi terima"
             if hari <= EXPIRY_WARNING_DAYS:
                 msg += f" ⚠️ Expiry {hari} hari lagi, jual segera!"
             results.append(ScanResultResponse(barcode=barcode, status="ok", message=msg, unit=_enrich_unit(unit)))
-
         await self.db.commit()
         return results
 
@@ -134,27 +154,22 @@ class ProductionUnitService:
         unit = await self.repo.get_by_barcode(payload.barcode)
         if not unit:
             return ScanResultResponse(barcode=payload.barcode, status="error", message="Barcode tidak ditemukan")
-
         today = date.today()
         if unit.expiry_date < today:
             return ScanResultResponse(
-                barcode=payload.barcode,
-                status="error",
+                barcode=payload.barcode, status="error",
                 message=f"Produk sudah EXPIRED sejak {unit.expiry_date}, tidak bisa dijual!",
                 unit=_enrich_unit(unit),
             )
         if unit.status != StatusUnit.DELIVERED:
             return ScanResultResponse(
-                barcode=payload.barcode,
-                status="error",
+                barcode=payload.barcode, status="error",
                 message=f"Unit tidak bisa dijual (status: {unit.status})",
                 unit=_enrich_unit(unit),
             )
-
         now = datetime.now(timezone.utc)
         unit.status = StatusUnit.SOLD
         unit.sold_at = now
-
         penjualan = Penjualan(
             production_unit_id=unit.id,
             barcode=unit.barcode,
@@ -177,7 +192,6 @@ class ProductionUnitService:
             return ScanResultResponse(barcode=payload.barcode, status="error", message="Barcode tidak ditemukan")
         if unit.status == StatusUnit.SOLD:
             return ScanResultResponse(barcode=payload.barcode, status="error", message="Unit yang sudah terjual tidak bisa di-void", unit=_enrich_unit(unit))
-
         unit.status = StatusUnit.VOID
         unit.voided_at = datetime.now(timezone.utc)
         unit.void_reason = payload.alasan
@@ -186,7 +200,6 @@ class ProductionUnitService:
         return ScanResultResponse(barcode=payload.barcode, status="ok", message="Unit berhasil di-void", unit=_enrich_unit(unit))
 
     async def get_expiry_alerts(self, days: int = EXPIRY_WARNING_DAYS) -> ExpiryAlertResponse:
-        """Laporan unit yang hampir / sudah expired."""
         expiring = await self.repo.get_expiring_soon(days)
         expired = await self.repo.get_expired_unsold()
         return ExpiryAlertResponse(
@@ -197,6 +210,5 @@ class ProductionUnitService:
         )
 
     async def trigger_mark_expired(self) -> dict:
-        """Tandai semua unit melewati expiry date sebagai EXPIRED."""
         count = await self.repo.mark_expired_units()
         return {"marked_expired": count, "message": f"{count} unit ditandai sebagai EXPIRED"}
