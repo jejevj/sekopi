@@ -6,12 +6,11 @@ from app.core.security import get_password_hash
 from sqlalchemy import select
 
 SEED_USERS = [
-    {"nama": "Admin SekoPi",    "email": "admin@sekopi.com",       "password": "admin123",    "role": UserRole.ADMIN},
-    {"nama": "Bagian Produksi", "email": "produksi@sekopi.com",    "password": "produksi123", "role": UserRole.PRODUKSI},
-    {"nama": "Bagian Inventori","email": "inventori@sekopi.com",   "password": "inventori123","role": UserRole.INVENTORI},
-    {"nama": "Driver Kopi",     "email": "driver@sekopi.com",      "password": "driver123",   "role": UserRole.DRIVER},
-    {"nama": "Kasir Kopi",      "email": "kasir@sekopi.com",       "password": "kasir123",    "role": UserRole.KASIR},
-    {"nama": "Shareholder",     "email": "shareholder@sekopi.com", "password": "holder123",   "role": UserRole.SHAREHOLDER},
+    {"full_name": "Admin SekoPi",     "email": "admin@sekopi.com",       "password": "admin123",    "role": UserRole.ADMIN},
+    {"full_name": "Bagian Produksi",  "email": "produksi@sekopi.com",    "password": "produksi123", "role": UserRole.PRODUKSI},
+    {"full_name": "Bagian Inventori", "email": "inventori@sekopi.com",   "password": "inventori123","role": UserRole.INVENTORI},
+    {"full_name": "Driver Kopi",      "email": "driver@sekopi.com",      "password": "driver123",   "role": UserRole.DRIVER},
+    {"full_name": "Shareholder",      "email": "shareholder@sekopi.com", "password": "holder123",   "role": UserRole.SHAREHOLDER},
 ]
 
 async def seed():
@@ -22,11 +21,11 @@ async def seed():
             result = await db.execute(select(User).where(User.email == u["email"]))
             existing = result.scalar_one_or_none()
             if existing:
-                print(f"  SKIP  {u['email']} (sudah ada)")
+                print(f"  SKIP   {u['email']} (sudah ada)")
                 skipped += 1
                 continue
             user = User(
-                nama=u["nama"],
+                full_name=u["full_name"],
                 email=u["email"],
                 hashed_password=get_password_hash(u["password"]),
                 role=u["role"],
@@ -38,8 +37,10 @@ async def seed():
         await db.commit()
         print(f"\nSeeder selesai: {created} dibuat, {skipped} dilewati.")
         print("\nAkun tersedia:")
+        print(f"  {'Email':35s} {'Password':15s} Role")
+        print(f"  {'-'*65}")
         for u in SEED_USERS:
-            print(f"  {u['email']:35s} password: {u['password']}")
+            print(f"  {u['email']:35s} {u['password']:15s} {u['role'].value}")
 
 if __name__ == "__main__":
     print("Menjalankan seeder...\n")
