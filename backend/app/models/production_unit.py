@@ -8,12 +8,14 @@ from app.db.base_class import Base
 
 
 class StatusUnit(str, enum.Enum):
-    READY = "ready"                  # Baru diproduksi, ada di gudang
-    DISPATCHED = "dispatched"        # Sudah di-load ke kendaraan driver
-    DELIVERED = "delivered"          # Sudah diterima gerobak
-    SOLD = "sold"                    # Sudah terjual
-    EXPIRED = "expired"              # Melewati expiry date, tidak bisa dijual
-    VOID = "void"                    # Rusak / invalid
+    READY = "ready"
+    DISPATCHED = "dispatched"
+    DELIVERED = "delivered"
+    SOLD = "sold"
+    RETURNED_GOOD = "returned_good"         # Kembali ke gudang, kondisi baik → bisa READY lagi
+    RETURNED_DAMAGED = "returned_damaged"   # Kembali, diklaim rusak, menunggu konfirmasi
+    EXPIRED = "expired"
+    VOID = "void"
 
 
 class ProductionUnit(Base):
@@ -23,12 +25,13 @@ class ProductionUnit(Base):
     barcode: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     mo_id: Mapped[int] = mapped_column(ForeignKey("manufacturing_orders.id"), nullable=False)
     nama_produk: Mapped[str] = mapped_column(String(255), nullable=False)
-    expiry_date: Mapped[date] = mapped_column(Date, nullable=False)  # wajib diisi tim produksi
+    expiry_date: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[StatusUnit] = mapped_column(Enum(StatusUnit), default=StatusUnit.READY, nullable=False)
     pengiriman_id: Mapped[int | None] = mapped_column(ForeignKey("pengiriman.id"), nullable=True)
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     sold_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    returned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     void_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

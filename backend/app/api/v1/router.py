@@ -10,6 +10,7 @@ from app.api.v1.endpoints import (
     manufacturing_order,
     production_unit,
     penjualan,
+    return_order,
 )
 
 api_router = APIRouter()
@@ -23,3 +24,4 @@ api_router.include_router(driver.router, prefix="/driver", tags=["Driver"])
 api_router.include_router(manufacturing_order.router, prefix="/manufacturing-orders", tags=["Manufacturing Orders"])
 api_router.include_router(production_unit.router, prefix="/production-units", tags=["Production Units & Barcode"])
 api_router.include_router(penjualan.router, prefix="/penjualan", tags=["Penjualan"])
+api_router.include_router(return_order.router, prefix="/returns", tags=["Return Orders"])
