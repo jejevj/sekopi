@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 
 from app.core.config import settings
-from app.db.base import Base  # noqa: F401 - imports all models
+from app.db.base_class import Base  # noqa: F401
+from app.db.base import Base  # noqa: F401, F811 - re-import to trigger all model discovery
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
