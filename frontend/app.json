@@ -4,23 +4,19 @@
     "slug": "sekopi",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
     "scheme": "sekopi",
     "userInterfaceStyle": "dark",
     "web": {
       "bundler": "metro",
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "output": "static"
     },
     "platforms": ["ios", "android", "web"],
     "plugins": [
       "expo-router",
-      "expo-secure-store",
-      "expo-font"
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true
-    },
-    "sdkVersion": "53.0.0"
+    }
   }
 }
