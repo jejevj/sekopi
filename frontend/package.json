@@ -1,0 +1,45 @@
+{
+  "name": "sekopi-frontend",
+  "main": "expo-router/entry",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "expo start",
+    "web": "expo start --web",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "build:web": "expo export --platform web",
+    "lint": "eslint .",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "expo": "~52.0.0",
+    "expo-router": "~4.0.0",
+    "expo-status-bar": "~2.0.0",
+    "react": "18.3.1",
+    "react-native": "0.76.5",
+    "react-native-web": "~0.19.13",
+    "react-dom": "18.3.1",
+    "nativewind": "^4.0.1",
+    "tailwindcss": "^3.4.0",
+    "@react-native-reusables/core": "^1.0.0",
+    "zustand": "^5.0.0",
+    "@tanstack/react-query": "^5.0.0",
+    "axios": "^1.7.0",
+    "react-hook-form": "^7.53.0",
+    "@hookform/resolvers": "^3.9.0",
+    "zod": "^3.23.0",
+    "lucide-react-native": "^0.460.0",
+    "@expo/vector-icons": "^14.0.0",
+    "expo-secure-store": "~14.0.0",
+    "expo-font": "~13.0.0",
+    "expo-splash-screen": "~0.29.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.0",
+    "@types/react": "~18.3.0",
+    "@types/react-native": "~0.76.0",
+    "typescript": "^5.3.0",
+    "eslint": "^8.57.0",
+    "eslint-config-expo": "~8.0.0"
+  }
+}
