@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, users, inventori, produksi, driver, admin
+from app.api.v1.endpoints import auth, users, inventori, produksi, driver, admin, manufacturing_order
 
 api_router = APIRouter()
 
@@ -10,3 +10,4 @@ api_router.include_router(admin.router, prefix="/admin", tags=["Admin"])
 api_router.include_router(inventori.router, prefix="/inventori", tags=["Inventori"])
 api_router.include_router(produksi.router, prefix="/produksi", tags=["Produksi"])
 api_router.include_router(driver.router, prefix="/driver", tags=["Driver"])
+api_router.include_router(manufacturing_order.router, prefix="/manufacturing-orders", tags=["Manufacturing Orders"])
