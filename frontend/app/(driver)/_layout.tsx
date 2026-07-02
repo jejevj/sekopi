@@ -1,9 +1,15 @@
-import { Tabs } from "expo-router";
+import React from 'react';
+import { View } from 'react-native';
+import { Stack } from 'expo-router';
+import { Sidebar } from '../../components/layout/Sidebar';
 
 export default function DriverLayout() {
   return (
-    <Tabs screenOptions={{ headerShown: false }}>
-      <Tabs.Screen name="pengiriman" options={{ title: "Pengiriman" }} />
-    </Tabs>
+    <View className="flex-1 flex-row bg-background">
+      <Sidebar />
+      <View className="flex-1">
+        <Stack screenOptions={{ headerShown: false }} />
+      </View>
+    </View>
   );
 }
