@@ -2,33 +2,32 @@ from datetime import datetime
 from pydantic import BaseModel
 
 
-# ── Shareholder Group ─────────────────────────────────────────────────────────
+class MemberInfo(BaseModel):
+    id: int
+    full_name: str
+    model_config = {"from_attributes": True}
+
 
 class ShareholderGroupCreate(BaseModel):
     nama: str
     deskripsi: str | None = None
+    porsi_saham: float = 0
+
 
 class ShareholderGroupUpdate(BaseModel):
     nama: str | None = None
     deskripsi: str | None = None
+    porsi_saham: float | None = None
 
-class ShareholderMemberResponse(BaseModel):
-    id: int
-    full_name: str
-    email: str
-    role: str
-    model_config = {"from_attributes": True}
 
 class ShareholderGroupResponse(BaseModel):
     id: int
     nama: str
     deskripsi: str | None = None
-    created_at: datetime | None = None
-    members: list[ShareholderMemberResponse] = []
+    porsi_saham: float = 0
+    members: list[MemberInfo] = []
     model_config = {"from_attributes": True}
 
-
-# ── Gerobak ───────────────────────────────────────────────────────────────────
 
 class GerobakCreate(BaseModel):
     nama: str
@@ -38,6 +37,7 @@ class GerobakCreate(BaseModel):
     shareholder_group_id: int | None = None
     is_active: bool = True
 
+
 class GerobakUpdate(BaseModel):
     nama: str | None = None
     kode: str | None = None
@@ -46,24 +46,20 @@ class GerobakUpdate(BaseModel):
     shareholder_group_id: int | None = None
     is_active: bool | None = None
 
-class GerobakDriverInfo(BaseModel):
+
+class DriverInfo(BaseModel):
     id: int
     full_name: str
-    email: str
     model_config = {"from_attributes": True}
 
-class GerobakGroupInfo(BaseModel):
-    id: int
-    nama: str
-    model_config = {"from_attributes": True}
 
 class GerobakResponse(BaseModel):
     id: int
     nama: str
     kode: str
     lokasi: str | None = None
+    driver: DriverInfo | None = None
+    shareholder_group: ShareholderGroupResponse | None = None
     is_active: bool
-    driver: GerobakDriverInfo | None = None
-    shareholder_group: GerobakGroupInfo | None = None
     created_at: datetime | None = None
     model_config = {"from_attributes": True}

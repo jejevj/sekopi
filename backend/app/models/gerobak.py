@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Table, Column
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Table, Column
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -21,11 +21,13 @@ class ShareholderGroup(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     nama: Mapped[str] = mapped_column(String(255), nullable=False)
     deskripsi: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Porsi saham grup ini (0.00 – 100.00). Total semua grup <= 100.
+    porsi_saham: Mapped[float] = mapped_column(Numeric(5, 2), default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
-    members = relationship("User", secondary=shareholder_group_members, lazy="selectin")
+    members  = relationship("User", secondary=shareholder_group_members, lazy="selectin")
     gerobaks = relationship("Gerobak", back_populates="shareholder_group", lazy="selectin")
 
 
@@ -50,5 +52,5 @@ class Gerobak(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    driver = relationship("User", foreign_keys=[driver_id], lazy="selectin")
+    driver            = relationship("User", foreign_keys=[driver_id], lazy="selectin")
     shareholder_group = relationship("ShareholderGroup", back_populates="gerobaks", lazy="selectin")
