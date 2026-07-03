@@ -7,12 +7,16 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base_class import Base
 
 
+def _enum_values(enum_cls):
+    return [e.value for e in enum_cls]
+
+
 class StatusMO(str, enum.Enum):
-    DRAFT = "draft"
-    CONFIRMED = "confirmed"
+    DRAFT       = "draft"
+    CONFIRMED   = "confirmed"
     IN_PROGRESS = "in_progress"
-    DONE = "done"
-    CANCELLED = "cancelled"
+    DONE        = "done"
+    CANCELLED   = "cancelled"
 
 
 class ManufacturingOrder(Base):
@@ -22,11 +26,15 @@ class ManufacturingOrder(Base):
     nomor_mo: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     nama_produk: Mapped[str] = mapped_column(String(255), nullable=False)
     target_qty: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
-    satuan: Mapped[str] = mapped_column(String(50), nullable=False)  # cup, liter, kg
+    satuan: Mapped[str] = mapped_column(String(50), nullable=False)
     tanggal_rencana: Mapped[date] = mapped_column(Date, nullable=False)
     tanggal_mulai: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     tanggal_selesai: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    status: Mapped[StatusMO] = mapped_column(Enum(StatusMO), default=StatusMO.DRAFT, nullable=False)
+    status: Mapped[StatusMO] = mapped_column(
+        Enum(StatusMO, values_callable=_enum_values),
+        default=StatusMO.DRAFT,
+        nullable=False,
+    )
     catatan: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
