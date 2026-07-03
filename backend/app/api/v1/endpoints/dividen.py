@@ -16,7 +16,7 @@ from app.models.user import User, UserRole
 router = APIRouter()
 
 
-# ─── Schemas ──────────────────────────────────────────────────────────────
+# ─── Schemas ───────────────────────────────────────────────────────────
 
 class KalkulasiInput(BaseModel):
     periode_label:  str
@@ -28,8 +28,29 @@ class BayarInput(BaseModel):
     tanggal_bayar: date
 
 
-# ─── Helper: total pengeluaran dalam periode ──────────────────────────────
+# ─── Helper: total pembelian (PurchaseOrder) dalam periode ─────────────────
+# PurchaseOrder dibagi rata ke semua grup (bahan baku = biaya bersama)
+async def _total_pembelian(
+    db: AsyncSession,
+    dari: date,
+    sampai: date,
+) -> float:
+    """
+    Ambil total PurchaseOrder status DITERIMA di periode.
+    Gunakan total_amount (bukan total_harga).
+    """
+    res = await db.execute(
+        select(func.coalesce(func.sum(PurchaseOrder.total_amount), 0))
+        .where(
+            PurchaseOrder.status == StatusPO.DITERIMA,
+            func.date(PurchaseOrder.tanggal_invoice) >= dari,
+            func.date(PurchaseOrder.tanggal_invoice) <= sampai,
+        )
+    )
+    return float(res.scalar())
 
+
+# ─── Helper: total pengeluaran manual dalam periode ─────────────────────
 async def _total_pengeluaran(
     db: AsyncSession,
     dari: date,
@@ -42,56 +63,57 @@ async def _total_pengeluaran(
     return float(res.scalar())
 
 
-# ─── Helper: hitung laba per grup ────────────────────────────────────────
+# ─── Helper: total penjualan gerobak dalam periode ──────────────────────
+async def _total_penjualan_gerobak(
+    db: AsyncSession,
+    gerobak_ids: list[int],
+    dari: date,
+    sampai: date,
+) -> float:
+    """
+    Hitung total penjualan dari gerobak tertentu di periode.
+    Penjualan.harga = harga per transaksi (1 row = 1 unit terjual).
+    Penjualan.sold_at = waktu transaksi (DateTime).
+    """
+    if not gerobak_ids:
+        return 0.0
+    res = await db.execute(
+        select(func.coalesce(func.sum(Penjualan.harga), 0))
+        .where(
+            Penjualan.gerobak_id.in_(gerobak_ids),
+            func.date(Penjualan.sold_at) >= dari,
+            func.date(Penjualan.sold_at) <= sampai,
+        )
+    )
+    return float(res.scalar())
 
+
+# ─── Helper: hitung laba per grup ────────────────────────────────────────
 async def _hitung_laba_grup(
     db: AsyncSession,
     group_id: int,
     dari: date,
     sampai: date,
-    beban_pengeluaran_grup: float,  # total pengeluaran / jumlah_grup
+    beban_pembelian_grup: float,    # total PO / jumlah_grup
+    beban_pengeluaran_grup: float,  # total Pengeluaran / jumlah_grup
 ) -> dict:
     from app.models.gerobak import Gerobak
 
     res = await db.execute(select(Gerobak.id).where(Gerobak.shareholder_group_id == group_id))
     gerobak_ids = [r[0] for r in res.all()]
 
-    if not gerobak_ids:
-        return {"total_penjualan": 0, "total_pembelian": 0, "total_pengeluaran": beban_pengeluaran_grup, "laba_bersih": -beban_pengeluaran_grup}
+    total_penjualan = await _total_penjualan_gerobak(db, gerobak_ids, dari, sampai)
 
-    pjl = await db.execute(
-        select(func.coalesce(func.sum(Penjualan.total_harga), 0))
-        .where(
-            Penjualan.gerobak_id.in_(gerobak_ids),
-            func.date(Penjualan.tanggal) >= dari,
-            func.date(Penjualan.tanggal) <= sampai,
-        )
-    )
-    total_penjualan = float(pjl.scalar())
-
-    jumlah_grup_res = await db.execute(select(func.count()).select_from(ShareholderGroup))
-    jumlah_grup = jumlah_grup_res.scalar() or 1
-
-    po = await db.execute(
-        select(func.coalesce(func.sum(PurchaseOrder.total_harga), 0))
-        .where(
-            PurchaseOrder.status == StatusPO.DITERIMA,
-            func.date(PurchaseOrder.tanggal_invoice) >= dari,
-            func.date(PurchaseOrder.tanggal_invoice) <= sampai,
-        )
-    )
-    total_pembelian_shared = float(po.scalar()) / jumlah_grup
-
-    laba = total_penjualan - total_pembelian_shared - beban_pengeluaran_grup
+    laba = total_penjualan - beban_pembelian_grup - beban_pengeluaran_grup
     return {
-        "total_penjualan": total_penjualan,
-        "total_pembelian": total_pembelian_shared,
-        "total_pengeluaran": beban_pengeluaran_grup,
-        "laba_bersih": laba,
+        "total_penjualan":    total_penjualan,
+        "total_pembelian":    beban_pembelian_grup,
+        "total_pengeluaran":  beban_pengeluaran_grup,
+        "laba_bersih":        laba,
     }
 
 
-# ─── Preview ──────────────────────────────────────────────────────────────
+# ─── Preview ────────────────────────────────────────────────────────────
 
 @router.post("/kalkulasi/preview")
 async def preview_dividen(
@@ -105,55 +127,64 @@ async def preview_dividen(
         raise HTTPException(400, "Belum ada grup shareholder")
 
     jumlah_grup = len(groups)
+
+    # Semua pengeluaran global dibagi rata ke setiap grup
+    total_pembelian   = await _total_pembelian(db, body.periode_dari, body.periode_sampai)
     total_pengeluaran = await _total_pengeluaran(db, body.periode_dari, body.periode_sampai)
-    beban_per_grup = total_pengeluaran / jumlah_grup
+    beban_pembelian_per_grup   = total_pembelian / jumlah_grup
+    beban_pengeluaran_per_grup = total_pengeluaran / jumlah_grup
 
     per_grup = []
     total_penjualan_all = 0.0
-    total_pembelian_all = 0.0
 
     for grp in groups:
-        laba_data = await _hitung_laba_grup(db, grp.id, body.periode_dari, body.periode_sampai, beban_per_grup)
+        laba_data = await _hitung_laba_grup(
+            db, grp.id,
+            body.periode_dari, body.periode_sampai,
+            beban_pembelian_per_grup,
+            beban_pengeluaran_per_grup,
+        )
         total_penjualan_all += laba_data["total_penjualan"]
-        total_pembelian_all += laba_data["total_pembelian"]
         total_porsi_grup = sum(float(m.porsi_saham) for m in grp.memberships)
 
         per_member = []
         for m in grp.memberships:
-            dividen_user = laba_data["laba_bersih"] * float(m.porsi_saham) / 100
+            dividen_user = laba_data["laba_bersih"] * float(m.porsi_saham) / 100 if laba_data["laba_bersih"] > 0 else 0
             per_member.append({
-                "user_id":       m.user_id,
-                "user_nama":     m.user.full_name,
-                "porsi_saham":   float(m.porsi_saham),
+                "user_id":        m.user_id,
+                "user_nama":      m.user.full_name,
+                "porsi_saham":    float(m.porsi_saham),
                 "jumlah_dividen": round(dividen_user, 2),
             })
 
         per_grup.append({
-            "group_id":          grp.id,
-            "group_nama":        grp.nama,
-            "total_penjualan":   laba_data["total_penjualan"],
-            "total_pembelian":   laba_data["total_pembelian"],
-            "total_pengeluaran_grup": beban_per_grup,
-            "laba_bersih_grup":  round(laba_data["laba_bersih"], 2),
-            "total_porsi_grup":  round(total_porsi_grup, 2),
-            "sisa_porsi":        round(100 - total_porsi_grup, 2),
-            "per_member":        per_member,
+            "group_id":               grp.id,
+            "group_nama":             grp.nama,
+            "total_penjualan":        laba_data["total_penjualan"],
+            "total_pembelian_grup":   beban_pembelian_per_grup,
+            "total_pengeluaran_grup": beban_pengeluaran_per_grup,
+            "laba_bersih_grup":       round(laba_data["laba_bersih"], 2),
+            "total_porsi_grup":       round(total_porsi_grup, 2),
+            "sisa_porsi":             round(100 - total_porsi_grup, 2),
+            "per_member":             per_member,
         })
 
     return {
-        "periode_label":        body.periode_label,
-        "periode_dari":         body.periode_dari,
-        "periode_sampai":       body.periode_sampai,
-        "total_pengeluaran":    total_pengeluaran,
-        "beban_pengeluaran_per_grup": beban_per_grup,
-        "total_penjualan":      total_penjualan_all,
-        "total_pembelian":      total_pembelian_all,
-        "jumlah_grup":          jumlah_grup,
-        "per_grup":             per_grup,
+        "periode_label":             body.periode_label,
+        "periode_dari":              body.periode_dari,
+        "periode_sampai":            body.periode_sampai,
+        "total_pembelian":           total_pembelian,
+        "total_pengeluaran":         total_pengeluaran,
+        "total_biaya_global":        round(total_pembelian + total_pengeluaran, 2),
+        "beban_pembelian_per_grup":  beban_pembelian_per_grup,
+        "beban_pengeluaran_per_grup": beban_pengeluaran_per_grup,
+        "total_penjualan":           total_penjualan_all,
+        "jumlah_grup":               jumlah_grup,
+        "per_grup":                  per_grup,
     }
 
 
-# ─── Konfirmasi & Simpan ──────────────────────────────────────────────────
+# ─── Konfirmasi & Simpan ───────────────────────────────────────────────
 
 @router.post("/kalkulasi/konfirmasi", status_code=status.HTTP_201_CREATED)
 async def konfirmasi_dividen(
@@ -173,14 +204,21 @@ async def konfirmasi_dividen(
         raise HTTPException(400, "Belum ada grup shareholder")
 
     jumlah_grup = len(groups)
+    total_pembelian   = await _total_pembelian(db, body.periode_dari, body.periode_sampai)
     total_pengeluaran = await _total_pengeluaran(db, body.periode_dari, body.periode_sampai)
-    beban_per_grup = total_pengeluaran / jumlah_grup
+    beban_pembelian_per_grup   = total_pembelian / jumlah_grup
+    beban_pengeluaran_per_grup = total_pengeluaran / jumlah_grup
 
     created = []
     for grp in groups:
-        laba_data = await _hitung_laba_grup(db, grp.id, body.periode_dari, body.periode_sampai, beban_per_grup)
+        laba_data = await _hitung_laba_grup(
+            db, grp.id,
+            body.periode_dari, body.periode_sampai,
+            beban_pembelian_per_grup,
+            beban_pengeluaran_per_grup,
+        )
         for m in grp.memberships:
-            dividen_user = laba_data["laba_bersih"] * float(m.porsi_saham) / 100
+            dividen_user = laba_data["laba_bersih"] * float(m.porsi_saham) / 100 if laba_data["laba_bersih"] > 0 else 0
             record = DividenDistribusi(
                 group_id=grp.id,
                 user_id=m.user_id,
@@ -189,7 +227,8 @@ async def konfirmasi_dividen(
                 periode_sampai=body.periode_sampai,
                 total_penjualan=laba_data["total_penjualan"],
                 total_pembelian=laba_data["total_pembelian"],
-                total_gaji_grup=beban_per_grup,   # kolom lama, simpan total pengeluaran per grup
+                # total_gaji_grup dipakai untuk menyimpan total semua beban per grup
+                total_gaji_grup=beban_pembelian_per_grup + beban_pengeluaran_per_grup,
                 laba_bersih_grup=laba_data["laba_bersih"],
                 porsi_saham=m.porsi_saham,
                 jumlah_dividen=round(dividen_user, 2),
@@ -229,7 +268,7 @@ async def list_dividen(
             "periode_sampai":   r.periode_sampai,
             "total_penjualan":  float(r.total_penjualan),
             "total_pembelian":  float(r.total_pembelian),
-            "total_pengeluaran_grup": float(r.total_gaji_grup),
+            "total_beban_grup": float(r.total_gaji_grup),
             "laba_bersih_grup": float(r.laba_bersih_grup),
             "porsi_saham":      float(r.porsi_saham),
             "jumlah_dividen":   float(r.jumlah_dividen),
@@ -246,11 +285,13 @@ async def bayar_dividen(
     dividen_id: int,
     body: BayarInput,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.ADMIN)),
+    _: User = Depends(require_roles(UserRole.ADMIN)),
 ):
     d = await db.get(DividenDistribusi, dividen_id)
     if not d:
-        raise HTTPException(404)
+        raise HTTPException(404, "Dividen tidak ditemukan")
+    if d.status == StatusDividen.DIBAYAR:
+        raise HTTPException(400, "Dividen sudah dibayar sebelumnya")
     d.status = StatusDividen.DIBAYAR
     d.tanggal_bayar = body.tanggal_bayar
     await db.commit()
