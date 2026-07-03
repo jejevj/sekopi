@@ -4,7 +4,7 @@ import { api } from '../../../lib/api';
 import { Navbar } from '../../../components/layout/Navbar';
 import {
   Users, Plus, X, Pencil, Trash2, ShoppingCart,
-  TrendingUp, Percent, ChevronDown, ChevronUp, AlertTriangle,
+  TrendingUp, Percent, ChevronDown, ChevronUp,
 } from 'lucide-react-native';
 
 const inp: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: 'white', fontSize: 13, outline: 'none' };
@@ -17,15 +17,23 @@ const fmtDate = (s?: string) => s ? new Date(s).toLocaleDateString('id-ID', { da
 const todayStr = () => new Date().toISOString().split('T')[0];
 const firstOfMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`; };
 
+const emptyGerobak = { nama: '', kode: '', lokasi: '', driver_id: '', shareholder_group_id: '', is_active: true };
+const emptyGrup = { nama: '', deskripsi: '', porsi_saham: '' };
+
 export default function GerobakPage() {
   const qc = useQueryClient();
-  const [tab, setTab] = useState<'gerobak' | 'grup' | 'dividen'>('grup');
+  const [tab, setTab] = useState<'gerobak' | 'grup' | 'dividen'>('gerobak');
   const [expandedGrp, setExpandedGrp] = useState<number | null>(null);
+
+  // ── Gerobak form
+  const [showGerobakForm, setShowGerobakForm] = useState(false);
+  const [editGerobakId, setEditGerobakId] = useState<number | null>(null);
+  const [gerobakForm, setGerobakForm] = useState({ ...emptyGerobak });
+  const [gerobakError, setGerobakError] = useState('');
 
   // ── Grup form
   const [showGrupForm, setShowGrupForm] = useState(false);
   const [editGrupId, setEditGrupId] = useState<number | null>(null);
-  const emptyGrup = { nama: '', deskripsi: '', porsi_saham: '' };
   const [grupForm, setGrupForm] = useState({ ...emptyGrup });
   const [grupError, setGrupError] = useState('');
 
@@ -33,7 +41,7 @@ export default function GerobakPage() {
   const [editPorsiId, setEditPorsiId] = useState<number | null>(null);
   const [porsiInput, setPorsiInput] = useState('');
 
-  // ── Dividen kalkulasi
+  // ── Dividen
   const [divForm, setDivForm] = useState({ periode_label: '', periode_dari: firstOfMonth(), periode_sampai: todayStr(), total_gaji: '', catatan: '' });
   const [preview, setPreview] = useState<any>(null);
   const [divError, setDivError] = useState('');
@@ -50,12 +58,30 @@ export default function GerobakPage() {
   const porsiList: any[] = Array.isArray(rawPorsi) ? rawPorsi : [];
   const gerobakList: any[] = Array.isArray(rawGerobak) ? rawGerobak : [];
   const dividenList: any[] = Array.isArray(rawDividen) ? rawDividen : [];
-  const shareholderUsers: any[] = Array.isArray(rawUsers) ? rawUsers.filter((u: any) => u.role === 'SHAREHOLDER') : [];
+  const allUsers: any[] = Array.isArray(rawUsers) ? rawUsers : [];
+  const shareholderUsers = allUsers.filter((u: any) => u.role === 'SHAREHOLDER');
+  const driverUsers = allUsers.filter((u: any) => u.role === 'DRIVER');
 
-  const totalPorsi = porsiList.length > 0 ? porsiList[0]?.total_semua_grup ?? 0 : 0;
-  const sisaPorsi  = 100 - totalPorsi;
+  const totalPorsi = porsiList.length > 0 ? (porsiList[0]?.total_semua_grup ?? 0) : 0;
+  const sisaPorsi = 100 - totalPorsi;
 
-  // ── Mutations
+  // ── Mutations: Gerobak
+  const createGerobak = useMutation({
+    mutationFn: (p: any) => api.post('/gerobak', p).then(r => r.data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['gerobak'] }); resetGerobakForm(); },
+    onError: (e: any) => setGerobakError(e.response?.data?.detail ?? 'Gagal menyimpan'),
+  });
+  const updateGerobak = useMutation({
+    mutationFn: ({ id, p }: any) => api.patch(`/gerobak/${id}`, p).then(r => r.data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['gerobak'] }); resetGerobakForm(); },
+    onError: (e: any) => setGerobakError(e.response?.data?.detail ?? 'Gagal menyimpan'),
+  });
+  const deleteGerobak = useMutation({
+    mutationFn: (id: number) => api.delete(`/gerobak/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['gerobak'] }),
+  });
+
+  // ── Mutations: Grup
   const createGrup = useMutation({
     mutationFn: (p: any) => api.post('/gerobak/groups', p).then(r => r.data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['shareholder-groups'] }); qc.invalidateQueries({ queryKey: ['porsi-saham'] }); resetGrupForm(); },
@@ -79,6 +105,8 @@ export default function GerobakPage() {
     mutationFn: ({ gid, uid }: any) => api.delete(`/gerobak/groups/${gid}/members/${uid}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['shareholder-groups'] }),
   });
+
+  // ── Mutations: Dividen
   const previewMut = useMutation({
     mutationFn: (p: any) => api.post('/dividen/kalkulasi/preview', p).then(r => r.data),
     onSuccess: (data) => { setPreview(data); setConfirmed(false); setDivError(''); },
@@ -94,7 +122,35 @@ export default function GerobakPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['dividen'] }),
   });
 
+  const resetGerobakForm = () => { setShowGerobakForm(false); setEditGerobakId(null); setGerobakForm({ ...emptyGerobak }); setGerobakError(''); };
   const resetGrupForm = () => { setShowGrupForm(false); setEditGrupId(null); setGrupForm({ ...emptyGrup }); setGrupError(''); };
+
+  const openEditGerobak = (g: any) => {
+    setGerobakForm({
+      nama: g.nama ?? '',
+      kode: g.kode ?? '',
+      lokasi: g.lokasi ?? '',
+      driver_id: g.driver?.id?.toString() ?? '',
+      shareholder_group_id: g.shareholder_group?.id?.toString() ?? '',
+      is_active: g.is_active ?? true,
+    });
+    setEditGerobakId(g.id);
+    setGerobakError('');
+    setShowGerobakForm(true);
+  };
+
+  const submitGerobak = () => {
+    if (!gerobakForm.nama || !gerobakForm.kode) { setGerobakError('Nama dan kode wajib diisi'); return; }
+    const payload: any = {
+      nama: gerobakForm.nama,
+      kode: gerobakForm.kode,
+      lokasi: gerobakForm.lokasi || null,
+      driver_id: gerobakForm.driver_id ? parseInt(gerobakForm.driver_id) : null,
+      shareholder_group_id: gerobakForm.shareholder_group_id ? parseInt(gerobakForm.shareholder_group_id) : null,
+      is_active: gerobakForm.is_active,
+    };
+    editGerobakId ? updateGerobak.mutate({ id: editGerobakId, p: payload }) : createGerobak.mutate(payload);
+  };
 
   const submitPreview = () => {
     setDivError('');
@@ -108,7 +164,6 @@ export default function GerobakPage() {
     });
   };
 
-  // ── Render
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: '#0a0a0a' }}>
       <Navbar title="Gerobak & Saham" />
@@ -119,11 +174,11 @@ export default function GerobakPage() {
           <p style={{ color: '#555', fontSize: 13, margin: '4px 0 0' }}>{gerobakList.length} gerobak · {grupList.length} grup · total porsi {totalPorsi.toFixed(2)}%</p>
         </div>
 
-        {/* Tabs */}
+        {/* Tabs + CTA button */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
           <div style={{ display: 'flex', gap: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 10, padding: 4 }}>
-            {(['grup', 'gerobak', 'dividen'] as const).map(t => {
-              const labels = { grup: '👥 Grup & Saham', gerobak: '🛒 Gerobak', dividen: '💰 Dividen' };
+            {(['gerobak', 'grup', 'dividen'] as const).map(t => {
+              const labels = { gerobak: '🛒 Gerobak', grup: '👥 Grup & Saham', dividen: '💰 Dividen' };
               return (
                 <button key={t} onClick={() => setTab(t)} style={{
                   padding: '7px 18px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer',
@@ -134,6 +189,12 @@ export default function GerobakPage() {
               );
             })}
           </div>
+          {/* Tombol CTA sesuai tab aktif */}
+          {tab === 'gerobak' && (
+            <button onClick={() => { resetGerobakForm(); setShowGerobakForm(true); }} style={btnPrimary}>
+              <Plus size={14} color="white" /> Tambah Gerobak
+            </button>
+          )}
           {tab === 'grup' && (
             <button onClick={() => { resetGrupForm(); setShowGrupForm(true); }} style={btnPrimary}>
               <Plus size={14} color="white" /> Tambah Grup
@@ -141,10 +202,79 @@ export default function GerobakPage() {
           )}
         </div>
 
+        {/* ─── TAB: GEROBAK ─── */}
+        {tab === 'gerobak' && (
+          <div style={card}>
+            {loadingGerobak
+              ? <div style={{ padding: 40, textAlign: 'center', color: '#555' }}>Memuat...</div>
+              : gerobakList.length === 0
+                ? (
+                  <div style={{ padding: 60, textAlign: 'center' }}>
+                    <ShoppingCart size={36} color="#333" style={{ marginBottom: 12 }} />
+                    <div style={{ color: '#444', marginBottom: 16 }}>Belum ada gerobak</div>
+                    <button onClick={() => { resetGerobakForm(); setShowGerobakForm(true); }} style={btnPrimary}>
+                      <Plus size={14} color="white" /> Tambah Gerobak Pertama
+                    </button>
+                  </div>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                        {['Nama', 'Kode', 'Lokasi', 'Driver', 'Grup Saham', 'Status', ''].map(h => (
+                          <th key={h} style={{ padding: '12px 16px', textAlign: 'left', color: '#555', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {gerobakList.map((g: any) => (
+                        <tr key={g.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                          <td style={{ padding: '13px 16px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <div style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(244,68,68,0.08)', border: '1px solid rgba(244,68,68,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <ShoppingCart size={13} color="#f87171" />
+                              </div>
+                              <span style={{ color: 'white', fontWeight: 600 }}>{g.nama}</span>
+                            </div>
+                          </td>
+                          <td style={{ padding: '13px 16px', color: '#888', fontFamily: 'monospace', fontSize: 13 }}>{g.kode}</td>
+                          <td style={{ padding: '13px 16px', color: '#888', fontSize: 13 }}>{g.lokasi ?? '—'}</td>
+                          <td style={{ padding: '13px 16px', color: '#888', fontSize: 13 }}>{g.driver?.full_name ?? '—'}</td>
+                          <td style={{ padding: '13px 16px' }}>
+                            {g.shareholder_group
+                              ? <span style={{ padding: '3px 9px', borderRadius: 20, fontSize: 11, background: 'rgba(244,68,68,0.1)', color: '#f87171', border: '1px solid rgba(244,68,68,0.2)' }}>{g.shareholder_group.nama}</span>
+                              : <span style={{ color: '#444', fontSize: 12 }}>—</span>}
+                          </td>
+                          <td style={{ padding: '13px 16px' }}>
+                            <span style={{ padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: g.is_active ? 'rgba(34,197,94,0.1)' : 'rgba(107,114,128,0.1)', color: g.is_active ? '#22c55e' : '#6b7280', border: `1px solid ${g.is_active ? 'rgba(34,197,94,0.25)' : 'rgba(107,114,128,0.25)'}` }}>
+                              {g.is_active ? 'Aktif' : 'Nonaktif'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '13px 16px' }}>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button onClick={() => openEditGerobak(g)}
+                                style={{ padding: '5px 8px', borderRadius: 7, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}>
+                                <Pencil size={12} color="#888" />
+                              </button>
+                              <button onClick={() => { if (confirm(`Hapus gerobak ${g.nama}?`)) deleteGerobak.mutate(g.id); }}
+                                style={{ padding: '5px 8px', borderRadius: 7, background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)', cursor: 'pointer' }}>
+                                <Trash2 size={12} color="#f87171" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
+            }
+          </div>
+        )}
+
         {/* ─── TAB: GRUP & SAHAM ─── */}
         {tab === 'grup' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {/* Porsi total bar */}
             <div style={{ ...card, padding: '16px 20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                 <span style={{ color: '#888', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>Total Porsi Saham</span>
@@ -176,15 +306,11 @@ export default function GerobakPage() {
                       </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      {/* Porsi inline edit */}
                       {editPorsiId === grp.id ? (
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }} onClick={e => e.stopPropagation()}>
-                          <input
-                            type="number" min="0" max="100" step="0.01" value={porsiInput}
+                          <input type="number" min="0" max="100" step="0.01" value={porsiInput}
                             onChange={e => setPorsiInput(e.target.value)}
-                            style={{ ...inp, width: 80, textAlign: 'right' }}
-                            autoFocus
-                          />
+                            style={{ ...inp, width: 80, textAlign: 'right' }} autoFocus />
                           <span style={{ color: '#888', fontSize: 13 }}>%</span>
                           <button onClick={() => setPorsi.mutate({ id: grp.id, porsi: porsiInput })} style={{ ...btnPrimary, padding: '6px 12px' }}>Simpan</button>
                           <button onClick={() => setEditPorsiId(null)} style={{ ...btnGhost, padding: '6px 10px' }}><X size={13} color="#aaa" /></button>
@@ -201,13 +327,18 @@ export default function GerobakPage() {
                           </button>
                         </div>
                       )}
+                      <div style={{ display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
+                        <button onClick={() => { setGrupForm({ nama: grp.nama, deskripsi: grp.deskripsi ?? '', porsi_saham: porsi.toString() }); setEditGrupId(grp.id); setGrupError(''); setShowGrupForm(true); }}
+                          style={{ padding: '5px 7px', borderRadius: 7, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer' }}>
+                          <Pencil size={12} color="#666" />
+                        </button>
+                      </div>
                       {open ? <ChevronUp size={15} color="#555" /> : <ChevronDown size={15} color="#555" />}
                     </div>
                   </div>
 
                   {open && (
                     <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '14px 18px' }}>
-                      {/* Members */}
                       <div style={{ marginBottom: 12 }}>
                         <div style={{ color: '#555', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 }}>Anggota</div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -218,8 +349,7 @@ export default function GerobakPage() {
                             </div>
                           ))}
                           {availShareholders.length > 0 && (
-                            <select
-                              defaultValue=""
+                            <select defaultValue=""
                               onChange={e => { if (e.target.value) addMember.mutate({ gid: grp.id, uid: parseInt(e.target.value) }); e.target.value = ''; }}
                               style={{ ...inp, width: 160, fontSize: 12, padding: '4px 8px', cursor: 'pointer' }}>
                               <option value="">+ Tambah anggota</option>
@@ -228,7 +358,6 @@ export default function GerobakPage() {
                           )}
                         </div>
                       </div>
-                      {/* Gerobak list */}
                       {grp.gerobaks?.length > 0 && (
                         <div>
                           <div style={{ color: '#555', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 6 }}>Gerobak</div>
@@ -247,62 +376,9 @@ export default function GerobakPage() {
           </div>
         )}
 
-        {/* ─── TAB: GEROBAK ─── */}
-        {tab === 'gerobak' && (
-          <div style={card}>
-            {loadingGerobak
-              ? <div style={{ padding: 40, textAlign: 'center', color: '#555' }}>Memuat...</div>
-              : gerobakList.length === 0
-                ? <div style={{ padding: 40, textAlign: 'center', color: '#444' }}>Belum ada gerobak</div>
-                : (
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                        {['Nama', 'Kode', 'Lokasi', 'Driver', 'Grup Saham', 'Status'].map(h => (
-                          <th key={h} style={{ padding: '12px 16px', textAlign: 'left', color: '#555', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {gerobakList.map((g: any) => (
-                        <tr key={g.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
-                          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
-                          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                          <td style={{ padding: '13px 16px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                              <div style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(244,68,68,0.08)', border: '1px solid rgba(244,68,68,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <ShoppingCart size={13} color="#f87171" />
-                              </div>
-                              <span style={{ color: 'white', fontWeight: 600 }}>{g.nama}</span>
-                            </div>
-                          </td>
-                          <td style={{ padding: '13px 16px', color: '#888', fontFamily: 'monospace', fontSize: 13 }}>{g.kode}</td>
-                          <td style={{ padding: '13px 16px', color: '#888', fontSize: 13 }}>{g.lokasi ?? '—'}</td>
-                          <td style={{ padding: '13px 16px', color: '#888', fontSize: 13 }}>{g.driver?.full_name ?? '—'}</td>
-                          <td style={{ padding: '13px 16px' }}>
-                            {g.shareholder_group ? (
-                              <span style={{ padding: '3px 9px', borderRadius: 20, fontSize: 11, background: 'rgba(244,68,68,0.1)', color: '#f87171', border: '1px solid rgba(244,68,68,0.2)' }}>{g.shareholder_group.nama}</span>
-                            ) : <span style={{ color: '#444', fontSize: 12 }}>—</span>}
-                          </td>
-                          <td style={{ padding: '13px 16px' }}>
-                            <span style={{ padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: g.is_active ? 'rgba(34,197,94,0.1)' : 'rgba(107,114,128,0.1)', color: g.is_active ? '#22c55e' : '#6b7280', border: `1px solid ${g.is_active ? 'rgba(34,197,94,0.25)' : 'rgba(107,114,128,0.25)'}` }}>
-                              {g.is_active ? 'Aktif' : 'Nonaktif'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )
-            }
-          </div>
-        )}
-
         {/* ─── TAB: DIVIDEN ─── */}
         {tab === 'dividen' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-            {/* Form kalkulasi */}
             <div style={{ ...card, padding: '20px 22px' }}>
               <div style={{ color: 'white', fontWeight: 700, fontSize: 15, marginBottom: 16 }}>Kalkulasi Dividen</div>
               {divError && <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, padding: '10px 14px', color: '#f87171', fontSize: 13, marginBottom: 14 }}>{divError}</div>}
@@ -323,9 +399,7 @@ export default function GerobakPage() {
                   <label style={lbl}>TOTAL GAJI KARYAWAN (Rp)</label>
                   <input type="number" value={divForm.total_gaji} onChange={e => setDivForm({ ...divForm, total_gaji: e.target.value })} placeholder="15000000" style={inp} />
                   {divForm.total_gaji && grupList.length > 0 && (
-                    <div style={{ color: '#555', fontSize: 11, marginTop: 3 }}>
-                      ÷ {grupList.length} grup = {fmt(parseFloat(divForm.total_gaji) / grupList.length)} / grup
-                    </div>
+                    <div style={{ color: '#555', fontSize: 11, marginTop: 3 }}>÷ {grupList.length} grup = {fmt(parseFloat(divForm.total_gaji) / grupList.length)} / grup</div>
                   )}
                 </div>
                 <div style={{ gridColumn: '3 / 5' }}>
@@ -338,20 +412,13 @@ export default function GerobakPage() {
               </button>
             </div>
 
-            {/* Preview hasil kalkulasi */}
             {preview && (
               <div style={card}>
                 <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ color: 'white', fontWeight: 700 }}>Preview: {preview.periode_label}</span>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ color: '#888', fontSize: 11 }}>Total Porsi</div>
-                      <div style={{ color: preview.total_porsi_saham === 100 ? '#22c55e' : '#fbbf24', fontWeight: 700 }}>{preview.total_porsi_saham}%</div>
-                    </div>
-                  </div>
+                  <div style={{ color: preview.total_porsi_saham === 100 ? '#22c55e' : '#fbbf24', fontWeight: 700 }}>{preview.total_porsi_saham}% teralokasi</div>
                 </div>
-                {/* Summary row */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                   {[
                     { label: 'Total Penjualan', value: fmt(preview.total_penjualan), color: '#22c55e' },
                     { label: 'Total Pembelian', value: fmt(preview.total_pembelian), color: '#f87171' },
@@ -359,20 +426,13 @@ export default function GerobakPage() {
                     { label: 'Beban/Grup', value: fmt(preview.beban_gaji_per_grup), color: '#fbbf24' },
                   ].map(k => (
                     <div key={k.label} style={{ padding: '12px 18px', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
-                      <div style={{ color: '#555', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>{k.label}</div>
+                      <div style={{ color: '#555', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}>{k.label}</div>
                       <div style={{ color: k.color, fontWeight: 700, fontSize: 15, marginTop: 4 }}>{k.value}</div>
                     </div>
                   ))}
                 </div>
-                {/* Per grup */}
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr>
-                      {['Grup', 'Porsi', 'Laba Bersih', 'Dividen'].map(h => (
-                        <th key={h} style={{ padding: '10px 18px', textAlign: 'left', color: '#444', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
+                  <thead><tr>{['Grup', 'Porsi', 'Laba Bersih', 'Dividen'].map(h => <th key={h} style={{ padding: '10px 18px', textAlign: 'left', color: '#444', fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>{h}</th>)}</tr></thead>
                   <tbody>
                     {preview.per_grup.map((g: any) => (
                       <tr key={g.group_id} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
@@ -384,47 +444,26 @@ export default function GerobakPage() {
                     ))}
                   </tbody>
                 </table>
-                {preview.sisa_porsi > 0 && (
-                  <div style={{ padding: '10px 18px', borderTop: '1px solid rgba(255,255,255,0.05)', color: '#555', fontSize: 12 }}>
-                    ⚡ {preview.sisa_porsi}% porsi belum dialokasikan = kas perusahaan
-                  </div>
-                )}
                 {!confirmed && (
                   <div style={{ padding: '14px 20px', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                     <button onClick={() => setPreview(null)} style={btnGhost}>Batal</button>
-                    <button
-                      onClick={() => konfirmasiMut.mutate({
-                        periode_label: divForm.periode_label, periode_dari: divForm.periode_dari,
-                        periode_sampai: divForm.periode_sampai, total_gaji: parseFloat(divForm.total_gaji),
-                        catatan: divForm.catatan || null,
-                      })}
-                      disabled={konfirmasiMut.isPending}
-                      style={{ ...btnPrimary, backgroundColor: '#16a34a' }}
-                    >
+                    <button onClick={() => konfirmasiMut.mutate({ ...divForm, total_gaji: parseFloat(divForm.total_gaji), catatan: divForm.catatan || null })}
+                      disabled={konfirmasiMut.isPending} style={{ ...btnPrimary, backgroundColor: '#16a34a' }}>
                       {konfirmasiMut.isPending ? 'Menyimpan...' : '✓ Konfirmasi & Simpan'}
                     </button>
                   </div>
                 )}
-                {confirmed && (
-                  <div style={{ padding: '12px 20px', borderTop: '1px solid rgba(255,255,255,0.07)', color: '#22c55e', fontSize: 13 }}>✓ Distribusi dividen berhasil disimpan.</div>
-                )}
+                {confirmed && <div style={{ padding: '12px 20px', borderTop: '1px solid rgba(255,255,255,0.07)', color: '#22c55e', fontSize: 13 }}>✓ Distribusi dividen berhasil disimpan.</div>}
               </div>
             )}
 
-            {/* History dividen */}
             <div style={card}>
               <div style={{ padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.07)', color: 'white', fontWeight: 700, fontSize: 14 }}>History Dividen</div>
               {dividenList.length === 0
                 ? <div style={{ padding: 32, textAlign: 'center', color: '#444' }}>Belum ada distribusi dividen</div>
                 : (
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr>
-                        {['Periode', 'Grup', 'Porsi', 'Laba Bersih', 'Dividen', 'Status', ''].map(h => (
-                          <th key={h} style={{ padding: '10px 16px', textAlign: 'left', color: '#444', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
+                    <thead><tr>{['Periode', 'Grup', 'Porsi', 'Laba Bersih', 'Dividen', 'Status', ''].map(h => <th key={h} style={{ padding: '10px 16px', textAlign: 'left', color: '#444', fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>{h}</th>)}</tr></thead>
                     <tbody>
                       {dividenList.map((d: any) => (
                         <tr key={d.id} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
@@ -436,16 +475,12 @@ export default function GerobakPage() {
                           <td style={{ padding: '11px 16px' }}>
                             {d.status === 'dibayar'
                               ? <span style={{ padding: '2px 9px', borderRadius: 20, fontSize: 11, background: 'rgba(34,197,94,0.1)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.25)' }}>Dibayar</span>
-                              : <span style={{ padding: '2px 9px', borderRadius: 20, fontSize: 11, background: 'rgba(251,191,36,0.1)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.25)' }}>Pending</span>
-                            }
+                              : <span style={{ padding: '2px 9px', borderRadius: 20, fontSize: 11, background: 'rgba(251,191,36,0.1)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.25)' }}>Pending</span>}
                           </td>
                           <td style={{ padding: '11px 16px' }}>
                             {d.status !== 'dibayar' && (
-                              <button
-                                onClick={() => bayarMut.mutate({ id: d.id, tgl: todayStr() })}
-                                style={{ padding: '4px 10px', borderRadius: 7, background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', color: '#22c55e', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-                                Bayar
-                              </button>
+                              <button onClick={() => bayarMut.mutate({ id: d.id, tgl: todayStr() })}
+                                style={{ padding: '4px 10px', borderRadius: 7, background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', color: '#22c55e', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>Bayar</button>
                             )}
                             {d.status === 'dibayar' && <span style={{ color: '#444', fontSize: 11 }}>{fmtDate(d.tanggal_bayar)}</span>}
                           </td>
@@ -453,14 +488,70 @@ export default function GerobakPage() {
                       ))}
                     </tbody>
                   </table>
-                )
-              }
+                )}
             </div>
           </div>
         )}
       </div>
 
-      {/* Modal: Tambah/Edit Grup */}
+      {/* ─── MODAL: Tambah/Edit Gerobak ─── */}
+      {showGerobakForm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <div style={{ background: '#141414', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, padding: 28, width: 480, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
+              <span style={{ color: 'white', fontWeight: 700, fontSize: 16 }}>{editGerobakId ? 'Edit' : 'Tambah'} Gerobak</span>
+              <button onClick={resetGerobakForm} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={17} color="#555" /></button>
+            </div>
+            {gerobakError && <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '10px 14px', color: '#f87171', fontSize: 13, marginBottom: 14 }}>{gerobakError}</div>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={lbl}>NAMA GEROBAK *</label>
+                  <input value={gerobakForm.nama} onChange={e => setGerobakForm({ ...gerobakForm, nama: e.target.value })} placeholder="Gerobak Selatan" style={inp} />
+                </div>
+                <div>
+                  <label style={lbl}>KODE *</label>
+                  <input value={gerobakForm.kode} onChange={e => setGerobakForm({ ...gerobakForm, kode: e.target.value })} placeholder="GRB-001" style={{ ...inp, fontFamily: 'monospace' }} />
+                </div>
+              </div>
+              <div>
+                <label style={lbl}>LOKASI</label>
+                <input value={gerobakForm.lokasi} onChange={e => setGerobakForm({ ...gerobakForm, lokasi: e.target.value })} placeholder="Jl. Sudirman No.1" style={inp} />
+              </div>
+              <div>
+                <label style={lbl}>DRIVER</label>
+                <select value={gerobakForm.driver_id} onChange={e => setGerobakForm({ ...gerobakForm, driver_id: e.target.value })}
+                  style={{ ...inp, cursor: 'pointer' }}>
+                  <option value="" style={{ background: '#1a1a1a' }}>— Tanpa driver —</option>
+                  {driverUsers.map((u: any) => <option key={u.id} value={u.id} style={{ background: '#1a1a1a' }}>{u.full_name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={lbl}>GRUP SAHAM</label>
+                <select value={gerobakForm.shareholder_group_id} onChange={e => setGerobakForm({ ...gerobakForm, shareholder_group_id: e.target.value })}
+                  style={{ ...inp, cursor: 'pointer' }}>
+                  <option value="" style={{ background: '#1a1a1a' }}>— Tanpa grup —</option>
+                  {grupList.map((g: any) => <option key={g.id} value={g.id} style={{ background: '#1a1a1a' }}>{g.nama}</option>)}
+                </select>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <input type="checkbox" id="is_active" checked={gerobakForm.is_active}
+                  onChange={e => setGerobakForm({ ...gerobakForm, is_active: e.target.checked })}
+                  style={{ width: 16, height: 16, cursor: 'pointer', accentColor: '#f44444' }} />
+                <label htmlFor="is_active" style={{ ...lbl, marginBottom: 0, cursor: 'pointer' }}>Gerobak Aktif</label>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
+              <button onClick={resetGerobakForm} style={btnGhost}>Batal</button>
+              <button onClick={submitGerobak} disabled={createGerobak.isPending || updateGerobak.isPending} style={btnPrimary}>
+                {createGerobak.isPending || updateGerobak.isPending ? 'Menyimpan...' : 'Simpan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL: Tambah/Edit Grup ─── */}
       {showGrupForm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
           <div style={{ background: '#141414', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, padding: 28, width: 420, maxWidth: '92vw' }}>
@@ -470,12 +561,12 @@ export default function GerobakPage() {
             </div>
             {grupError && <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '10px 14px', color: '#f87171', fontSize: 13, marginBottom: 14 }}>{grupError}</div>}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div><label style={lbl}>NAMA GRUP</label><input value={grupForm.nama} onChange={e => setGrupForm({ ...grupForm, nama: e.target.value })} style={inp} /></div>
+              <div><label style={lbl}>NAMA GRUP *</label><input value={grupForm.nama} onChange={e => setGrupForm({ ...grupForm, nama: e.target.value })} style={inp} /></div>
               <div><label style={lbl}>DESKRIPSI</label><input value={grupForm.deskripsi} onChange={e => setGrupForm({ ...grupForm, deskripsi: e.target.value })} style={inp} /></div>
               <div>
-                <label style={lbl}>PORSI SAHAM AWAL (%)</label>
+                <label style={lbl}>PORSI SAHAM (%)</label>
                 <input type="number" min="0" max="100" step="0.01" value={grupForm.porsi_saham} onChange={e => setGrupForm({ ...grupForm, porsi_saham: e.target.value })} placeholder="25.00" style={inp} />
-                <div style={{ color: '#444', fontSize: 11, marginTop: 3 }}>Bisa diubah nanti. Sisa tersedia: {sisaPorsi.toFixed(2)}%</div>
+                <div style={{ color: '#444', fontSize: 11, marginTop: 3 }}>Sisa tersedia: {sisaPorsi.toFixed(2)}%</div>
               </div>
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
@@ -486,8 +577,7 @@ export default function GerobakPage() {
                   editGrupId ? updateGrup.mutate({ id: editGrupId, p }) : createGrup.mutate(p);
                 }}
                 disabled={!grupForm.nama || createGrup.isPending || updateGrup.isPending}
-                style={btnPrimary}
-              >
+                style={btnPrimary}>
                 {createGrup.isPending || updateGrup.isPending ? 'Menyimpan...' : 'Simpan'}
               </button>
             </div>
