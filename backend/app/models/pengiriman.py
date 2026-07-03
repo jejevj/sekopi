@@ -23,6 +23,7 @@ class Pengiriman(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     driver_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    gerobak_id: Mapped[int | None] = mapped_column(ForeignKey("gerobak.id"), nullable=True, index=True)
     tujuan: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[StatusPengiriman] = mapped_column(
         Enum(StatusPengiriman, values_callable=_enum_values),
@@ -36,3 +37,4 @@ class Pengiriman(Base):
     )
 
     driver = relationship("User", lazy="selectin")
+    gerobak = relationship("Gerobak", lazy="selectin")
