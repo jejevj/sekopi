@@ -1,9 +1,9 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { AlertCircle, ArrowLeft, CheckCircle, Clock, Package, RefreshCw, XCircle } from 'lucide-react-native';
+import { ArrowLeft } from 'lucide-react-native';
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import api from '../../../lib/api';
+import { api } from '../../../lib/api';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   draft:       { label: 'Draft',       color: '#6b7280', bg: '#f3f4f6' },
@@ -267,10 +267,7 @@ function FormInput({ label, value, onChangeText, placeholder, keyboardType }: an
     <View>
       <Text className="text-sm text-gray-600 mb-1">{label}</Text>
       <View className="border border-gray-300 rounded-lg px-3 py-2 bg-gray-50">
-        <Text
-          onPress={() => {}}
-          className="text-gray-800"
-        >{value || <Text className="text-gray-400">{placeholder}</Text>}</Text>
+        <Text className="text-gray-800">{value || <Text className="text-gray-400">{placeholder}</Text>}</Text>
       </View>
     </View>
   );
