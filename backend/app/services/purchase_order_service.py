@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.purchase_order import PurchaseOrder, PurchaseOrderItem, StatusPO, MetodeBayar
 from app.models.supplier import Supplier
 from app.models.bahan_baku import BahanBaku
+from app.models.stok import Stok, TipeTransaksiStok
 from app.schemas.purchase_order import (
     POCreate, POUpdate, POResponse, POItemResponse,
     LaporanPengeluaranResponse, PengeluaranPerSupplier, PengeluaranPerBahan,
@@ -43,12 +44,29 @@ class PurchaseOrderService:
         data.items = [self._build_item_response(i) for i in po.items]
         return data
 
+    async def _insert_stok_masuk(self, po: PurchaseOrder, user_id: int) -> None:
+        """Insert satu baris Stok(tipe=MASUK) per item PO.
+        Dipanggil hanya sekali saat PO pertama kali masuk status LUNAS atau DITERIMA.
+        Idempotent: cek dulu apakah stok dari PO ini sudah pernah diinsert.
+        """
+        existing = await self.db.execute(
+            select(Stok).where(Stok.keterangan == f"PO-{po.nomor_po}").limit(1)
+        )
+        if existing.scalar_one_or_none():
+            return  # sudah pernah diinsert, skip
+
+        for item in po.items:
+            self.db.add(Stok(
+                bahan_baku_id=item.bahan_baku_id,
+                tipe=TipeTransaksiStok.MASUK,
+                jumlah=float(item.jumlah),
+                keterangan=f"PO-{po.nomor_po}",
+                created_by=user_id,
+            ))
+
     async def create_po(self, payload: POCreate, user_id: int) -> POResponse:
         nomor = await self._next_nomor_po()
         total = sum(i.jumlah * i.harga_satuan for i in payload.items)
-
-        # Jika tunai & tidak ada jatuh tempo → langsung DITERIMA
-        status = StatusPO.DRAFT
 
         po = PurchaseOrder(
             nomor_po=nomor,
@@ -57,12 +75,12 @@ class PurchaseOrderService:
             tanggal_invoice=payload.tanggal_invoice,
             tanggal_jatuh_tempo=payload.tanggal_jatuh_tempo,
             metode_bayar=payload.metode_bayar,
-            status=status,
+            status=StatusPO.DRAFT,
             total_amount=total,
             catatan=payload.catatan,
         )
         self.db.add(po)
-        await self.db.flush()  # get po.id
+        await self.db.flush()
 
         for item in payload.items:
             self.db.add(PurchaseOrderItem(
@@ -78,15 +96,29 @@ class PurchaseOrderService:
         await self.db.refresh(po)
         return self._po_to_response(po)
 
-    async def update_po(self, po_id: int, payload: POUpdate) -> POResponse:
+    async def update_po(self, po_id: int, payload: POUpdate, user_id: int) -> POResponse:
         po = await self.db.get(PurchaseOrder, po_id)
         if not po:
             raise ValueError("PO tidak ditemukan")
+
+        status_before = po.status
+
         for k, v in payload.model_dump(exclude_none=True).items():
             setattr(po, k, v)
+
         # Jika tanggal_bayar diisi dan status masih bukan LUNAS → otomatis LUNAS
         if payload.tanggal_bayar and po.status not in (StatusPO.LUNAS,):
             po.status = StatusPO.LUNAS
+
+        status_after = po.status
+
+        # Trigger stok MASUK saat pertama kali masuk LUNAS atau DITERIMA
+        stok_trigger = {StatusPO.LUNAS, StatusPO.DITERIMA} if hasattr(StatusPO, 'DITERIMA') else {StatusPO.LUNAS}
+        if status_before != status_after and status_after in stok_trigger:
+            await self.db.flush()  # pastikan po.items sudah ter-load
+            await self.db.refresh(po)
+            await self._insert_stok_masuk(po, user_id)
+
         await self.db.commit()
         await self.db.refresh(po)
         return self._po_to_response(po)
@@ -114,7 +146,6 @@ class PurchaseOrderService:
         now = datetime.now(timezone.utc)
         today = datetime.now(timezone.utc).date()
 
-        # Semua PO dalam periode berdasarkan tanggal_invoice
         result = await self.db.execute(
             select(PurchaseOrder).where(
                 PurchaseOrder.tanggal_invoice.between(dari, sampai)
@@ -137,7 +168,6 @@ class PurchaseOrderService:
             if po.status not in (StatusPO.LUNAS,)
         ]
 
-        # Per supplier
         supplier_map: dict[int, dict] = {}
         for po in all_po:
             sid = po.supplier_id
@@ -157,7 +187,6 @@ class PurchaseOrderService:
 
         per_supplier = [PengeluaranPerSupplier(**v) for v in supplier_map.values()]
 
-        # Per bahan baku
         bahan_map: dict[int, dict] = {}
         for po in all_po:
             for item in po.items:
