@@ -18,7 +18,7 @@ router = APIRouter()
 INVENTORI_ROLES = (UserRole.ADMIN, UserRole.INVENTORI)
 
 
-# ── Supplier ───────────────────────────────────────────────────────────────
+# ── Supplier ────────────────────────────────────────────────────────
 
 @router.get("/suppliers", response_model=list[SupplierResponse])
 async def list_suppliers(
@@ -59,7 +59,7 @@ async def update_supplier(
     return s
 
 
-# ── Purchase Orders ─────────────────────────────────────────────────────────
+# ── Purchase Orders ───────────────────────────────────────────────
 
 @router.get("/", response_model=list[POResponse])
 async def list_po(
@@ -90,10 +90,6 @@ async def laporan_pengeluaran(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*INVENTORI_ROLES)),
 ):
-    """
-    Laporan pengeluaran berdasarkan tanggal_invoice.
-    Invoice 29 Juni yang dibayar 4 Juli tetap masuk laporan JUNI.
-    """
     if sampai < dari:
         raise HTTPException(400, "'sampai' tidak boleh sebelum 'dari'")
     return await PurchaseOrderService(db).get_laporan_pengeluaran(dari, sampai)
@@ -126,7 +122,8 @@ async def get_po(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*INVENTORI_ROLES)),
 ):
-    po = await db.get(__import__("app.models.purchase_order", fromlist=["PurchaseOrder"]).PurchaseOrder, po_id)
+    from app.models.purchase_order import PurchaseOrder
+    po = await db.get(PurchaseOrder, po_id)
     if not po:
         raise HTTPException(404, "PO tidak ditemukan")
     return PurchaseOrderService(db)._po_to_response(po)
@@ -140,6 +137,7 @@ async def update_po(
     current_user: User = Depends(require_roles(*INVENTORI_ROLES)),
 ):
     try:
-        return await PurchaseOrderService(db).update_po(po_id, payload)
+        # Teruskan user_id agar dicatat sebagai created_by di tabel stok
+        return await PurchaseOrderService(db).update_po(po_id, payload, current_user.id)
     except ValueError as e:
         raise HTTPException(404, str(e))
