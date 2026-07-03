@@ -19,6 +19,8 @@ from app.services.production_unit_service import ProductionUnitService, _enrich_
 
 router = APIRouter()
 
+VIEW_ROLES = (UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI, UserRole.SHAREHOLDER)
+
 
 @router.post("/generate", response_model=list[ProductionUnitResponse], status_code=status.HTTP_201_CREATED)
 async def generate_units(
@@ -26,7 +28,6 @@ async def generate_units(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PRODUKSI)),
 ):
-    """Generate barcode units dari MO DONE. Input expiry_date & harga_modal (opsional)."""
     service = ProductionUnitService(db)
     try:
         return await service.generate_units(
@@ -41,9 +42,7 @@ async def generate_units(
 async def expiry_alerts(
     days: int = Query(default=2, ge=1, le=30),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(
-        UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI, UserRole.SHAREHOLDER
-    )),
+    current_user: User = Depends(require_roles(*VIEW_ROLES)),
 ):
     service = ProductionUnitService(db)
     return await service.get_expiry_alerts(days)
@@ -64,11 +63,8 @@ async def get_units_by_mo(
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(
-        UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI
-    )),
+    current_user: User = Depends(require_roles(*VIEW_ROLES)),
 ):
-    """List unit per MO dengan pagination. Diurutkan FEFO."""
     service = ProductionUnitService(db)
     return await service.get_by_mo_paginated(mo_id, page, per_page)
 
@@ -79,10 +75,9 @@ async def get_ready_fefo(
     per_page: int = Query(default=50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(
-        UserRole.ADMIN, UserRole.PRODUKSI, UserRole.DRIVER
+        UserRole.ADMIN, UserRole.PRODUKSI, UserRole.DRIVER, UserRole.SHAREHOLDER
     )),
 ):
-    """List semua unit READY diurutkan FEFO — panduan dispatch driver."""
     service = ProductionUnitService(db)
     return await service.get_ready_fefo_paginated(page, per_page)
 
@@ -128,7 +123,6 @@ async def scan_sell(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.DRIVER)),
 ):
-    """Driver scan jual di gerobak. Driver = kasir gerobak."""
     service = ProductionUnitService(db)
     return await service.scan_sell(payload, current_user.id)
 
@@ -139,6 +133,5 @@ async def scan_void(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PRODUKSI, UserRole.DRIVER)),
 ):
-    """Void manual unit. Admin, Produksi, atau Driver bisa void."""
     service = ProductionUnitService(db)
     return await service.scan_void(payload, current_user.id)
