@@ -9,19 +9,53 @@ from app.schemas.manufacturing_order import (
     ManufacturingOrderResponse,
     ManufacturingOrderUpdate,
     ManufacturingOrderUpdateStatus,
+    MOBahanBakuResponse,
+    UserShortResponse,
 )
 from app.services.mo_service import MOService
 
 router = APIRouter()
 
-# Semua role yang boleh melihat MO
-VIEW_ROLES = (UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI, UserRole.SHAREHOLDER)
-
-# Role yang boleh membuat MO baru (request)
+VIEW_ROLES   = (UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI, UserRole.SHAREHOLDER)
 CREATE_ROLES = (UserRole.ADMIN, UserRole.PRODUKSI)
-
-# Role yang boleh update status (gabungan semua yang terlibat dalam alur)
 STATUS_ROLES = (UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI)
+
+
+def _build_response(mo) -> ManufacturingOrderResponse:
+    """Serialize ORM object ke Pydantic response, isi field yang butuh resolusi relasi."""
+    lines = [
+        MOBahanBakuResponse(
+            id=line.id,
+            bahan_baku_id=line.bahan_baku_id,
+            qty_rencana=float(line.qty_rencana),
+            qty_aktual=float(line.qty_aktual) if line.qty_aktual is not None else None,
+            satuan=line.satuan,
+            nama_bahan=line.bahan_baku.nama if line.bahan_baku else f"ID-{line.bahan_baku_id}",
+        )
+        for line in (mo.bahan_baku_lines or [])
+    ]
+    return ManufacturingOrderResponse(
+        id=mo.id,
+        nomor_mo=mo.nomor_mo,
+        nama_produk=mo.nama_produk,
+        target_qty=float(mo.target_qty),
+        satuan=mo.satuan,
+        tanggal_rencana=mo.tanggal_rencana,
+        tanggal_mulai=mo.tanggal_mulai,
+        tanggal_selesai=mo.tanggal_selesai,
+        status=mo.status,
+        catatan=mo.catatan,
+        created_by=mo.created_by,
+        approved_by=mo.approved_by,
+        approved_at=mo.approved_at,
+        inventori_by=mo.inventori_by,
+        inventori_at=mo.inventori_at,
+        created_at=mo.created_at,
+        bahan_baku_lines=lines,
+        created_by_user=UserShortResponse.model_validate(mo.created_by_user) if mo.created_by_user else None,
+        approved_by_user=UserShortResponse.model_validate(mo.approved_by_user) if mo.approved_by_user else None,
+        inventori_by_user=UserShortResponse.model_validate(mo.inventori_by_user) if mo.inventori_by_user else None,
+    )
 
 
 @router.get("/", response_model=list[ManufacturingOrderResponse])
@@ -30,7 +64,8 @@ async def list_mo(
     current_user: User = Depends(require_roles(*VIEW_ROLES)),
 ):
     repo = MORepository(db)
-    return await repo.get_all()
+    mos, _ = await repo.get_all_paginated(per_page=100)
+    return [_build_response(mo) for mo in mos]
 
 
 @router.post("/", response_model=ManufacturingOrderResponse, status_code=status.HTTP_201_CREATED)
@@ -39,9 +74,12 @@ async def create_mo(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*CREATE_ROLES)),
 ):
-    """PRODUKSI / ADMIN buat request MO baru. Status awal: DRAFT."""
     service = MOService(db)
-    return await service.create_mo(payload, current_user.id)
+    mo = await service.create_mo(payload, current_user.id)
+    # Reload dengan eager-load
+    repo = MORepository(db)
+    mo = await repo.get_with_lines(mo.id)
+    return _build_response(mo)
 
 
 @router.get("/{mo_id}", response_model=ManufacturingOrderResponse)
@@ -54,7 +92,7 @@ async def get_mo(
     mo = await repo.get_with_lines(mo_id)
     if not mo:
         raise HTTPException(status_code=404, detail="Manufacturing Order tidak ditemukan")
-    return mo
+    return _build_response(mo)
 
 
 @router.patch("/{mo_id}", response_model=ManufacturingOrderResponse)
@@ -64,12 +102,14 @@ async def update_mo(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*CREATE_ROLES)),
 ):
-    """Edit detail MO — hanya saat status DRAFT."""
     service = MOService(db)
     try:
-        return await service.update_mo(mo_id, payload)
+        mo = await service.update_mo(mo_id, payload)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    repo = MORepository(db)
+    mo = await repo.get_with_lines(mo.id)
+    return _build_response(mo)
 
 
 @router.post("/{mo_id}/status", response_model=ManufacturingOrderResponse)
@@ -79,18 +119,14 @@ async def update_status(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*STATUS_ROLES)),
 ):
-    """
-    Update status MO dengan role-based transition:
-    - DRAFT → CONFIRMED   : hanya ADMIN (persetujuan)
-    - CONFIRMED → IN_PROGRESS : hanya INVENTORI / ADMIN (keluarkan bahan)
-    - IN_PROGRESS → DONE  : hanya PRODUKSI / ADMIN (selesai produksi)
-    - * → CANCELLED       : ADMIN (atau PRODUKSI untuk draft sendiri)
-    """
     service = MOService(db)
     try:
-        return await service.update_status(mo_id, payload, current_user.id, current_user.role)
+        mo = await service.update_status(mo_id, payload, current_user.id, current_user.role)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    repo = MORepository(db)
+    mo = await repo.get_with_lines(mo.id)
+    return _build_response(mo)
 
 
 @router.get("/{mo_id}/cek-stok")
@@ -99,7 +135,6 @@ async def cek_stok_mo(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*STATUS_ROLES)),
 ):
-    """Cek ketersediaan semua bahan baku untuk MO ini."""
     service = MOService(db)
     try:
         return await service.check_stok_availability(mo_id)
