@@ -6,6 +6,11 @@ from passlib.context import CryptContext
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# PENTING: import base agar SEMUA model ter-register ke SQLAlchemy mapper registry
+# sebelum ada model yang diinstansiasi. Tanpa ini relationship ke model lain
+# (misal Pengiriman, ReturnOrder, dll) akan gagal resolve.
+import app.db.base  # noqa: F401
+
 from app.db.session import AsyncSessionLocal
 from app.models.bahan_baku import BahanBaku
 from app.models.manufacturing_order import ManufacturingOrder, MOBahanBaku, StatusMO
@@ -75,14 +80,14 @@ async def seed_users(db: AsyncSession) -> dict[str, User]:
 
 async def seed_bahan_baku(db: AsyncSession) -> dict[str, BahanBaku]:
     items = [
-        {"nama": "Kopi Robusta",     "satuan": "kg",    "satuan_display": "gram",  "konversi_factor": 1000, "stok_minimum": 5},
-        {"nama": "Kopi Arabika",     "satuan": "kg",    "satuan_display": "gram",  "konversi_factor": 1000, "stok_minimum": 3},
-        {"nama": "Gula Pasir",       "satuan": "kg",    "satuan_display": "gram",  "konversi_factor": 1000, "stok_minimum": 10},
-        {"nama": "Susu Kental Manis","satuan": "kaleng","satuan_display": None,    "konversi_factor": None,  "stok_minimum": 20},
-        {"nama": "Air Mineral",      "satuan": "liter", "satuan_display": "ml",    "konversi_factor": 1000, "stok_minimum": 50},
-        {"nama": "Cup Plastik 250ml","satuan": "pcs",   "satuan_display": None,    "konversi_factor": None,  "stok_minimum": 500},
-        {"nama": "Sedotan",          "satuan": "pcs",   "satuan_display": None,    "konversi_factor": None,  "stok_minimum": 500},
-        {"nama": "Stiker Label",     "satuan": "pcs",   "satuan_display": None,    "konversi_factor": None,  "stok_minimum": 500},
+        {"nama": "Kopi Robusta",      "satuan": "kg",     "satuan_display": "gram", "konversi_factor": 1000, "stok_minimum": 5},
+        {"nama": "Kopi Arabika",      "satuan": "kg",     "satuan_display": "gram", "konversi_factor": 1000, "stok_minimum": 3},
+        {"nama": "Gula Pasir",        "satuan": "kg",     "satuan_display": "gram", "konversi_factor": 1000, "stok_minimum": 10},
+        {"nama": "Susu Kental Manis", "satuan": "kaleng", "satuan_display": None,   "konversi_factor": None,  "stok_minimum": 20},
+        {"nama": "Air Mineral",       "satuan": "liter",  "satuan_display": "ml",   "konversi_factor": 1000, "stok_minimum": 50},
+        {"nama": "Cup Plastik 250ml", "satuan": "pcs",    "satuan_display": None,   "konversi_factor": None,  "stok_minimum": 500},
+        {"nama": "Sedotan",           "satuan": "pcs",    "satuan_display": None,   "konversi_factor": None,  "stok_minimum": 500},
+        {"nama": "Stiker Label",      "satuan": "pcs",    "satuan_display": None,   "konversi_factor": None,  "stok_minimum": 500},
     ]
     result: dict[str, BahanBaku] = {}
     for it in items:
@@ -106,14 +111,14 @@ async def seed_bahan_baku(db: AsyncSession) -> dict[str, BahanBaku]:
 
 async def seed_stok(db: AsyncSession, bahan: dict[str, BahanBaku], admin: User) -> None:
     stok_data = [
-        ("Kopi Robusta",      20.0,  "Stok awal"),
-        ("Kopi Arabika",      10.0,  "Stok awal"),
-        ("Gula Pasir",        50.0,  "Stok awal"),
-        ("Susu Kental Manis", 100.0, "Stok awal"),
-        ("Air Mineral",       200.0, "Stok awal"),
-        ("Cup Plastik 250ml", 2000.0,"Stok awal"),
-        ("Sedotan",           2000.0,"Stok awal"),
-        ("Stiker Label",      2000.0,"Stok awal"),
+        ("Kopi Robusta",      20.0,   "Stok awal"),
+        ("Kopi Arabika",      10.0,   "Stok awal"),
+        ("Gula Pasir",        50.0,   "Stok awal"),
+        ("Susu Kental Manis", 100.0,  "Stok awal"),
+        ("Air Mineral",       200.0,  "Stok awal"),
+        ("Cup Plastik 250ml", 2000.0, "Stok awal"),
+        ("Sedotan",           2000.0, "Stok awal"),
+        ("Stiker Label",      2000.0, "Stok awal"),
     ]
     for nama, jumlah, ket in stok_data:
         db.add(Stok(
@@ -131,15 +136,19 @@ async def seed_stok(db: AsyncSession, bahan: dict[str, BahanBaku], admin: User) 
 # Manufacturing Orders
 # ---------------------------------------------------------------------------
 
-async def seed_mo(db: AsyncSession, bahan: dict[str, BahanBaku], users: dict[str, User]) -> list[ManufacturingOrder]:
+async def seed_mo(
+    db: AsyncSession,
+    bahan: dict[str, BahanBaku],
+    users: dict[str, User],
+) -> list[ManufacturingOrder]:
     today = date.today()
-    admin_id = users["admin"].id
-    produksi_id = users["produksi"].id
+    admin_id     = users["admin"].id
+    produksi_id  = users["produksi"].id
     inventori_id = users["inventori"].id
 
     mo_list = []
 
-    # --- MO-1: DONE (sudah selesai, siap generate unit)
+    # --- MO-1: DONE (siap generate unit)
     mo1 = ManufacturingOrder(
         nomor_mo=f"MO-{today.strftime('%Y%m%d')}-001",
         nama_produk="Kopi Susu Robusta 250ml",
@@ -154,25 +163,17 @@ async def seed_mo(db: AsyncSession, bahan: dict[str, BahanBaku], users: dict[str
     )
     db.add(mo1)
     await db.flush()
-
-    # BOM MO-1
-    bom1 = [
-        ("Kopi Robusta",      2.0,  None,  "kg"),
-        ("Gula Pasir",        5.0,  None,  "kg"),
-        ("Susu Kental Manis", 10.0, None,  "kaleng"),
-        ("Air Mineral",       20.0, None,  "liter"),
-        ("Cup Plastik 250ml", 100.0,None,  "pcs"),
-        ("Sedotan",           100.0,None,  "pcs"),
-        ("Stiker Label",      100.0,None,  "pcs"),
-    ]
-    for nama, qty_rencana, qty_aktual, satuan in bom1:
-        db.add(MOBahanBaku(
-            mo_id=mo1.id,
-            bahan_baku_id=bahan[nama].id,
-            qty_rencana=qty_rencana,
-            qty_aktual=qty_aktual,
-            satuan=satuan,
-        ))
+    for nama, qty_rencana, satuan in [
+        ("Kopi Robusta",      2.0,   "kg"),
+        ("Gula Pasir",        5.0,   "kg"),
+        ("Susu Kental Manis", 10.0,  "kaleng"),
+        ("Air Mineral",       20.0,  "liter"),
+        ("Cup Plastik 250ml", 100.0, "pcs"),
+        ("Sedotan",           100.0, "pcs"),
+        ("Stiker Label",      100.0, "pcs"),
+    ]:
+        db.add(MOBahanBaku(mo_id=mo1.id, bahan_baku_id=bahan[nama].id,
+                           qty_rencana=qty_rencana, qty_aktual=None, satuan=satuan))
     mo_list.append(mo1)
 
     # --- MO-2: IN_PROGRESS
@@ -190,26 +191,19 @@ async def seed_mo(db: AsyncSession, bahan: dict[str, BahanBaku], users: dict[str
     )
     db.add(mo2)
     await db.flush()
-
-    bom2 = [
-        ("Kopi Arabika",      1.5,  None, "kg"),
-        ("Gula Pasir",        3.0,  None, "kg"),
-        ("Air Mineral",       15.0, None, "liter"),
-        ("Cup Plastik 250ml", 50.0, None, "pcs"),
-        ("Sedotan",           50.0, None, "pcs"),
-        ("Stiker Label",      50.0, None, "pcs"),
-    ]
-    for nama, qty_rencana, qty_aktual, satuan in bom2:
-        db.add(MOBahanBaku(
-            mo_id=mo2.id,
-            bahan_baku_id=bahan[nama].id,
-            qty_rencana=qty_rencana,
-            qty_aktual=qty_aktual,
-            satuan=satuan,
-        ))
+    for nama, qty_rencana, satuan in [
+        ("Kopi Arabika",      1.5,  "kg"),
+        ("Gula Pasir",        3.0,  "kg"),
+        ("Air Mineral",       15.0, "liter"),
+        ("Cup Plastik 250ml", 50.0, "pcs"),
+        ("Sedotan",           50.0, "pcs"),
+        ("Stiker Label",      50.0, "pcs"),
+    ]:
+        db.add(MOBahanBaku(mo_id=mo2.id, bahan_baku_id=bahan[nama].id,
+                           qty_rencana=qty_rencana, qty_aktual=None, satuan=satuan))
     mo_list.append(mo2)
 
-    # --- MO-3: CONFIRMED (sudah disetujui admin, belum mulai produksi)
+    # --- MO-3: CONFIRMED
     mo3 = ManufacturingOrder(
         nomor_mo=f"MO-{today.strftime('%Y%m%d')}-003",
         nama_produk="Kopi Susu Arabika 250ml",
@@ -223,27 +217,20 @@ async def seed_mo(db: AsyncSession, bahan: dict[str, BahanBaku], users: dict[str
     )
     db.add(mo3)
     await db.flush()
-
-    bom3 = [
-        ("Kopi Arabika",      1.8,  None, "kg"),
-        ("Gula Pasir",        4.0,  None, "kg"),
-        ("Susu Kental Manis", 8.0,  None, "kaleng"),
-        ("Air Mineral",       18.0, None, "liter"),
-        ("Cup Plastik 250ml", 75.0, None, "pcs"),
-        ("Sedotan",           75.0, None, "pcs"),
-        ("Stiker Label",      75.0, None, "pcs"),
-    ]
-    for nama, qty_rencana, qty_aktual, satuan in bom3:
-        db.add(MOBahanBaku(
-            mo_id=mo3.id,
-            bahan_baku_id=bahan[nama].id,
-            qty_rencana=qty_rencana,
-            qty_aktual=qty_aktual,
-            satuan=satuan,
-        ))
+    for nama, qty_rencana, satuan in [
+        ("Kopi Arabika",      1.8,  "kg"),
+        ("Gula Pasir",        4.0,  "kg"),
+        ("Susu Kental Manis", 8.0,  "kaleng"),
+        ("Air Mineral",       18.0, "liter"),
+        ("Cup Plastik 250ml", 75.0, "pcs"),
+        ("Sedotan",           75.0, "pcs"),
+        ("Stiker Label",      75.0, "pcs"),
+    ]:
+        db.add(MOBahanBaku(mo_id=mo3.id, bahan_baku_id=bahan[nama].id,
+                           qty_rencana=qty_rencana, qty_aktual=None, satuan=satuan))
     mo_list.append(mo3)
 
-    # --- MO-4: DRAFT (baru dibuat produksi)
+    # --- MO-4: DRAFT
     mo4 = ManufacturingOrder(
         nomor_mo=f"MO-{today.strftime('%Y%m%d')}-004",
         nama_produk="Kopi Hitam Robusta 250ml",
@@ -256,23 +243,16 @@ async def seed_mo(db: AsyncSession, bahan: dict[str, BahanBaku], users: dict[str
     )
     db.add(mo4)
     await db.flush()
-
-    bom4 = [
-        ("Kopi Robusta",      3.0,   None, "kg"),
-        ("Gula Pasir",        6.0,   None, "kg"),
-        ("Air Mineral",       24.0,  None, "liter"),
-        ("Cup Plastik 250ml", 120.0, None, "pcs"),
-        ("Sedotan",           120.0, None, "pcs"),
-        ("Stiker Label",      120.0, None, "pcs"),
-    ]
-    for nama, qty_rencana, qty_aktual, satuan in bom4:
-        db.add(MOBahanBaku(
-            mo_id=mo4.id,
-            bahan_baku_id=bahan[nama].id,
-            qty_rencana=qty_rencana,
-            qty_aktual=qty_aktual,
-            satuan=satuan,
-        ))
+    for nama, qty_rencana, satuan in [
+        ("Kopi Robusta",      3.0,   "kg"),
+        ("Gula Pasir",        6.0,   "kg"),
+        ("Air Mineral",       24.0,  "liter"),
+        ("Cup Plastik 250ml", 120.0, "pcs"),
+        ("Sedotan",           120.0, "pcs"),
+        ("Stiker Label",      120.0, "pcs"),
+    ]:
+        db.add(MOBahanBaku(mo_id=mo4.id, bahan_baku_id=bahan[nama].id,
+                           qty_rencana=qty_rencana, qty_aktual=None, satuan=satuan))
     mo_list.append(mo4)
 
     await db.flush()
@@ -281,14 +261,14 @@ async def seed_mo(db: AsyncSession, bahan: dict[str, BahanBaku], users: dict[str
 
 
 # ---------------------------------------------------------------------------
-# Production Units — untuk MO-1 yang sudah DONE
+# Production Units — untuk MO yang sudah DONE
 # ---------------------------------------------------------------------------
 
 async def seed_production_units(db: AsyncSession, mo_done: ManufacturingOrder) -> None:
-    today = date.today()
-    expiry = today + timedelta(days=2)  # FEFO: 2 hari ke depan
-    units = []
-    for i in range(1, 11):  # Seed 10 unit contoh
+    today  = date.today()
+    expiry = today + timedelta(days=2)
+    units  = []
+    for i in range(1, 11):
         barcode = f"SKP-{today.strftime('%Y%m%d')}-{i:04d}"
         unit = ProductionUnit(
             barcode=barcode,
@@ -313,8 +293,8 @@ async def run_seed(fresh: bool = True) -> None:
         if fresh:
             await truncate_all(db)
 
-        users = await seed_users(db)
-        bahan = await seed_bahan_baku(db)
+        users   = await seed_users(db)
+        bahan   = await seed_bahan_baku(db)
         await seed_stok(db, bahan, users["admin"])
         mo_list = await seed_mo(db, bahan, users)
         await seed_production_units(db, mo_list[0])  # mo_list[0] = DONE
