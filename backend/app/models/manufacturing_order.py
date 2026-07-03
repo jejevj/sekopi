@@ -37,6 +37,10 @@ class ManufacturingOrder(Base):
     )
     catatan: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    inventori_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    inventori_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -46,7 +50,9 @@ class ManufacturingOrder(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    created_by_user = relationship("User", lazy="selectin")
+    created_by_user = relationship("User", foreign_keys=[created_by], lazy="selectin")
+    approved_by_user = relationship("User", foreign_keys=[approved_by], lazy="selectin")
+    inventori_by_user = relationship("User", foreign_keys=[inventori_by], lazy="selectin")
     bahan_baku_lines = relationship("MOBahanBaku", back_populates="manufacturing_order", lazy="selectin")
 
 

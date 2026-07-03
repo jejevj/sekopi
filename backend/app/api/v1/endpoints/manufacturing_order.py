@@ -14,13 +14,20 @@ from app.services.mo_service import MOService
 
 router = APIRouter()
 
-MO_ROLES = (UserRole.ADMIN, UserRole.PRODUKSI)
+# Semua role yang boleh melihat MO
+VIEW_ROLES = (UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI, UserRole.SHAREHOLDER)
+
+# Role yang boleh membuat MO baru (request)
+CREATE_ROLES = (UserRole.ADMIN, UserRole.PRODUKSI)
+
+# Role yang boleh update status (gabungan semua yang terlibat dalam alur)
+STATUS_ROLES = (UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI)
 
 
 @router.get("/", response_model=list[ManufacturingOrderResponse])
 async def list_mo(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*MO_ROLES, UserRole.INVENTORI, UserRole.SHAREHOLDER)),
+    current_user: User = Depends(require_roles(*VIEW_ROLES)),
 ):
     repo = MORepository(db)
     return await repo.get_all()
@@ -30,8 +37,9 @@ async def list_mo(
 async def create_mo(
     payload: ManufacturingOrderCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*MO_ROLES)),
+    current_user: User = Depends(require_roles(*CREATE_ROLES)),
 ):
+    """PRODUKSI / ADMIN buat request MO baru. Status awal: DRAFT."""
     service = MOService(db)
     return await service.create_mo(payload, current_user.id)
 
@@ -40,7 +48,7 @@ async def create_mo(
 async def get_mo(
     mo_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*MO_ROLES, UserRole.INVENTORI, UserRole.SHAREHOLDER)),
+    current_user: User = Depends(require_roles(*VIEW_ROLES)),
 ):
     repo = MORepository(db)
     mo = await repo.get_with_lines(mo_id)
@@ -54,8 +62,9 @@ async def update_mo(
     mo_id: int,
     payload: ManufacturingOrderUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*MO_ROLES)),
+    current_user: User = Depends(require_roles(*CREATE_ROLES)),
 ):
+    """Edit detail MO — hanya saat status DRAFT."""
     service = MOService(db)
     try:
         return await service.update_mo(mo_id, payload)
@@ -68,11 +77,18 @@ async def update_status(
     mo_id: int,
     payload: ManufacturingOrderUpdateStatus,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*MO_ROLES)),
+    current_user: User = Depends(require_roles(*STATUS_ROLES)),
 ):
+    """
+    Update status MO dengan role-based transition:
+    - DRAFT → CONFIRMED   : hanya ADMIN (persetujuan)
+    - CONFIRMED → IN_PROGRESS : hanya INVENTORI / ADMIN (keluarkan bahan)
+    - IN_PROGRESS → DONE  : hanya PRODUKSI / ADMIN (selesai produksi)
+    - * → CANCELLED       : ADMIN (atau PRODUKSI untuk draft sendiri)
+    """
     service = MOService(db)
     try:
-        return await service.update_status(mo_id, payload, current_user.id)
+        return await service.update_status(mo_id, payload, current_user.id, current_user.role)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -81,7 +97,7 @@ async def update_status(
 async def cek_stok_mo(
     mo_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*MO_ROLES, UserRole.INVENTORI)),
+    current_user: User = Depends(require_roles(*STATUS_ROLES)),
 ):
     """Cek ketersediaan semua bahan baku untuk MO ini."""
     service = MOService(db)

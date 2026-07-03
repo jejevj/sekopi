@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 from app.models.manufacturing_order import StatusMO
 
 
@@ -19,7 +19,7 @@ class MOBahanBakuResponse(BaseModel):
     qty_rencana: float
     qty_aktual: float | None = None
     satuan: str
-    nama_bahan: str | None = None  # populated from join
+    nama_bahan: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -44,7 +44,6 @@ class ManufacturingOrderUpdate(BaseModel):
 class ManufacturingOrderUpdateStatus(BaseModel):
     status: StatusMO
     catatan: str | None = None
-    # Diisi saat status -> DONE, untuk mencatat qty aktual per bahan
     bahan_baku_aktual: list[dict] | None = None
 
 
@@ -60,6 +59,10 @@ class ManufacturingOrderResponse(BaseModel):
     status: StatusMO
     catatan: str | None = None
     created_by: int
+    approved_by: int | None = None
+    approved_at: datetime | None = None
+    inventori_by: int | None = None
+    inventori_at: datetime | None = None
     created_at: datetime
     bahan_baku_lines: list[MOBahanBakuResponse] = []
 
