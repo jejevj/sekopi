@@ -8,7 +8,7 @@ import {
   LayoutDashboard, ClipboardList, Factory, Undo2, Users,
   Package, FlaskConical, TriangleAlert, Truck, Coffee,
   TrendingUp, LogOut, ChevronLeft, ChevronRight,
-  ShoppingCart, ShoppingBag, PieChart, Banknote,
+  ShoppingCart, ShoppingBag, PieChart, Banknote, Wallet,
   type LucideIcon,
 } from 'lucide-react-native';
 
@@ -23,30 +23,31 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   // Operasional
-  { label: 'Dashboard',    href: '/(admin)/dashboard',        Icon: LayoutDashboard, roles: ['ADMIN', 'PRODUKSI'],        group: 'Operasional' },
-  { label: 'Mfg. Order',  href: '/(admin)/mo',               Icon: ClipboardList,   roles: ['ADMIN', 'PRODUKSI'],        group: 'Operasional' },
-  { label: 'Produksi',    href: '/(admin)/produksi',         Icon: Factory,         roles: ['ADMIN', 'PRODUKSI'],        group: 'Operasional' },
-  { label: 'Return',      href: '/(admin)/return',           Icon: Undo2,           roles: ['ADMIN', 'INVENTORI'],       group: 'Operasional' },
-  { label: 'Users',       href: '/(admin)/users',            Icon: Users,           roles: ['ADMIN'],                    group: 'Operasional' },
+  { label: 'Dashboard',    href: '/(admin)/dashboard',                Icon: LayoutDashboard, roles: ['ADMIN', 'PRODUKSI'],    group: 'Operasional' },
+  { label: 'Mfg. Order',  href: '/(admin)/mo',                       Icon: ClipboardList,   roles: ['ADMIN', 'PRODUKSI'],    group: 'Operasional' },
+  { label: 'Produksi',    href: '/(admin)/produksi',                 Icon: Factory,         roles: ['ADMIN', 'PRODUKSI'],    group: 'Operasional' },
+  { label: 'Return',      href: '/(admin)/return',                   Icon: Undo2,           roles: ['ADMIN', 'INVENTORI'],   group: 'Operasional' },
+  { label: 'Users',       href: '/(admin)/users',                    Icon: Users,           roles: ['ADMIN'],                group: 'Operasional' },
   // Inventori
-  { label: 'Bahan Baku',  href: '/(admin)/bahan-baku',       Icon: FlaskConical,    roles: ['ADMIN', 'INVENTORI'],       group: 'Inventori' },
-  { label: 'Stok',        href: '/(inventori)/stok',         Icon: Package,         roles: ['INVENTORI', 'ADMIN'],       group: 'Inventori' },
-  { label: 'Expiry Alert',href: '/(inventori)/expiry',       Icon: TriangleAlert,   roles: ['INVENTORI', 'ADMIN'],       group: 'Inventori' },
+  { label: 'Bahan Baku',  href: '/(admin)/bahan-baku',               Icon: FlaskConical,    roles: ['ADMIN', 'INVENTORI'],   group: 'Inventori' },
+  { label: 'Stok',        href: '/(inventori)/stok',                 Icon: Package,         roles: ['INVENTORI', 'ADMIN'],   group: 'Inventori' },
+  { label: 'Expiry Alert',href: '/(inventori)/expiry',               Icon: TriangleAlert,   roles: ['INVENTORI', 'ADMIN'],   group: 'Inventori' },
   // Pembelian
-  { label: 'Pembelian',   href: '/(admin)/pembelian',        Icon: ShoppingBag,     roles: ['ADMIN', 'INVENTORI'],       group: 'Pembelian' },
-  // Gerobak & Saham (admin) — 3 halaman terpisah
-  { label: 'Gerobak',     href: '/(admin)/gerobak',          Icon: ShoppingCart,    roles: ['ADMIN'],                    group: 'Saham & Gerobak', exact: true },
-  { label: 'Grup & Saham',href: '/(admin)/gerobak/saham',    Icon: PieChart,        roles: ['ADMIN'],                    group: 'Saham & Gerobak' },
-  { label: 'Dividen',     href: '/(admin)/gerobak/dividen',  Icon: Banknote,        roles: ['ADMIN'],                    group: 'Saham & Gerobak' },
+  { label: 'Pembelian',   href: '/(admin)/pembelian',                Icon: ShoppingBag,     roles: ['ADMIN', 'INVENTORI'],   group: 'Pembelian' },
+  // Gerobak & Saham (admin)
+  { label: 'Gerobak',     href: '/(admin)/gerobak',                  Icon: ShoppingCart,    roles: ['ADMIN'],                group: 'Saham & Gerobak', exact: true },
+  { label: 'Grup & Saham',href: '/(admin)/gerobak/saham',            Icon: PieChart,        roles: ['ADMIN'],                group: 'Saham & Gerobak' },
+  { label: 'Dividen',     href: '/(admin)/gerobak/dividen',          Icon: Banknote,        roles: ['ADMIN'],                group: 'Saham & Gerobak' },
+  { label: 'Pengeluaran', href: '/(admin)/gerobak/pengeluaran',      Icon: Wallet,          roles: ['ADMIN'],                group: 'Saham & Gerobak' },
   // Shareholder view
-  { label: 'Portofolio',  href: '/(shareholder)/saham',      Icon: PieChart,        roles: ['SHAREHOLDER'],              group: 'Saham' },
-  { label: 'Dividen',     href: '/(shareholder)/dividen',    Icon: Banknote,        roles: ['SHAREHOLDER'],              group: 'Saham' },
-  { label: 'Laporan',     href: '/(shareholder)/laporan',    Icon: TrendingUp,      roles: ['SHAREHOLDER', 'ADMIN'],     group: 'Laporan' },
+  { label: 'Portofolio',  href: '/(shareholder)/saham',              Icon: PieChart,        roles: ['SHAREHOLDER'],          group: 'Saham' },
+  { label: 'Dividen',     href: '/(shareholder)/dividen',            Icon: Banknote,        roles: ['SHAREHOLDER'],          group: 'Saham' },
+  { label: 'Laporan',     href: '/(shareholder)/laporan',            Icon: TrendingUp,      roles: ['SHAREHOLDER', 'ADMIN'], group: 'Laporan' },
   // Driver
-  { label: 'Pengiriman',  href: '/(driver)/pengiriman',      Icon: Truck,           roles: ['DRIVER'],                   group: 'Driver' },
-  { label: 'Return',      href: '/(driver)/return',          Icon: Undo2,           roles: ['DRIVER'],                   group: 'Driver' },
+  { label: 'Pengiriman',  href: '/(driver)/pengiriman',              Icon: Truck,           roles: ['DRIVER'],               group: 'Driver' },
+  { label: 'Return',      href: '/(driver)/return',                  Icon: Undo2,           roles: ['DRIVER'],               group: 'Driver' },
   // Kasir
-  { label: 'Scan Jual',   href: '/(kasir)/scan',             Icon: Coffee,          roles: ['KASIR'],                    group: 'Kasir' },
+  { label: 'Scan Jual',   href: '/(kasir)/scan',                     Icon: Coffee,          roles: ['KASIR'],                group: 'Kasir' },
 ];
 
 export function Sidebar() {
