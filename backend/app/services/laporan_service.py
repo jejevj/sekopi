@@ -1,8 +1,8 @@
-from datetime import date, datetime, timezone, timedelta
+from datetime import date, datetime, timezone
 from sqlalchemy import select, func, and_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.gerobak import Gerobak, ShareholderGroup, shareholder_group_members
+from app.models.gerobak import Gerobak, ShareholderGroup, GroupMembership
 from app.models.production_unit import ProductionUnit, StatusUnit
 from app.models.penjualan import Penjualan
 from app.models.manufacturing_order import ManufacturingOrder
@@ -67,7 +67,6 @@ class LaporanService:
         def _where(q, extra=None):
             conds = [func.date(ProductionUnit.created_at).between(dari, sampai)]
             if gerobak_ids is not None:
-                # filter via penjualan join (unit sold at filtered gerobak)
                 subq = select(Penjualan.production_unit_id).where(
                     Penjualan.gerobak_id.in_(gerobak_ids)
                 )
@@ -184,7 +183,6 @@ class LaporanService:
         total_pendapatan = sum(p.total_pendapatan for p in penjualan_harian)
         jumlah_hari = max((sampai - dari).days + 1, 1)
 
-        # Per gerobak
         rows_gerobak = await self._penjualan_per_gerobak(dari, sampai)
         gerobak_map = await self._gerobak_info([r.gerobak_id for r in rows_gerobak if r.gerobak_id])
         penjualan_per_gerobak = [
@@ -236,7 +234,6 @@ class LaporanService:
     ) -> LaporanShareholderResponse:
         now = datetime.now(timezone.utc)
 
-        # Tentukan grup yang relevan
         aktif_group: ShareholderGroup | None = None
         gerobak_ids: list[int] = []
         gerobak_names: list[str] = []
@@ -244,12 +241,12 @@ class LaporanService:
         if group_id:
             aktif_group = await self.db.get(ShareholderGroup, group_id)
         elif user_id:
-            # Cari grup yang user ini terdaftar sebagai member
+            # Cari grup pertama yang user ini terdaftar sebagai member
+            # Pakai GroupMembership ORM class (pengganti shareholder_group_members Table)
             r = await self.db.execute(
                 select(ShareholderGroup)
-                .join(shareholder_group_members,
-                      ShareholderGroup.id == shareholder_group_members.c.group_id)
-                .where(shareholder_group_members.c.user_id == user_id)
+                .join(GroupMembership, ShareholderGroup.id == GroupMembership.group_id)
+                .where(GroupMembership.user_id == user_id)
                 .limit(1)
             )
             aktif_group = r.scalar_one_or_none()
@@ -265,7 +262,6 @@ class LaporanService:
             gerobak_ids = [g.id for g in gerobaks]
             gerobak_names = [g.nama for g in gerobaks]
 
-        # Jika tidak ada grup / tidak ada gerobak → fallback semua data (ADMIN access)
         filter_ids = gerobak_ids if gerobak_ids else None
 
         r = await self.db.execute(
