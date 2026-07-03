@@ -133,8 +133,9 @@ export default function MODetailScreen() {
 
   const cfg = STATUS_CONFIG[mo.status] ?? STATUS_CONFIG.draft;
   const transitions = NEXT_STATUS[mo.status] ?? [];
+  // FIX: backend returns `items` not `data`
   const totalUnits = units?.total ?? 0;
-  const unitList = units?.data ?? [];
+  const unitList   = units?.items ?? [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: '#0a0a0a' }}>
@@ -203,7 +204,6 @@ export default function MODetailScreen() {
                       {line.qty_aktual != null ? ` (aktual: ${line.qty_aktual})` : ''}
                     </span>
                   </div>
-                  {/* Sub-baris: qty per unit + kontribusi harga */}
                   {(line.qty_per_unit != null || line.harga_beli_per_satuan != null) && (
                     <div style={{ display: 'flex', gap: 16, marginTop: 4 }}>
                       {line.qty_per_unit != null && (
@@ -272,7 +272,6 @@ export default function MODetailScreen() {
                 <GlassInput label="Jumlah Unit *" value={genJumlah} onChange={setGenJumlah} placeholder="Contoh: 100" type="number" />
                 <GlassInput label="Tanggal Expiry * (YYYY-MM-DD)" value={genExpiry} onChange={setGenExpiry} placeholder="2026-12-31" />
 
-                {/* Harga Modal — manual atau otomatis */}
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <label style={{ color: '#888', fontSize: 13 }}>Harga Modal per Unit (opsional)</label>
@@ -311,7 +310,6 @@ export default function MODetailScreen() {
                   )}
                 </div>
 
-                {/* Breakdown estimasi jika sudah dihitung */}
                 {estimasiDetail && estimasiDetail.length > 0 && (
                   <div style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: 12 }}>
                     <p style={{ color: '#888', fontSize: 12, margin: '0 0 8px', fontWeight: 600 }}>BREAKDOWN BIAYA</p>
@@ -344,17 +342,26 @@ export default function MODetailScreen() {
           </div>
         )}
 
-        {/* Production Units */}
+        {/* Production Units — tampil kalau ada unit */}
         {totalUnits > 0 && (
           <div style={{ ...glassCard, marginBottom: 20 }}>
             <p style={sectionTitle}>Production Units ({totalUnits})</p>
-            {unitList.slice(0, 20).map((unit: any) => {
+            {unitList.slice(0, 50).map((unit: any) => {
               const uColor = STATUS_UNIT_COLOR[unit.status] ?? '#888';
+              const isExpiring = unit.is_expiring_soon && !unit.is_expired;
+              const isExpired  = unit.is_expired;
               return (
                 <div key={unit.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                   <div>
                     <p style={{ color: 'white', fontFamily: 'monospace', fontSize: 13, margin: 0 }}>{unit.barcode}</p>
-                    <p style={{ color: '#555', fontSize: 12, margin: '2px 0 0' }}>Expiry: {unit.expiry_date}</p>
+                    <div style={{ display: 'flex', gap: 10, marginTop: 3, alignItems: 'center' }}>
+                      <p style={{ color: '#555', fontSize: 12, margin: 0 }}>Expiry: {unit.expiry_date}</p>
+                      {isExpired  && <span style={{ color: '#ef4444', fontSize: 11, fontWeight: 600 }}>EXPIRED</span>}
+                      {isExpiring && <span style={{ color: '#eab308', fontSize: 11, fontWeight: 600 }}>⚠ {unit.hari_tersisa}h lagi</span>}
+                      {unit.harga_modal != null && (
+                        <p style={{ color: '#444', fontSize: 12, margin: 0 }}>{formatRp(unit.harga_modal)}</p>
+                      )}
+                    </div>
                   </div>
                   <span style={{ backgroundColor: uColor + '22', color: uColor, border: `1px solid ${uColor}44`, borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 500 }}>
                     {unit.status}
@@ -362,8 +369,8 @@ export default function MODetailScreen() {
                 </div>
               );
             })}
-            {totalUnits > 20 && (
-              <p style={{ color: '#444', fontSize: 12, textAlign: 'center', marginTop: 10 }}>+{totalUnits - 20} unit lainnya</p>
+            {totalUnits > 50 && (
+              <p style={{ color: '#444', fontSize: 12, textAlign: 'center', marginTop: 10 }}>+{totalUnits - 50} unit lainnya</p>
             )}
           </div>
         )}
