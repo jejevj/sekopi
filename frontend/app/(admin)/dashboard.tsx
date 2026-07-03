@@ -4,9 +4,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { api } from '../../lib/api';
 import { Navbar } from '../../components/layout/Navbar';
+import { Coffee, Factory, TriangleAlert, TrendingDown, type LucideIcon } from 'lucide-react-native';
 
-function MetricCard({ icon, label, value, sub, color }: {
-  icon: string; label: string; value: string; sub?: string; color: string;
+function MetricCard({ Icon, label, value, sub, color, iconBg }: {
+  Icon: LucideIcon; label: string; value: string; sub?: string; color: string; iconBg: string;
 }) {
   return (
     <div style={{
@@ -16,7 +17,13 @@ function MetricCard({ icon, label, value, sub, color }: {
       borderRadius: 12, padding: 20,
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-        <span style={{ fontSize: 28 }}>{icon}</span>
+        <div style={{
+          width: 40, height: 40, borderRadius: 10,
+          backgroundColor: iconBg,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <Icon size={20} color={color} />
+        </div>
         <div style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color, marginTop: 4 }} />
       </div>
       <div style={{ color: 'white', fontSize: 24, fontWeight: 'bold', marginBottom: 2 }}>{value}</div>
@@ -75,21 +82,21 @@ export default function DashboardPage() {
         {/* Metric Cards */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginBottom: 24 }}>
           <MetricCard
-            icon="☕" label="Terjual Hari Ini" color="#22c55e"
+            Icon={Coffee} label="Terjual Hari Ini" color="#22c55e" iconBg="rgba(34,197,94,0.15)"
             value={laporan?.total_unit_terjual != null ? String(laporan.total_unit_terjual) : '—'}
             sub={laporan ? formatRupiah(laporan.total_pendapatan) : undefined}
           />
           <MetricCard
-            icon="🏭" label="MO Aktif" color="#3b82f6"
+            Icon={Factory} label="MO Aktif" color="#3b82f6" iconBg="rgba(59,130,246,0.15)"
             value={moList ? String(moAktif) : '—'}
           />
           <MetricCard
-            icon="⚠️" label="Hampir Expired" color="#eab308"
+            Icon={TriangleAlert} label="Hampir Expired" color="#eab308" iconBg="rgba(234,179,8,0.15)"
             value={expiry ? String(expiryCount) : '—'}
             sub="dalam 3 hari"
           />
           <MetricCard
-            icon="💸" label="Est. Kerugian" color="#ef4444"
+            Icon={TrendingDown} label="Est. Kerugian" color="#ef4444" iconBg="rgba(239,68,68,0.15)"
             value={laporan ? formatRupiah(laporan.estimasi_kerugian) : '—'}
           />
         </div>
@@ -142,7 +149,10 @@ export default function DashboardPage() {
             border: '1px solid rgba(234,179,8,0.25)',
             borderRadius: 12, padding: 20,
           }}>
-            <div style={{ color: '#eab308', fontWeight: 600, fontSize: 15, marginBottom: 12 }}>🔴 Expiry Alert</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#eab308', fontWeight: 600, fontSize: 15, marginBottom: 12 }}>
+              <TriangleAlert size={16} color="#eab308" />
+              Expiry Alert
+            </div>
             {expiry.expiring_soon.slice(0, 5).map((u: any) => (
               <div key={u.id} style={{
                 display: 'flex', justifyContent: 'space-between',
@@ -158,10 +168,12 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Empty state kalau semua data kosong */}
+        {/* Empty state */}
         {!moList?.items?.length && !expiryCount && (
           <div style={{ textAlign: 'center', padding: '40px 0', color: '#444' }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>☕</div>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+              <Coffee size={40} color="#555" />
+            </div>
             <div style={{ fontSize: 14 }}>Belum ada data. Mulai buat Manufacturing Order pertama!</div>
             <button
               onClick={() => router.push('/(admin)/mo/buat' as any)}
