@@ -8,14 +8,19 @@ from app.db.base_class import Base
 
 
 class StatusUnit(str, enum.Enum):
-    READY = "ready"
-    DISPATCHED = "dispatched"
-    DELIVERED = "delivered"
-    SOLD = "sold"
-    RETURNED_GOOD = "returned_good"
+    READY            = "ready"
+    DISPATCHED       = "dispatched"
+    DELIVERED        = "delivered"
+    SOLD             = "sold"
+    RETURNED_GOOD    = "returned_good"
     RETURNED_DAMAGED = "returned_damaged"
-    EXPIRED = "expired"
-    VOID = "void"
+    EXPIRED          = "expired"
+    VOID             = "void"
+
+
+def _enum_values(enum_cls):
+    """Return list of .value strings so SQLAlchemy uses lowercase values in PostgreSQL."""
+    return [e.value for e in enum_cls]
 
 
 class ProductionUnit(Base):
@@ -30,7 +35,11 @@ class ProductionUnit(Base):
         Numeric(12, 2), nullable=True,
         comment="Harga modal per unit, diisi tim produksi. Dipakai untuk hitung kerugian riil."
     )
-    status: Mapped[StatusUnit] = mapped_column(Enum(StatusUnit), default=StatusUnit.READY, nullable=False)
+    status: Mapped[StatusUnit] = mapped_column(
+        Enum(StatusUnit, values_callable=_enum_values),
+        default=StatusUnit.READY,
+        nullable=False,
+    )
     pengiriman_id: Mapped[int | None] = mapped_column(ForeignKey("pengiriman.id"), nullable=True)
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
