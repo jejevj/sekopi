@@ -62,7 +62,8 @@ class MOBahanBaku(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     mo_id: Mapped[int] = mapped_column(ForeignKey("manufacturing_orders.id"), nullable=False)
     bahan_baku_id: Mapped[int] = mapped_column(ForeignKey("bahan_baku.id"), nullable=False)
-    qty_rencana: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    qty_rencana: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)  # total untuk seluruh MO
+    qty_per_unit: Mapped[float | None] = mapped_column(Numeric(12, 6), nullable=True)  # qty bahan per 1 cup/unit produk
     qty_aktual: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     satuan: Mapped[str] = mapped_column(String(50), nullable=False)
 

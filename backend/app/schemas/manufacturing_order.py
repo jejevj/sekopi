@@ -1,11 +1,12 @@
 from datetime import date, datetime
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel
 from app.models.manufacturing_order import StatusMO
 
 
 class MOBahanBakuCreate(BaseModel):
     bahan_baku_id: int
     qty_rencana: float
+    qty_per_unit: float | None = None   # qty bahan per 1 unit produk — untuk auto-kalkulasi harga modal
     satuan: str
 
 
@@ -17,16 +18,13 @@ class MOBahanBakuResponse(BaseModel):
     id: int
     bahan_baku_id: int
     qty_rencana: float
+    qty_per_unit: float | None = None
     qty_aktual: float | None = None
     satuan: str
-    # Diisi dari relasi ORM: line.bahan_baku.nama
     nama_bahan: str | None = None
+    harga_beli_per_satuan: float | None = None   # dikirim agar frontend bisa kalkulasi client-side juga
 
     model_config = {"from_attributes": True}
-
-    @model_validator(mode="after")
-    def populate_nama_bahan(self) -> "MOBahanBakuResponse":
-        return self
 
 
 class UserShortResponse(BaseModel):
@@ -76,9 +74,20 @@ class ManufacturingOrderResponse(BaseModel):
     inventori_at: datetime | None = None
     created_at: datetime
     bahan_baku_lines: list[MOBahanBakuResponse] = []
-    # Nested user objects — diisi dari eager-load di mo_repo
     created_by_user: UserShortResponse | None = None
     approved_by_user: UserShortResponse | None = None
     inventori_by_user: UserShortResponse | None = None
+    # Hasil kalkulasi otomatis di backend
+    estimasi_harga_modal: float | None = None
 
     model_config = {"from_attributes": True}
+
+
+class EstimasiHargaModalResponse(BaseModel):
+    mo_id: int
+    nomor_mo: str
+    target_qty: float
+    satuan: str
+    estimasi_harga_modal_per_unit: float | None
+    detail: list[dict]  # breakdown per bahan
+    semua_harga_tersedia: bool
