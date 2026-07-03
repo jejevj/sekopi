@@ -7,21 +7,25 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base_class import Base
 
 
+def _enum_values(enum_cls):
+    return [e.value for e in enum_cls]
+
+
 class StatusReturnOrder(str, enum.Enum):
-    DRAFT = "draft"           # Driver mulai isi
-    SUBMITTED = "submitted"   # Driver submit, menunggu review gudang
-    REVIEWED = "reviewed"     # Sudah diverifikasi gudang/admin
+    DRAFT     = "draft"
+    SUBMITTED = "submitted"
+    REVIEWED  = "reviewed"
 
 
 class KategoriReturn(str, enum.Enum):
-    SISA = "sisa"       # Tidak terjual, kondisi baik
-    RUSAK = "rusak"     # Diklaim rusak oleh driver
+    SISA  = "sisa"
+    RUSAK = "rusak"
 
 
 class KondisiKonfirmasi(str, enum.Enum):
-    PENDING = "pending"               # Belum dikonfirmasi gudang
-    BAIK = "baik"                     # Gudang konfirmasi: kondisi baik
-    RUSAK_KONFIRMASI = "rusak_konfirmasi"  # Gudang konfirmasi: memang rusak
+    PENDING           = "pending"
+    BAIK              = "baik"
+    RUSAK_KONFIRMASI  = "rusak_konfirmasi"
 
 
 class ReturnOrder(Base):
@@ -32,7 +36,9 @@ class ReturnOrder(Base):
     pengiriman_id: Mapped[int] = mapped_column(ForeignKey("pengiriman.id"), nullable=False)
     driver_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     status: Mapped[StatusReturnOrder] = mapped_column(
-        Enum(StatusReturnOrder), default=StatusReturnOrder.DRAFT, nullable=False
+        Enum(StatusReturnOrder, values_callable=_enum_values),
+        default=StatusReturnOrder.DRAFT,
+        nullable=False,
     )
     catatan_driver: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
@@ -61,9 +67,13 @@ class ReturnItem(Base):
     production_unit_id: Mapped[int] = mapped_column(ForeignKey("production_units.id"), nullable=False)
     barcode: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     mo_id: Mapped[int] = mapped_column(ForeignKey("manufacturing_orders.id"), nullable=False)
-    kategori: Mapped[KategoriReturn] = mapped_column(Enum(KategoriReturn), nullable=False)
+    kategori: Mapped[KategoriReturn] = mapped_column(
+        Enum(KategoriReturn, values_callable=_enum_values), nullable=False
+    )
     kondisi_konfirmasi: Mapped[KondisiKonfirmasi] = mapped_column(
-        Enum(KondisiKonfirmasi), default=KondisiKonfirmasi.PENDING, nullable=False
+        Enum(KondisiKonfirmasi, values_callable=_enum_values),
+        default=KondisiKonfirmasi.PENDING,
+        nullable=False,
     )
     catatan_driver: Mapped[str | None] = mapped_column(String(500), nullable=True)
     catatan_reviewer: Mapped[str | None] = mapped_column(String(500), nullable=True)
