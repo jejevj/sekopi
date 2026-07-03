@@ -28,12 +28,51 @@ const TABS: { key: Tab; label: string; Icon: any; activeColor: string }[] = [
   { key: 'void',   label: 'Void Unit',    Icon: Ban,           activeColor: '#ef4444' },
 ];
 
+// Reusable inline search bar component
+function SearchBar({ value, onChange, placeholder }: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      backgroundColor: 'rgba(255,255,255,0.05)',
+      border: '1px solid rgba(255,255,255,0.09)',
+      borderRadius: 8,
+      padding: '7px 12px',
+      marginBottom: 14,
+    }}>
+      <Search size={13} color="#444" strokeWidth={2} style={{ flexShrink: 0 }} />
+      <input
+        type="text"
+        value={value}
+        onChange={(e: any) => onChange(e.target.value)}
+        placeholder={placeholder ?? 'Cari barcode atau nama produk...'}
+        style={{
+          flex: 1, background: 'none', border: 'none',
+          outline: 'none', color: 'white', fontSize: 13, minWidth: 0,
+        }}
+      />
+      {value.length > 0 && (
+        <button
+          onClick={() => onChange('')}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: 0 }}
+        >
+          <X size={13} color="#444" strokeWidth={2} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function ProduksiScreen() {
   const router = useRouter();
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>('ready');
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [searchExpiry, setSearchExpiry] = useState('');
   const [voidBarcode, setVoidBarcode] = useState('');
   const [voidAlasan, setVoidAlasan] = useState('');
 
@@ -90,14 +129,11 @@ export default function ProduksiScreen() {
   const totalReady: number = readyData?.total  ?? 0;
   const totalPages: number = readyData?.total_pages ?? 1;
 
-  // client-side filter — search barcode or nama_produk
-  const filteredItems = useMemo(() => {
+  const filteredReady = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return readyItems;
-    return readyItems.filter(
-      (u: any) =>
-        u.barcode.toLowerCase().includes(q) ||
-        u.nama_produk.toLowerCase().includes(q)
+    return readyItems.filter((u: any) =>
+      u.barcode.toLowerCase().includes(q) || u.nama_produk.toLowerCase().includes(q)
     );
   }, [readyItems, search]);
 
@@ -105,6 +141,26 @@ export default function ProduksiScreen() {
   const expired: any[]      = expiryData?.units_expired       ?? [];
   const totalExpiringSoon   = expiryData?.total_akan_expired  ?? 0;
   const totalExpired        = expiryData?.total_sudah_expired ?? 0;
+
+  // filter expiry — single search covers both cards
+  const filteredExpiringSoon = useMemo(() => {
+    const q = searchExpiry.trim().toLowerCase();
+    if (!q) return expiringSoon;
+    return expiringSoon.filter((u: any) =>
+      u.barcode.toLowerCase().includes(q) || u.nama_produk.toLowerCase().includes(q)
+    );
+  }, [expiringSoon, searchExpiry]);
+
+  const filteredExpired = useMemo(() => {
+    const q = searchExpiry.trim().toLowerCase();
+    if (!q) return expired;
+    return expired.filter((u: any) =>
+      u.barcode.toLowerCase().includes(q) || u.nama_produk.toLowerCase().includes(q)
+    );
+  }, [expired, searchExpiry]);
+
+  const totalExpiryAll   = expiringSoon.length + expired.length;
+  const totalExpiryFiltered = filteredExpiringSoon.length + filteredExpired.length;
 
   const badgeCount =
     (expiryBadge?.total_akan_expired ?? 0) +
@@ -131,7 +187,7 @@ export default function ProduksiScreen() {
             return (
               <button
                 key={t.key}
-                onClick={() => { setTab(t.key); setPage(1); setSearch(''); }}
+                onClick={() => { setTab(t.key); setPage(1); setSearch(''); setSearchExpiry(''); }}
                 style={{
                   padding: '10px 20px',
                   background: 'none',
@@ -175,77 +231,32 @@ export default function ProduksiScreen() {
               <StatCard label="Total Unit Ready" value={totalReady} color="#3b82f6" />
               <StatCard label="Halaman" value={`${page} / ${totalPages}`} color="#666" />
             </div>
-
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
               <RefreshBtn onClick={() => { setSearch(''); refetchReady(); }} />
             </div>
-
             {loadingReady ? (
               <LoadingSpinner />
             ) : readyItems.length === 0 ? (
               <EmptyState Icon={Package} message="Tidak ada unit ready saat ini" />
             ) : (
               <div style={glassCard}>
-                {/* Card header */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                   <p style={sectionTitle}>Unit Ready — FEFO Order</p>
                   <span style={{ color: '#444', fontSize: 12 }}>Urut expiry tercepat</span>
                 </div>
-
-                {/* Search bar */}
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  backgroundColor: 'rgba(255,255,255,0.05)',
-                  border: '1px solid rgba(255,255,255,0.09)',
-                  borderRadius: 8,
-                  padding: '7px 12px',
-                  marginBottom: 14,
-                }}>
-                  <Search size={13} color="#444" strokeWidth={2} style={{ flexShrink: 0 }} />
-                  <input
-                    type="text"
-                    value={search}
-                    onChange={(e: any) => setSearch(e.target.value)}
-                    placeholder="Cari barcode atau nama produk..."
-                    style={{
-                      flex: 1,
-                      background: 'none',
-                      border: 'none',
-                      outline: 'none',
-                      color: 'white',
-                      fontSize: 13,
-                      minWidth: 0,
-                    }}
-                  />
-                  {search.length > 0 && (
-                    <button
-                      onClick={() => setSearch('')}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: 0 }}
-                    >
-                      <X size={13} color="#444" strokeWidth={2} />
-                    </button>
-                  )}
-                </div>
-
-                {/* Result count when searching */}
+                <SearchBar value={search} onChange={setSearch} />
                 {search.trim() && (
                   <p style={{ color: '#444', fontSize: 12, margin: '0 0 10px' }}>
-                    {filteredItems.length} hasil dari {readyItems.length} unit
+                    {filteredReady.length} hasil dari {readyItems.length} unit
                   </p>
                 )}
-
-                {/* List */}
-                {filteredItems.length === 0 ? (
+                {filteredReady.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '24px 0', color: '#333', fontSize: 13 }}>
                     Tidak ada unit yang cocok dengan “{search}”
                   </div>
                 ) : (
-                  filteredItems.map((unit: any) => (
-                    <UnitRow key={unit.id} unit={unit} />
-                  ))
+                  filteredReady.map((unit: any) => <UnitRow key={unit.id} unit={unit} />)
                 )}
-
-                {/* Pagination — hanya tampil jika tidak sedang search */}
                 {!search.trim() && totalPages > 1 && (
                   <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                     <PageBtn label="‹ Prev" disabled={page <= 1} onClick={() => setPage(p => p - 1)} />
@@ -265,33 +276,72 @@ export default function ProduksiScreen() {
               <StatCard label="Akan Expired (≤3 hari)" value={totalExpiringSoon} color="#eab308" />
               <StatCard label="Sudah Expired" value={totalExpired} color="#ef4444" />
             </div>
-
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-              <RefreshBtn onClick={() => refetchExpiry()} />
+              <RefreshBtn onClick={() => { setSearchExpiry(''); refetchExpiry(); }} />
             </div>
-
             {loadingExpiry ? (
               <LoadingSpinner />
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+                {/* Search bar — satu bar untuk kedua card */}
+                {(expiringSoon.length > 0 || expired.length > 0) && (
+                  <div style={glassCard}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                      <Search size={13} color="#eab308" strokeWidth={2} />
+                      <p style={{ ...sectionTitle, color: '#eab308', margin: 0, fontSize: 13 }}>Filter Expiry Alert</p>
+                    </div>
+                    <SearchBar
+                      value={searchExpiry}
+                      onChange={setSearchExpiry}
+                      placeholder="Cari barcode atau nama produk..."
+                    />
+                    {searchExpiry.trim() && (
+                      <p style={{ color: '#444', fontSize: 12, margin: '-6px 0 0' }}>
+                        {totalExpiryFiltered} hasil dari {totalExpiryAll} unit
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Card: Akan Expired */}
                 {expiringSoon.length > 0 && (
                   <div style={glassCard}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
                       <AlertTriangle size={14} color="#eab308" strokeWidth={2} />
-                      <p style={{ ...sectionTitle, color: '#eab308', margin: 0 }}>Akan Expired ({expiringSoon.length})</p>
+                      <p style={{ ...sectionTitle, color: '#eab308', margin: 0 }}>
+                        Akan Expired ({searchExpiry.trim() ? `${filteredExpiringSoon.length}/` : ''}{expiringSoon.length})
+                      </p>
                     </div>
-                    {expiringSoon.map((unit: any) => <UnitRow key={unit.id} unit={unit} />)}
+                    {filteredExpiringSoon.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '16px 0', color: '#333', fontSize: 13 }}>
+                        Tidak ada unit yang cocok dengan “{searchExpiry}”
+                      </div>
+                    ) : (
+                      filteredExpiringSoon.map((unit: any) => <UnitRow key={unit.id} unit={unit} />)
+                    )}
                   </div>
                 )}
+
+                {/* Card: Sudah Expired */}
                 {expired.length > 0 && (
                   <div style={{ ...glassCard, borderColor: 'rgba(239,68,68,0.2)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
                       <XCircle size={14} color="#ef4444" strokeWidth={2} />
-                      <p style={{ ...sectionTitle, color: '#ef4444', margin: 0 }}>Sudah Expired ({expired.length})</p>
+                      <p style={{ ...sectionTitle, color: '#ef4444', margin: 0 }}>
+                        Sudah Expired ({searchExpiry.trim() ? `${filteredExpired.length}/` : ''}{expired.length})
+                      </p>
                     </div>
-                    {expired.map((unit: any) => <UnitRow key={unit.id} unit={unit} />)}
+                    {filteredExpired.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '16px 0', color: '#333', fontSize: 13 }}>
+                        Tidak ada unit yang cocok dengan “{searchExpiry}”
+                      </div>
+                    ) : (
+                      filteredExpired.map((unit: any) => <UnitRow key={unit.id} unit={unit} />)
+                    )}
                   </div>
                 )}
+
                 {expiringSoon.length === 0 && expired.length === 0 && (
                   <EmptyState Icon={AlertTriangle} message="Tidak ada unit yang akan atau sudah expired" />
                 )}
