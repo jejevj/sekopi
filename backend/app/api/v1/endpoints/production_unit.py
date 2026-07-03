@@ -126,8 +126,9 @@ async def scan_deliver(
 async def scan_sell(
     payload: ScanSellRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PRODUKSI)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.DRIVER)),
 ):
+    """Driver scan jual di gerobak. Driver = kasir gerobak."""
     service = ProductionUnitService(db)
     return await service.scan_sell(payload, current_user.id)
 
@@ -136,7 +137,8 @@ async def scan_sell(
 async def scan_void(
     payload: ScanVoidRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PRODUKSI)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PRODUKSI, UserRole.DRIVER)),
 ):
+    """Void manual unit. Admin, Produksi, atau Driver bisa void."""
     service = ProductionUnitService(db)
     return await service.scan_void(payload, current_user.id)
