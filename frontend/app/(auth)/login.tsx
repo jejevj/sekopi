@@ -126,7 +126,7 @@ export default function LoginPage() {
               render={({ field }) => (
                 <Input
                   label="Email"
-                  placeholder="admin@sekopi.com"
+                  placeholder="admin@sekopi.id"
                   type="email"
                   autoComplete="email"
                   {...field}
@@ -187,9 +187,9 @@ export default function LoginPage() {
             borderRadius: 8,
           }}>
             <p style={{ color: '#555', fontSize: 11, margin: '0 0 6px' }}>Akun Demo:</p>
-            <p style={{ color: '#888', fontSize: 11, margin: '2px 0' }}>admin@sekopi.com / admin123</p>
-            <p style={{ color: '#888', fontSize: 11, margin: '2px 0' }}>driver@sekopi.com / driver123</p>
-            <p style={{ color: '#888', fontSize: 11, margin: '2px 0' }}>shareholder@sekopi.com / holder123</p>
+            <p style={{ color: '#888', fontSize: 11, margin: '2px 0' }}>admin@sekopi.id / admin123</p>
+            <p style={{ color: '#888', fontSize: 11, margin: '2px 0' }}>driver1@sekopi.id / driver123</p>
+            <p style={{ color: '#888', fontSize: 11, margin: '2px 0' }}>shareholder@sekopi.id / shareholder123</p>
           </div>
         </div>
       </div>
