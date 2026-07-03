@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import {
-  AlertTriangle, CheckCircle, Package, XCircle,
-  RefreshCw, Clock, Scan
+  AlertTriangle, Package, XCircle,
+  RefreshCw, Scan, Ban, Info,
 } from 'lucide-react-native';
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert } from 'react-native';
@@ -24,33 +24,41 @@ function formatRp(n: number) {
   return 'Rp ' + n.toLocaleString('id-ID');
 }
 
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
-}
+type Tab = 'ready' | 'expiry' | 'void';
+
+const TABS: { key: Tab; label: string; Icon: any; activeColor: string }[] = [
+  { key: 'ready',  label: 'Unit Ready',   Icon: Package,       activeColor: '#3b82f6' },
+  { key: 'expiry', label: 'Expiry Alert', Icon: AlertTriangle, activeColor: '#eab308' },
+  { key: 'void',   label: 'Void Unit',    Icon: Ban,           activeColor: '#ef4444' },
+];
 
 export default function ProduksiScreen() {
   const router = useRouter();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<'ready' | 'expiry' | 'void'>('ready');
+  const [tab, setTab] = useState<Tab>('ready');
   const [page, setPage] = useState(1);
   const [voidBarcode, setVoidBarcode] = useState('');
   const [voidAlasan, setVoidAlasan] = useState('');
 
-  // ── Query: Unit Ready FEFO ──────────────────────────────────────────────
   const { data: readyData, isLoading: loadingReady, refetch: refetchReady } = useQuery({
     queryKey: ['prod-ready', page],
     queryFn: async () => (await api.get(`/production-units/ready-fefo?page=${page}&per_page=50`)).data,
     enabled: tab === 'ready',
   });
 
-  // ── Query: Expiry Alert ─────────────────────────────────────────────────
   const { data: expiryData, isLoading: loadingExpiry, refetch: refetchExpiry } = useQuery({
     queryKey: ['prod-expiry'],
     queryFn: async () => (await api.get('/production-units/expiry-alerts?days=3')).data,
     enabled: tab === 'expiry',
   });
 
-  // ── Mutation: Void Unit ─────────────────────────────────────────────────
+  // always fetch expiry count for badge (background)
+  const { data: expiryBadge } = useQuery({
+    queryKey: ['prod-expiry-badge'],
+    queryFn: async () => (await api.get('/production-units/expiry-alerts?days=3')).data,
+    staleTime: 60_000,
+  });
+
   const voidMutation = useMutation({
     mutationFn: async () =>
       (await api.post('/production-units/scan/void', {
@@ -60,6 +68,7 @@ export default function ProduksiScreen() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['prod-ready'] });
       qc.invalidateQueries({ queryKey: ['prod-expiry'] });
+      qc.invalidateQueries({ queryKey: ['prod-expiry-badge'] });
       setVoidBarcode('');
       setVoidAlasan('');
       Alert.alert('Berhasil', `Unit ${data.barcode} berhasil di-void.`);
@@ -90,6 +99,10 @@ export default function ProduksiScreen() {
   const totalExpiringSoon   = expiryData?.total_akan_expired  ?? 0;
   const totalExpired        = expiryData?.total_sudah_expired ?? 0;
 
+  const badgeCount =
+    (expiryBadge?.total_akan_expired ?? 0) +
+    (expiryBadge?.total_sudah_expired ?? 0);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: '#0a0a0a' }}>
       <Navbar title="Produksi" />
@@ -103,74 +116,77 @@ export default function ProduksiScreen() {
         </div>
 
         {/* Tabs */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: 0 }}>
-          {([
-            { key: 'ready',  label: 'Unit Ready',    icon: '📦' },
-            { key: 'expiry', label: 'Expiry Alert',  icon: '⚠️' },
-            { key: 'void',   label: 'Void Unit',     icon: '🚫' },
-          ] as const).map(t => (
-            <button
-              key={t.key}
-              onClick={() => { setTab(t.key); setPage(1); }}
-              style={{
-                padding: '10px 20px',
-                background: 'none',
-                border: 'none',
-                borderBottom: tab === t.key ? '2px solid #f44444' : '2px solid transparent',
-                color: tab === t.key ? '#f44444' : '#666',
-                fontWeight: tab === t.key ? 700 : 400,
-                fontSize: 14,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                transition: 'all 0.2s',
-              }}
-            >
-              <span>{t.icon}</span> {t.label}
-              {t.key === 'expiry' && totalExpiringSoon + totalExpired > 0 && (
-                <span style={{ backgroundColor: '#ef444422', color: '#ef4444', border: '1px solid #ef444444', borderRadius: 99, padding: '1px 7px', fontSize: 11, fontWeight: 700 }}>
-                  {totalExpiringSoon + totalExpired}
-                </span>
-              )}
-            </button>
-          ))}
+        <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+          {TABS.map(t => {
+            const active = tab === t.key;
+            const showBadge = t.key === 'expiry' && badgeCount > 0;
+            const iconColor = active ? t.activeColor : '#555';
+            return (
+              <button
+                key={t.key}
+                onClick={() => { setTab(t.key); setPage(1); }}
+                style={{
+                  padding: '10px 20px',
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: active ? `2px solid ${t.activeColor}` : '2px solid transparent',
+                  color: active ? t.activeColor : '#555',
+                  fontWeight: active ? 600 : 400,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 7,
+                  transition: 'color 0.15s',
+                  position: 'relative',
+                }}
+              >
+                <t.Icon size={14} color={iconColor} strokeWidth={active ? 2.2 : 1.8} />
+                {t.label}
+                {showBadge && (
+                  <span style={{
+                    backgroundColor: 'rgba(234,179,8,0.15)',
+                    color: '#eab308',
+                    border: '1px solid rgba(234,179,8,0.3)',
+                    borderRadius: 99,
+                    padding: '1px 6px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    lineHeight: '16px',
+                  }}>
+                    {badgeCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
-        {/* ── TAB: READY ─────────────────────────────────────────────────── */}
+        {/* ── TAB: READY ─────────────────────────────────────────────── */}
         {tab === 'ready' && (
           <div>
-            {/* Stats bar */}
             <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
               <StatCard label="Total Unit Ready" value={totalReady} color="#3b82f6" />
-              <StatCard label="Halaman" value={`${page} / ${totalPages}`} color="#888" />
+              <StatCard label="Halaman" value={`${page} / ${totalPages}`} color="#666" />
             </div>
 
-            {/* Refresh */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-              <button
-                onClick={() => refetchReady()}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '6px 14px', color: '#888', fontSize: 13, cursor: 'pointer' }}
-              >
-                <RefreshCw size={13} color="#888" /> Refresh
-              </button>
+              <RefreshBtn onClick={() => refetchReady()} />
             </div>
 
             {loadingReady ? (
               <LoadingSpinner />
             ) : readyItems.length === 0 ? (
-              <EmptyState icon="📦" message="Tidak ada unit ready saat ini" />
+              <EmptyState Icon={Package} message="Tidak ada unit ready saat ini" />
             ) : (
               <div style={glassCard}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                   <p style={sectionTitle}>Unit Ready — FEFO Order</p>
-                  <span style={{ color: '#555', fontSize: 12 }}>Urut expiry tercepat</span>
+                  <span style={{ color: '#444', fontSize: 12 }}>Urut expiry tercepat</span>
                 </div>
                 {readyItems.map((unit: any) => (
                   <UnitRow key={unit.id} unit={unit} />
                 ))}
-
-                {/* Pagination */}
                 {totalPages > 1 && (
                   <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                     <PageBtn label="‹ Prev" disabled={page <= 1} onClick={() => setPage(p => p - 1)} />
@@ -183,7 +199,7 @@ export default function ProduksiScreen() {
           </div>
         )}
 
-        {/* ── TAB: EXPIRY ────────────────────────────────────────────────── */}
+        {/* ── TAB: EXPIRY ────────────────────────────────────────────── */}
         {tab === 'expiry' && (
           <div>
             <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
@@ -192,12 +208,7 @@ export default function ProduksiScreen() {
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-              <button
-                onClick={() => refetchExpiry()}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '6px 14px', color: '#888', fontSize: 13, cursor: 'pointer' }}
-              >
-                <RefreshCw size={13} color="#888" /> Refresh
-              </button>
+              <RefreshBtn onClick={() => refetchExpiry()} />
             </div>
 
             {loadingExpiry ? (
@@ -207,37 +218,35 @@ export default function ProduksiScreen() {
                 {expiringSoon.length > 0 && (
                   <div style={glassCard}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-                      <AlertTriangle size={16} color="#eab308" />
+                      <AlertTriangle size={14} color="#eab308" strokeWidth={2} />
                       <p style={{ ...sectionTitle, color: '#eab308', margin: 0 }}>Akan Expired ({expiringSoon.length})</p>
                     </div>
                     {expiringSoon.map((unit: any) => <UnitRow key={unit.id} unit={unit} />)}
                   </div>
                 )}
-
                 {expired.length > 0 && (
                   <div style={{ ...glassCard, borderColor: 'rgba(239,68,68,0.2)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-                      <XCircle size={16} color="#ef4444" />
+                      <XCircle size={14} color="#ef4444" strokeWidth={2} />
                       <p style={{ ...sectionTitle, color: '#ef4444', margin: 0 }}>Sudah Expired ({expired.length})</p>
                     </div>
                     {expired.map((unit: any) => <UnitRow key={unit.id} unit={unit} />)}
                   </div>
                 )}
-
                 {expiringSoon.length === 0 && expired.length === 0 && (
-                  <EmptyState icon="✅" message="Tidak ada unit yang akan atau sudah expired" />
+                  <EmptyState Icon={AlertTriangle} message="Tidak ada unit yang akan atau sudah expired" />
                 )}
               </div>
             )}
           </div>
         )}
 
-        {/* ── TAB: VOID ──────────────────────────────────────────────────── */}
+        {/* ── TAB: VOID ──────────────────────────────────────────────── */}
         {tab === 'void' && (
           <div style={{ maxWidth: 560 }}>
             <div style={glassCard}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                <Scan size={16} color="#f44444" />
+                <Scan size={14} color="#ef4444" strokeWidth={2} />
                 <p style={sectionTitle}>Void Unit Rusak / Tidak Layak</p>
               </div>
               <p style={{ color: '#555', fontSize: 13, marginBottom: 20 }}>
@@ -257,39 +266,37 @@ export default function ProduksiScreen() {
                   onChange={setVoidAlasan}
                   placeholder="Contoh: Cup pecah, kopi tumpah, kedaluwarsa sebelum dispatch"
                 />
-
                 <button
                   onClick={handleVoid}
                   disabled={!voidBarcode.trim() || !voidAlasan.trim() || voidMutation.isPending}
                   style={{
-                    padding: '12px 0',
+                    padding: '11px 0',
                     borderRadius: 10,
                     fontWeight: 600,
                     fontSize: 14,
                     backgroundColor: (!voidBarcode.trim() || !voidAlasan.trim() || voidMutation.isPending)
-                      ? '#1a1a1a' : 'rgba(239,68,68,0.15)',
-                    color: (!voidBarcode.trim() || !voidAlasan.trim()) ? '#333' : '#ef4444',
-                    border: (!voidBarcode.trim() || !voidAlasan.trim()) ? '1px solid #222' : '1px solid rgba(239,68,68,0.4)',
+                      ? '#111' : 'rgba(239,68,68,0.12)',
+                    color: (!voidBarcode.trim() || !voidAlasan.trim()) ? '#2a2a2a' : '#ef4444',
+                    border: (!voidBarcode.trim() || !voidAlasan.trim()) ? '1px solid #1f1f1f' : '1px solid rgba(239,68,68,0.35)',
                     cursor: (!voidBarcode.trim() || !voidAlasan.trim()) ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                   }}
                 >
-                  <XCircle size={16} color={(!voidBarcode.trim() || !voidAlasan.trim()) ? '#333' : '#ef4444'} />
+                  <Ban size={14} color={(!voidBarcode.trim() || !voidAlasan.trim()) ? '#2a2a2a' : '#ef4444'} strokeWidth={2} />
                   {voidMutation.isPending ? 'Memproses...' : 'Void Unit Ini'}
                 </button>
               </div>
             </div>
 
-            {/* Info box */}
-            <div style={{ marginTop: 16, backgroundColor: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 12, padding: 16 }}>
-              <p style={{ color: '#3b82f6', fontSize: 13, fontWeight: 600, margin: '0 0 8px' }}>ℹ️ Tentang Void</p>
-              <ul style={{ color: '#555', fontSize: 13, paddingLeft: 16, margin: 0, lineHeight: 1.8 }}>
+            <div style={{ marginTop: 14, backgroundColor: 'rgba(59,130,246,0.05)', border: '1px solid rgba(59,130,246,0.12)', borderRadius: 12, padding: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+                <Info size={13} color="#3b82f6" strokeWidth={2} />
+                <p style={{ color: '#3b82f6', fontSize: 13, fontWeight: 600, margin: 0 }}>Tentang Void</p>
+              </div>
+              <ul style={{ color: '#555', fontSize: 13, paddingLeft: 16, margin: 0, lineHeight: 1.9 }}>
                 <li>Unit yang di-void tidak bisa di-dispatch atau dijual</li>
                 <li>Alasan void tercatat permanen di sistem</li>
-                <li>Hanya unit berstatus <strong style={{ color: '#888' }}>ready</strong> yang bisa di-void dari sini</li>
+                <li>Hanya unit berstatus <strong style={{ color: '#777' }}>ready</strong> yang bisa di-void dari sini</li>
                 <li>Untuk void unit dispatched, hubungi admin</li>
               </ul>
             </div>
@@ -307,18 +314,18 @@ function UnitRow({ unit }: { unit: any }) {
   const isExpiring = unit.is_expiring_soon && !unit.is_expired;
   const isExpired  = unit.is_expired;
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
       <div>
         <p style={{ color: 'white', fontFamily: 'monospace', fontSize: 13, margin: 0 }}>{unit.barcode}</p>
         <p style={{ color: '#444', fontSize: 12, margin: '2px 0 0' }}>{unit.nama_produk}</p>
         <div style={{ display: 'flex', gap: 10, marginTop: 3, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ color: '#555', fontSize: 12 }}>Expiry: {unit.expiry_date}</span>
-          {isExpired  && <span style={{ color: '#ef4444', fontSize: 11, fontWeight: 700 }}>EXPIRED</span>}
-          {isExpiring && <span style={{ color: '#eab308', fontSize: 11, fontWeight: 700 }}>⚠ {unit.hari_tersisa}h lagi</span>}
-          {unit.harga_modal != null && <span style={{ color: '#333', fontSize: 12 }}>{formatRp(unit.harga_modal)}</span>}
+          <span style={{ color: '#444', fontSize: 12 }}>Expiry: {unit.expiry_date}</span>
+          {isExpired  && <span style={{ color: '#ef4444', fontSize: 11, fontWeight: 600, letterSpacing: '0.03em' }}>EXPIRED</span>}
+          {isExpiring && <span style={{ color: '#eab308', fontSize: 11, fontWeight: 600 }}>{unit.hari_tersisa}h lagi</span>}
+          {unit.harga_modal != null && <span style={{ color: '#333', fontSize: 12 }}>{'Rp ' + unit.harga_modal.toLocaleString('id-ID')}</span>}
         </div>
       </div>
-      <span style={{ backgroundColor: uColor + '22', color: uColor, border: `1px solid ${uColor}44`, borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
+      <span style={{ backgroundColor: uColor + '18', color: uColor, border: `1px solid ${uColor}33`, borderRadius: 5, padding: '2px 10px', fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap' }}>
         {unit.status}
       </span>
     </div>
@@ -327,26 +334,37 @@ function UnitRow({ unit }: { unit: any }) {
 
 function StatCard({ label, value, color }: { label: string; value: number | string; color: string }) {
   return (
-    <div style={{ backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '14px 20px', minWidth: 140 }}>
-      <p style={{ color: '#666', fontSize: 12, margin: '0 0 4px' }}>{label}</p>
-      <p style={{ color, fontSize: 26, fontWeight: 700, margin: 0 }}>{value}</p>
+    <div style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '12px 18px', minWidth: 130 }}>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 4px' }}>{label}</p>
+      <p style={{ color, fontSize: 24, fontWeight: 700, margin: 0, fontVariantNumeric: 'tabular-nums' }}>{value}</p>
     </div>
+  );
+}
+
+function RefreshBtn({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 7, padding: '6px 12px', color: '#555', fontSize: 12, cursor: 'pointer' }}
+    >
+      <RefreshCw size={12} color="#555" strokeWidth={2} /> Refresh
+    </button>
   );
 }
 
 function LoadingSpinner() {
   return (
     <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
-      <ActivityIndicator size="large" color="#f44444" />
+      <ActivityIndicator size="large" color="#3b82f6" />
     </div>
   );
 }
 
-function EmptyState({ icon, message }: { icon: string; message: string }) {
+function EmptyState({ Icon, message }: { Icon: any; message: string }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 24px', color: '#444' }}>
-      <span style={{ fontSize: 40, marginBottom: 12 }}>{icon}</span>
-      <p style={{ color: '#444', fontSize: 14, margin: 0 }}>{message}</p>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 24px' }}>
+      <Icon size={32} color="#2a2a2a" strokeWidth={1.5} style={{ marginBottom: 12 }} />
+      <p style={{ color: '#3a3a3a', fontSize: 14, margin: 0 }}>{message}</p>
     </div>
   );
 }
@@ -357,10 +375,10 @@ function PageBtn({ label, disabled, onClick }: { label: string; disabled: boolea
       onClick={onClick}
       disabled={disabled}
       style={{
-        padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 500,
-        background: disabled ? 'transparent' : 'rgba(255,255,255,0.06)',
-        border: '1px solid rgba(255,255,255,0.1)',
-        color: disabled ? '#333' : '#888',
+        padding: '6px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500,
+        background: disabled ? 'transparent' : 'rgba(255,255,255,0.05)',
+        border: '1px solid rgba(255,255,255,0.08)',
+        color: disabled ? '#2a2a2a' : '#666',
         cursor: disabled ? 'not-allowed' : 'pointer',
       }}
     >{label}</button>
@@ -372,7 +390,7 @@ function GlassInput({ label, value, onChange, placeholder }: {
 }) {
   return (
     <div>
-      <label style={{ color: '#888', fontSize: 13, display: 'block', marginBottom: 6 }}>{label}</label>
+      <label style={{ color: '#666', fontSize: 13, display: 'block', marginBottom: 6 }}>{label}</label>
       <input
         type="text"
         value={value}
@@ -380,8 +398,8 @@ function GlassInput({ label, value, onChange, placeholder }: {
         placeholder={placeholder}
         style={{
           width: '100%', boxSizing: 'border-box',
-          backgroundColor: 'rgba(255,255,255,0.06)',
-          border: '1px solid rgba(255,255,255,0.12)',
+          backgroundColor: 'rgba(255,255,255,0.05)',
+          border: '1px solid rgba(255,255,255,0.1)',
           borderRadius: 8, padding: '10px 14px',
           color: 'white', fontSize: 14, outline: 'none',
         }}
@@ -395,7 +413,7 @@ function GlassTextarea({ label, value, onChange, placeholder }: {
 }) {
   return (
     <div>
-      <label style={{ color: '#888', fontSize: 13, display: 'block', marginBottom: 6 }}>{label}</label>
+      <label style={{ color: '#666', fontSize: 13, display: 'block', marginBottom: 6 }}>{label}</label>
       <textarea
         value={value}
         onChange={(e: any) => onChange(e.target.value)}
@@ -403,8 +421,8 @@ function GlassTextarea({ label, value, onChange, placeholder }: {
         rows={3}
         style={{
           width: '100%', boxSizing: 'border-box',
-          backgroundColor: 'rgba(255,255,255,0.06)',
-          border: '1px solid rgba(255,255,255,0.12)',
+          backgroundColor: 'rgba(255,255,255,0.05)',
+          border: '1px solid rgba(255,255,255,0.1)',
           borderRadius: 8, padding: '10px 14px',
           color: 'white', fontSize: 14, outline: 'none',
           resize: 'vertical', fontFamily: 'inherit',
@@ -415,12 +433,11 @@ function GlassTextarea({ label, value, onChange, placeholder }: {
 }
 
 const glassCard: React.CSSProperties = {
-  backgroundColor: 'rgba(255,255,255,0.05)',
-  border: '1px solid rgba(255,255,255,0.08)',
+  backgroundColor: 'rgba(255,255,255,0.04)',
+  border: '1px solid rgba(255,255,255,0.07)',
   borderRadius: 12,
   padding: 20,
-  marginBottom: 0,
 };
 const sectionTitle: React.CSSProperties = {
-  color: 'white', fontWeight: 600, fontSize: 15, margin: '0 0 0'
+  color: 'white', fontWeight: 600, fontSize: 14, margin: 0,
 };
