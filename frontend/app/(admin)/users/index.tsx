@@ -10,18 +10,26 @@ const card: React.CSSProperties = { background: 'rgba(255,255,255,0.04)', border
 const btnPrimary: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, backgroundColor: '#f44444', border: 'none', borderRadius: 10, padding: '9px 18px', color: 'white', fontWeight: 600, fontSize: 13, cursor: 'pointer' };
 const btnGhost: React.CSSProperties = { padding: '8px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#aaa', cursor: 'pointer', fontSize: 13 };
 
-const ROLES = ['ADMIN', 'PRODUKSI', 'INVENTORI', 'KASIR', 'DRIVER', 'SHAREHOLDER'];
+// Role sesuai UserRole enum di backend (tidak ada KASIR)
+const ROLES = ['admin', 'produksi', 'inventori', 'driver', 'shareholder'];
 
-const ROLE_COLOR: Record<string, string> = {
-  ADMIN:       '#f87171',
-  PRODUKSI:    '#60a5fa',
-  INVENTORI:   '#a78bfa',
-  KASIR:       '#34d399',
-  DRIVER:      '#fbbf24',
-  SHAREHOLDER: '#fb923c',
+const ROLE_LABEL: Record<string, string> = {
+  admin:       'Admin',
+  produksi:    'Produksi',
+  inventori:   'Inventori',
+  driver:      'Driver',
+  shareholder: 'Shareholder',
 };
 
-const emptyForm = { email: '', full_name: '', role: 'KASIR', password: '' };
+const ROLE_COLOR: Record<string, string> = {
+  admin:       '#f87171',
+  produksi:    '#60a5fa',
+  inventori:   '#a78bfa',
+  driver:      '#fbbf24',
+  shareholder: '#fb923c',
+};
+
+const emptyForm = { email: '', full_name: '', role: 'driver', password: '' };
 
 export default function UsersAdminPage() {
   const qc = useQueryClient();
@@ -131,7 +139,7 @@ export default function UsersAdminPage() {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Cari nama atau email..." style={{ ...inp, width: 260 }} />
           <select value={filterRole} onChange={e => setFilterRole(e.target.value)} style={{ ...inp, width: 160, cursor: 'pointer' }}>
             <option value="semua" style={{ background: '#1a1a1a' }}>Semua Role</option>
-            {ROLES.map(r => <option key={r} value={r} style={{ background: '#1a1a1a' }}>{r}</option>)}
+            {ROLES.map(r => <option key={r} value={r} style={{ background: '#1a1a1a' }}>{ROLE_LABEL[r]}</option>)}
           </select>
         </div>
 
@@ -165,7 +173,7 @@ export default function UsersAdminPage() {
                         <td style={{ padding: '12px 16px', color: '#888', fontSize: 13 }}>{u.email}</td>
                         <td style={{ padding: '12px 16px' }}>
                           <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: `${ROLE_COLOR[u.role] ?? '#666'}18`, color: ROLE_COLOR[u.role] ?? '#aaa', border: `1px solid ${ROLE_COLOR[u.role] ?? '#666'}40` }}>
-                            {u.role}
+                            {ROLE_LABEL[u.role] ?? u.role}
                           </span>
                         </td>
                         <td style={{ padding: '12px 16px' }}>
@@ -212,7 +220,7 @@ export default function UsersAdminPage() {
               <div>
                 <label style={lbl}>ROLE *</label>
                 <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} style={{ ...inp, cursor: 'pointer' }}>
-                  {ROLES.map(r => <option key={r} value={r} style={{ background: '#1a1a1a' }}>{r}</option>)}
+                  {ROLES.map(r => <option key={r} value={r} style={{ background: '#1a1a1a' }}>{ROLE_LABEL[r]}</option>)}
                 </select>
               </div>
               {!editId && <div><label style={lbl}>PASSWORD *</label><input type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="Min. 6 karakter" style={inp} /></div>}
