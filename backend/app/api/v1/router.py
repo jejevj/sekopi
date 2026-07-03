@@ -13,6 +13,7 @@ from app.api.v1.endpoints import (
     return_order,
     laporan,
     gerobak,
+    purchase_order,
 )
 
 api_router = APIRouter()
@@ -29,3 +30,4 @@ api_router.include_router(penjualan.router,          prefix="/penjualan",       
 api_router.include_router(return_order.router,       prefix="/returns",              tags=["Return Orders"])
 api_router.include_router(laporan.router,            prefix="/laporan",              tags=["Laporan"])
 api_router.include_router(gerobak.router,            prefix="/gerobak",              tags=["Gerobak & Shareholder Groups"])
+api_router.include_router(purchase_order.router,     prefix="/pembelian",            tags=["Pembelian & Supplier"])
