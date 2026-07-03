@@ -2,6 +2,7 @@
 
 > Dokumentasi alur lengkap sistem manajemen kopi gerobakan SekoPi.
 > Dibuat: 2026-07-03 WIB
+> Catatan: **Driver adalah operator gerobak sekaligus kasirnya** — satu orang yang mengambil barang, berjualan, dan mengembalikan sisa.
 
 ---
 
@@ -45,11 +46,8 @@
  Unit berstatus READY di gudang
       │
       ▼
- [DRIVER] Buat Pengiriman Order
-      │
-      ▼
  [DRIVER] Scan Dispatch (READY → DISPATCHED)
-      │  - Scan barcode tiap cup yang dimuat ke kendaraan
+      │  - Driver scan barcode tiap cup yang dimuat ke kendaraan
       │  - Sistem tolak jika cup sudah EXPIRED
       │  - Sistem beri WARNING jika expiry ≤ 2 hari
       │
@@ -58,11 +56,12 @@
       │
       ▼
  [DRIVER] Scan Deliver (DISPATCHED → DELIVERED)
-      │  - Scan konfirmasi terima di gerobak
+      │  - Driver konfirmasi stok sudah ada di gerobak
       │
       ▼
- [KASIR] Scan Sell (DELIVERED → SOLD)
-      │  - Kasir scan barcode saat pelanggan beli
+ [DRIVER] Scan Sell (DELIVERED → SOLD)
+      │  - Driver scan barcode saat pelanggan beli di gerobak
+      │  - Driver = operator gerobak sekaligus kasir
       │  - Sistem tolak jika produk EXPIRED
       │  - Record Penjualan otomatis dibuat
       │
@@ -80,8 +79,8 @@
       ▼
  [INVENTORI/ADMIN] Review Return
       │  - Per item: konfirmasi BAIK atau RUSAK_KONFIRMASI
-      │  - BAIK          → unit kembali READY (bisa dijual lagi)
-      │  - RUSAK_KONFIRMASI → unit VOID (kerugian tercatat)
+      │  - BAIK               → unit kembali READY (bisa dijual lagi)
+      │  - RUSAK_KONFIRMASI   → unit VOID (kerugian tercatat)
       │
       ▼
  [SHAREHOLDER] Lihat Laporan
@@ -114,17 +113,17 @@
 ```
   READY
     │
-    ├──→ DISPATCHED   (driver scan loading)
+    ├──→ DISPATCHED   (driver scan loading ke kendaraan)
     │         │
-    │         ├──→ DELIVERED   (gerobak scan terima)
+    │         ├──→ DELIVERED   (driver scan terima di gerobak)
     │         │         │
-    │         │         ├──→ SOLD              (kasir scan jual)
-    │         │         ├──→ RETURNED_GOOD     (driver bawa balik, baik)
-    │         │         │         └──→ READY   (setelah review konfirmasi BAIK)
-    │         │         └──→ RETURNED_DAMAGED  (driver bawa balik, rusak)
-    │         │                   ├──→ READY   (review: BAIK → salah klaim)
+    │         │         ├──→ SOLD              (driver scan jual di gerobak)
+    │         │         ├──→ RETURNED_GOOD     (driver bawa balik, kondisi baik)
+    │         │         │         └──→ READY   (setelah review: konfirmasi BAIK)
+    │         │         └──→ RETURNED_DAMAGED  (driver bawa balik, kondisi rusak)
+    │         │                   ├──→ READY   (review: ternyata BAIK — salah klaim)
     │         │                   └──→ VOID    (review: RUSAK_KONFIRMASI)
-    │         └──→ RETURNED_DAMAGED / RETURNED_GOOD
+    │         └──→ RETURNED_DAMAGED / RETURNED_GOOD  (belum di-deliver tapi rusak)
     ├──→ EXPIRED  (melewati expiry_date, ditandai cron 00:01 WIB)
     └──→ VOID     (admin/produksi void manual)
 ```
@@ -182,8 +181,10 @@
 
 | Role | Akses Utama |
 |------|-------------|
-| `ADMIN` | Semua endpoint |
-| `PRODUKSI` | MO, generate unit, scan sell, laporan produksi |
-| `INVENTORI` | Stok bahan baku, review return, expiry alerts |
-| `DRIVER` | Pengiriman, scan dispatch/deliver, buat return |
-| `SHAREHOLDER` | Laporan keuangan & kerugian (read-only) |
+| `admin` | Semua endpoint + manajemen pengguna |
+| `produksi` | MO, generate unit, laporan produksi |
+| `inventori` | Stok bahan baku, review return, expiry alerts |
+| `driver` | Scan dispatch, deliver, **jual (kasir gerobak)**, buat & submit return |
+| `shareholder` | Laporan keuangan & kerugian (read-only) |
+
+> **Catatan:** Tidak ada role `kasir` yang terpisah. Driver adalah operator gerobak sekaligus yang melayani transaksi penjualan. Semua aksi kasir (scan jual) dilakukan oleh role `driver`.
