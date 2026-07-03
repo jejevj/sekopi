@@ -1,7 +1,7 @@
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, literal
 from pydantic import BaseModel
 from typing import Optional
 
@@ -29,20 +29,19 @@ class BayarInput(BaseModel):
 
 
 # ─── Helper: total pembelian (PurchaseOrder) dalam periode ─────────────────
-# PurchaseOrder dibagi rata ke semua grup (bahan baku = biaya bersama)
 async def _total_pembelian(
     db: AsyncSession,
     dari: date,
     sampai: date,
 ) -> float:
     """
-    Ambil total PurchaseOrder status DITERIMA di periode.
-    Gunakan total_amount (bukan total_harga).
+    Filter status pakai literal() string agar tidak di-cast ke ::statuspo
+    (kolom status di DB adalah VARCHAR, bukan native PostgreSQL enum).
     """
     res = await db.execute(
         select(func.coalesce(func.sum(PurchaseOrder.total_amount), 0))
         .where(
-            PurchaseOrder.status == StatusPO.DITERIMA,
+            PurchaseOrder.status == literal(StatusPO.DITERIMA.value),
             func.date(PurchaseOrder.tanggal_invoice) >= dari,
             func.date(PurchaseOrder.tanggal_invoice) <= sampai,
         )
@@ -70,11 +69,6 @@ async def _total_penjualan_gerobak(
     dari: date,
     sampai: date,
 ) -> float:
-    """
-    Hitung total penjualan dari gerobak tertentu di periode.
-    Penjualan.harga = harga per transaksi (1 row = 1 unit terjual).
-    Penjualan.sold_at = waktu transaksi (DateTime).
-    """
     if not gerobak_ids:
         return 0.0
     res = await db.execute(
@@ -94,8 +88,8 @@ async def _hitung_laba_grup(
     group_id: int,
     dari: date,
     sampai: date,
-    beban_pembelian_grup: float,    # total PO / jumlah_grup
-    beban_pengeluaran_grup: float,  # total Pengeluaran / jumlah_grup
+    beban_pembelian_grup: float,
+    beban_pengeluaran_grup: float,
 ) -> dict:
     from app.models.gerobak import Gerobak
 
@@ -103,13 +97,12 @@ async def _hitung_laba_grup(
     gerobak_ids = [r[0] for r in res.all()]
 
     total_penjualan = await _total_penjualan_gerobak(db, gerobak_ids, dari, sampai)
-
     laba = total_penjualan - beban_pembelian_grup - beban_pengeluaran_grup
     return {
-        "total_penjualan":    total_penjualan,
-        "total_pembelian":    beban_pembelian_grup,
-        "total_pengeluaran":  beban_pengeluaran_grup,
-        "laba_bersih":        laba,
+        "total_penjualan":   total_penjualan,
+        "total_pembelian":   beban_pembelian_grup,
+        "total_pengeluaran": beban_pengeluaran_grup,
+        "laba_bersih":       laba,
     }
 
 
@@ -127,8 +120,6 @@ async def preview_dividen(
         raise HTTPException(400, "Belum ada grup shareholder")
 
     jumlah_grup = len(groups)
-
-    # Semua pengeluaran global dibagi rata ke setiap grup
     total_pembelian   = await _total_pembelian(db, body.periode_dari, body.periode_sampai)
     total_pengeluaran = await _total_pengeluaran(db, body.periode_dari, body.periode_sampai)
     beban_pembelian_per_grup   = total_pembelian / jumlah_grup
@@ -170,17 +161,17 @@ async def preview_dividen(
         })
 
     return {
-        "periode_label":             body.periode_label,
-        "periode_dari":              body.periode_dari,
-        "periode_sampai":            body.periode_sampai,
-        "total_pembelian":           total_pembelian,
-        "total_pengeluaran":         total_pengeluaran,
-        "total_biaya_global":        round(total_pembelian + total_pengeluaran, 2),
-        "beban_pembelian_per_grup":  beban_pembelian_per_grup,
+        "periode_label":              body.periode_label,
+        "periode_dari":               body.periode_dari,
+        "periode_sampai":             body.periode_sampai,
+        "total_pembelian":            total_pembelian,
+        "total_pengeluaran":          total_pengeluaran,
+        "total_biaya_global":         round(total_pembelian + total_pengeluaran, 2),
+        "beban_pembelian_per_grup":   beban_pembelian_per_grup,
         "beban_pengeluaran_per_grup": beban_pengeluaran_per_grup,
-        "total_penjualan":           total_penjualan_all,
-        "jumlah_grup":               jumlah_grup,
-        "per_grup":                  per_grup,
+        "total_penjualan":            total_penjualan_all,
+        "jumlah_grup":                jumlah_grup,
+        "per_grup":                   per_grup,
     }
 
 
@@ -227,7 +218,6 @@ async def konfirmasi_dividen(
                 periode_sampai=body.periode_sampai,
                 total_penjualan=laba_data["total_penjualan"],
                 total_pembelian=laba_data["total_pembelian"],
-                # total_gaji_grup dipakai untuk menyimpan total semua beban per grup
                 total_gaji_grup=beban_pembelian_per_grup + beban_pengeluaran_per_grup,
                 laba_bersih_grup=laba_data["laba_bersih"],
                 porsi_saham=m.porsi_saham,
