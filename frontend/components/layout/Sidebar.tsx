@@ -18,33 +18,35 @@ interface NavItem {
   Icon: LucideIcon;
   roles: string[];
   group?: string;
+  // exact: jika true, isActive hanya cocok bila path persis sama (tidak startsWith)
+  exact?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
   // Operasional
-  { label: 'Dashboard',     href: '/(admin)/dashboard',       Icon: LayoutDashboard, roles: ['ADMIN', 'PRODUKSI'],           group: 'Operasional' },
-  { label: 'Mfg. Order',   href: '/(admin)/mo',              Icon: ClipboardList,   roles: ['ADMIN', 'PRODUKSI'],           group: 'Operasional' },
-  { label: 'Produksi',     href: '/(admin)/produksi',        Icon: Factory,         roles: ['ADMIN', 'PRODUKSI'],           group: 'Operasional' },
-  { label: 'Return',       href: '/(admin)/return',          Icon: Undo2,           roles: ['ADMIN', 'INVENTORI'],          group: 'Operasional' },
-  { label: 'Users',        href: '/(admin)/users',           Icon: Users,           roles: ['ADMIN'],                       group: 'Operasional' },
+  { label: 'Dashboard',      href: '/(admin)/dashboard',          Icon: LayoutDashboard, roles: ['ADMIN', 'PRODUKSI'],        group: 'Operasional' },
+  { label: 'Mfg. Order',    href: '/(admin)/mo',                 Icon: ClipboardList,   roles: ['ADMIN', 'PRODUKSI'],        group: 'Operasional' },
+  { label: 'Produksi',      href: '/(admin)/produksi',           Icon: Factory,         roles: ['ADMIN', 'PRODUKSI'],        group: 'Operasional' },
+  { label: 'Return',        href: '/(admin)/return',             Icon: Undo2,           roles: ['ADMIN', 'INVENTORI'],       group: 'Operasional' },
+  { label: 'Users',         href: '/(admin)/users',              Icon: Users,           roles: ['ADMIN'],                    group: 'Operasional' },
   // Inventori
-  { label: 'Bahan Baku',   href: '/(admin)/bahan-baku',      Icon: FlaskConical,    roles: ['ADMIN', 'INVENTORI'],          group: 'Inventori' },
-  { label: 'Stok',         href: '/(inventori)/stok',        Icon: Package,         roles: ['INVENTORI', 'ADMIN'],          group: 'Inventori' },
-  { label: 'Expiry Alert', href: '/(inventori)/expiry',      Icon: TriangleAlert,   roles: ['INVENTORI', 'ADMIN'],          group: 'Inventori' },
+  { label: 'Bahan Baku',    href: '/(admin)/bahan-baku',         Icon: FlaskConical,    roles: ['ADMIN', 'INVENTORI'],       group: 'Inventori' },
+  { label: 'Stok',          href: '/(inventori)/stok',           Icon: Package,         roles: ['INVENTORI', 'ADMIN'],       group: 'Inventori' },
+  { label: 'Expiry Alert',  href: '/(inventori)/expiry',         Icon: TriangleAlert,   roles: ['INVENTORI', 'ADMIN'],       group: 'Inventori' },
   // Pembelian
-  { label: 'Pembelian',    href: '/(admin)/pembelian',       Icon: ShoppingBag,     roles: ['ADMIN', 'INVENTORI'],          group: 'Pembelian' },
+  { label: 'Pembelian',     href: '/(admin)/pembelian',          Icon: ShoppingBag,     roles: ['ADMIN', 'INVENTORI'],       group: 'Pembelian' },
   // Gerobak & Saham (admin)
-  { label: 'Gerobak',      href: '/(admin)/gerobak',         Icon: ShoppingCart,    roles: ['ADMIN'],                       group: 'Saham & Gerobak' },
-  { label: 'Saham & Dividen', href: '/(admin)/gerobak',      Icon: PieChart,        roles: ['ADMIN'],                       group: 'Saham & Gerobak' },
+  { label: 'Gerobak',       href: '/(admin)/gerobak',            Icon: ShoppingCart,    roles: ['ADMIN'],                    group: 'Saham & Gerobak', exact: true },
+  { label: 'Saham & Dividen', href: '/(admin)/gerobak/saham',    Icon: PieChart,        roles: ['ADMIN'],                    group: 'Saham & Gerobak' },
   // Shareholder view
-  { label: 'Portofolio',   href: '/(shareholder)/saham',     Icon: PieChart,        roles: ['SHAREHOLDER'],                 group: 'Saham' },
-  { label: 'Dividen',      href: '/(shareholder)/dividen',   Icon: Banknote,        roles: ['SHAREHOLDER'],                 group: 'Saham' },
-  { label: 'Laporan',      href: '/(shareholder)/laporan',   Icon: TrendingUp,      roles: ['SHAREHOLDER', 'ADMIN'],        group: 'Laporan' },
+  { label: 'Portofolio',    href: '/(shareholder)/saham',        Icon: PieChart,        roles: ['SHAREHOLDER'],              group: 'Saham' },
+  { label: 'Dividen',       href: '/(shareholder)/dividen',      Icon: Banknote,        roles: ['SHAREHOLDER'],              group: 'Saham' },
+  { label: 'Laporan',       href: '/(shareholder)/laporan',      Icon: TrendingUp,      roles: ['SHAREHOLDER', 'ADMIN'],     group: 'Laporan' },
   // Driver
-  { label: 'Pengiriman',   href: '/(driver)/pengiriman',     Icon: Truck,           roles: ['DRIVER'],                      group: 'Driver' },
-  { label: 'Return',       href: '/(driver)/return',         Icon: Undo2,           roles: ['DRIVER'],                      group: 'Driver' },
+  { label: 'Pengiriman',    href: '/(driver)/pengiriman',        Icon: Truck,           roles: ['DRIVER'],                   group: 'Driver' },
+  { label: 'Return',        href: '/(driver)/return',            Icon: Undo2,           roles: ['DRIVER'],                   group: 'Driver' },
   // Kasir
-  { label: 'Scan Jual',    href: '/(kasir)/scan',            Icon: Coffee,          roles: ['KASIR'],                       group: 'Kasir' },
+  { label: 'Scan Jual',     href: '/(kasir)/scan',               Icon: Coffee,          roles: ['KASIR'],                    group: 'Kasir' },
 ];
 
 export function Sidebar() {
@@ -55,7 +57,6 @@ export function Sidebar() {
 
   const visibleItems = NAV_ITEMS.filter(item => user?.role && item.roles.includes(user.role));
 
-  // Deduplicate by href (Admin lihat Gerobak & Saham & Dividen = satu halaman)
   const seen = new Set<string>();
   const deduped = visibleItems.filter(item => {
     if (seen.has(item.href + item.label)) return false;
@@ -72,6 +73,15 @@ export function Sidebar() {
   }
 
   const currentPath = '/' + segments.join('/');
+
+  const isActive = (item: NavItem) => {
+    const normalized = item.href.replace('/index', '');
+    if (item.exact) {
+      // Cocok hanya jika path persis sama
+      return currentPath === normalized;
+    }
+    return currentPath.startsWith(normalized);
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -102,20 +112,20 @@ export function Sidebar() {
             )}
             {gi > 0 && collapsed && <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginVertical: 6, marginHorizontal: 8 }} />}
             {items.map((item) => {
-              const isActive = currentPath.startsWith(item.href.replace('/index', ''));
-              const iconColor = isActive ? '#f87171' : 'rgba(255,255,255,0.6)';
+              const active = isActive(item);
+              const iconColor = active ? '#f87171' : 'rgba(255,255,255,0.6)';
               return (
                 <Pressable key={item.href + item.label} onPress={() => router.push(item.href as any)}
                   className={cn('flex-row items-center gap-3 px-3 py-2.5 rounded-lg mb-1 transition-all',
-                    isActive ? 'bg-primary-500/20 border border-primary-500/40' : 'hover:bg-white/10 border border-transparent'
+                    active ? 'bg-primary-500/20 border border-primary-500/40' : 'hover:bg-white/10 border border-transparent'
                   )}>
                   <View className="w-6 items-center"><item.Icon size={18} color={iconColor} /></View>
                   {!collapsed && (
-                    <Text className={cn('text-sm font-medium', isActive ? 'text-primary-400' : 'text-foreground/80')}>
+                    <Text className={cn('text-sm font-medium', active ? 'text-primary-400' : 'text-foreground/80')}>
                       {item.label}
                     </Text>
                   )}
-                  {isActive && !collapsed && <View className="ml-auto w-1.5 h-1.5 rounded-full bg-primary-500" />}
+                  {active && !collapsed && <View className="ml-auto w-1.5 h-1.5 rounded-full bg-primary-500" />}
                 </Pressable>
               );
             })}
