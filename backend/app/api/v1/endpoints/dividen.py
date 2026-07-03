@@ -1,34 +1,34 @@
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func
 from pydantic import BaseModel
 from typing import Optional
 
-from app.api.deps import get_db, get_current_user
+from app.api.deps import get_db, get_current_user, require_roles
 from app.models.dividen import DividenDistribusi, GajiKaryawan, StatusDividen
 from app.models.gerobak import ShareholderGroup, GroupMembership
 from app.models.penjualan import Penjualan
 from app.models.purchase_order import PurchaseOrder, StatusPO
-from app.models.user import User
+from app.models.user import User, UserRole
 
 router = APIRouter()
 
 
-# ─── Schemas ────────────────────────────────────────────────────────────────
+# ─── Schemas ──────────────────────────────────────────────────────────────
 
 class KalkulasiInput(BaseModel):
     periode_label:  str
     periode_dari:   date
     periode_sampai: date
-    total_gaji:     float       # total gaji semua karyawan periode ini
+    total_gaji:     float
     catatan:        Optional[str] = None
 
 class BayarInput(BaseModel):
     tanggal_bayar: date
 
 
-# ─── Helper ─────────────────────────────────────────────────────────────────
+# ─── Helper ───────────────────────────────────────────────────────────────
 
 async def _hitung_laba_grup(
     db: AsyncSession,
@@ -37,17 +37,14 @@ async def _hitung_laba_grup(
     sampai: date,
     beban_gaji_grup: float,
 ) -> dict:
-    """Hitung laba bersih satu grup dari penjualan gerobak-nya dikurangi pembelian & gaji."""
     from app.models.gerobak import Gerobak
 
-    # Ambil gerobak ids yang terdaftar di grup ini
     res = await db.execute(select(Gerobak.id).where(Gerobak.shareholder_group_id == group_id))
     gerobak_ids = [r[0] for r in res.all()]
 
     if not gerobak_ids:
         return {"total_penjualan": 0, "total_pembelian": 0, "laba_bersih": -beban_gaji_grup}
 
-    # Total penjualan dari gerobak-gerobak dalam grup
     pjl = await db.execute(
         select(func.coalesce(func.sum(Penjualan.total_harga), 0))
         .where(
@@ -58,8 +55,6 @@ async def _hitung_laba_grup(
     )
     total_penjualan = float(pjl.scalar())
 
-    # Total pembelian (PO) periode ini — dibagi rata ke semua grup aktif
-    # Filosofi: beban bahan baku adalah shared, dibagi rata ke semua grup
     jumlah_grup_res = await db.execute(
         select(func.count()).select_from(ShareholderGroup)
     )
@@ -83,17 +78,14 @@ async def _hitung_laba_grup(
     }
 
 
-# ─── Preview ────────────────────────────────────────────────────────────────
+# ─── Preview ────────────────────────────────────────────────────────────
 
 @router.post("/kalkulasi/preview")
 async def preview_dividen(
     body: KalkulasiInput,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _: User = Depends(require_roles(UserRole.ADMIN)),
 ):
-    if current_user.role != "ADMIN":
-        raise HTTPException(403, "Hanya ADMIN")
-
     groups_res = await db.execute(select(ShareholderGroup).order_by(ShareholderGroup.id))
     groups = groups_res.scalars().all()
     if not groups:
@@ -147,18 +139,14 @@ async def preview_dividen(
     }
 
 
-# ─── Konfirmasi & Simpan ────────────────────────────────────────────────────
+# ─── Konfirmasi & Simpan ──────────────────────────────────────────────────
 
 @router.post("/kalkulasi/konfirmasi", status_code=status.HTTP_201_CREATED)
 async def konfirmasi_dividen(
     body: KalkulasiInput,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(UserRole.ADMIN)),
 ):
-    if current_user.role != "ADMIN":
-        raise HTTPException(403, "Hanya ADMIN")
-
-    # Cegah duplikat periode
     dup = await db.execute(
         select(DividenDistribusi).where(DividenDistribusi.periode_label == body.periode_label).limit(1)
     )
@@ -173,7 +161,6 @@ async def konfirmasi_dividen(
     jumlah_grup = len(groups)
     beban_gaji_per_grup = body.total_gaji / jumlah_grup
 
-    # Simpan GajiKaryawan
     gaji = GajiKaryawan(
         periode_label=body.periode_label,
         periode_dari=body.periode_dari,
@@ -211,7 +198,7 @@ async def konfirmasi_dividen(
     return {"created": len(created), "periode_label": body.periode_label}
 
 
-# ─── List & Bayar ───────────────────────────────────────────────────────────
+# ─── List & Bayar ─────────────────────────────────────────────────────────
 
 @router.get("/")
 async def list_dividen(
@@ -222,7 +209,7 @@ async def list_dividen(
     q = select(DividenDistribusi).order_by(
         DividenDistribusi.periode_dari.desc(), DividenDistribusi.group_id
     )
-    if current_user.role == "SHAREHOLDER":
+    if current_user.role == UserRole.SHAREHOLDER:
         q = q.where(DividenDistribusi.user_id == current_user.id)
     result = await db.execute(q)
     rows = result.scalars().all()
@@ -255,10 +242,8 @@ async def bayar_dividen(
     dividen_id: int,
     body: BayarInput,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(UserRole.ADMIN)),
 ):
-    if current_user.role != "ADMIN":
-        raise HTTPException(403, "Hanya ADMIN")
     d = await db.get(DividenDistribusi, dividen_id)
     if not d:
         raise HTTPException(404)
