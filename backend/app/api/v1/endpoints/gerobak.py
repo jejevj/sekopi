@@ -1,154 +1,242 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, delete
+from pydantic import BaseModel
+from typing import Optional
 
-from app.api.deps import get_db, require_roles
-from app.models.gerobak import Gerobak, ShareholderGroup, shareholder_group_members
-from app.models.user import User, UserRole
-from app.schemas.gerobak import (
-    GerobakCreate, GerobakUpdate, GerobakResponse,
-    ShareholderGroupCreate, ShareholderGroupUpdate, ShareholderGroupResponse,
-)
+from app.api.deps import get_db, get_current_user
+from app.models.gerobak import Gerobak, ShareholderGroup, GroupMembership
+from app.models.user import User
 
 router = APIRouter()
-ADMIN_ONLY = (UserRole.ADMIN,)
 
 
-# ── Shareholder Groups ────────────────────────────────────────────────────────
+# ─── Schemas ───────────────────────────────────────────────────────────────
 
-@router.get("/groups", response_model=list[ShareholderGroupResponse])
-async def list_groups(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*ADMIN_ONLY)),
-):
-    result = await db.execute(select(ShareholderGroup).order_by(ShareholderGroup.nama))
+class GerobakCreate(BaseModel):
+    nama: str
+    kode: str
+    lokasi: Optional[str] = None
+    driver_id: Optional[int] = None
+    shareholder_group_id: Optional[int] = None
+    is_active: bool = True
+
+class GerobakUpdate(BaseModel):
+    nama: Optional[str] = None
+    kode: Optional[str] = None
+    lokasi: Optional[str] = None
+    driver_id: Optional[int] = None
+    shareholder_group_id: Optional[int] = None
+    is_active: Optional[bool] = None
+
+class GrupCreate(BaseModel):
+    nama: str
+    deskripsi: Optional[str] = None
+
+class GrupUpdate(BaseModel):
+    nama: Optional[str] = None
+    deskripsi: Optional[str] = None
+
+class SetPorsiMember(BaseModel):
+    porsi_saham: float  # 0.00 – 100.00, total semua member dalam grup harus <= 100
+
+
+# ─── Gerobak CRUD ──────────────────────────────────────────────────────────
+
+@router.get("")
+async def list_gerobak(db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    result = await db.execute(select(Gerobak).order_by(Gerobak.id))
     return result.scalars().all()
 
 
-@router.post("/groups", response_model=ShareholderGroupResponse, status_code=201)
-async def create_group(
-    payload: ShareholderGroupCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*ADMIN_ONLY)),
-):
-    grp = ShareholderGroup(**payload.model_dump())
-    db.add(grp)
-    await db.commit()
-    await db.refresh(grp)
-    return grp
-
-
-@router.patch("/groups/{group_id}", response_model=ShareholderGroupResponse)
-async def update_group(
-    group_id: int,
-    payload: ShareholderGroupUpdate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*ADMIN_ONLY)),
-):
-    grp = await db.get(ShareholderGroup, group_id)
-    if not grp:
-        raise HTTPException(404, "Grup tidak ditemukan")
-    for k, v in payload.model_dump(exclude_none=True).items():
-        setattr(grp, k, v)
-    await db.commit()
-    await db.refresh(grp)
-    return grp
-
-
-@router.post("/groups/{group_id}/members/{user_id}", status_code=204)
-async def add_member(
-    group_id: int, user_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*ADMIN_ONLY)),
-):
-    grp = await db.get(ShareholderGroup, group_id)
-    user = await db.get(User, user_id)
-    if not grp or not user:
-        raise HTTPException(404, "Grup atau user tidak ditemukan")
-    if user.role != UserRole.SHAREHOLDER:
-        raise HTTPException(400, "User bukan shareholder")
-    await db.execute(
-        shareholder_group_members.insert().prefix_with("OR IGNORE").values(group_id=group_id, user_id=user_id)
-    )
-    await db.commit()
-
-
-@router.delete("/groups/{group_id}/members/{user_id}", status_code=204)
-async def remove_member(
-    group_id: int, user_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*ADMIN_ONLY)),
-):
-    await db.execute(
-        delete(shareholder_group_members).where(
-            shareholder_group_members.c.group_id == group_id,
-            shareholder_group_members.c.user_id == user_id,
-        )
-    )
-    await db.commit()
-
-
-# ── Gerobak CRUD ──────────────────────────────────────────────────────────────
-
-@router.get("", response_model=list[GerobakResponse])
-async def list_gerobak(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.SHAREHOLDER)),
-):
-    result = await db.execute(select(Gerobak).order_by(Gerobak.nama))
-    return result.scalars().all()
-
-
-@router.post("", response_model=GerobakResponse, status_code=201)
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def create_gerobak(
-    payload: GerobakCreate,
+    body: GerobakCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*ADMIN_ONLY)),
+    current_user: User = Depends(get_current_user),
 ):
-    gerobak = Gerobak(**payload.model_dump())
-    db.add(gerobak)
+    if current_user.role != "ADMIN":
+        raise HTTPException(403, "Hanya ADMIN")
+    # Cek kode unik
+    existing = await db.execute(select(Gerobak).where(Gerobak.kode == body.kode))
+    if existing.scalar_one_or_none():
+        raise HTTPException(400, f"Kode '{body.kode}' sudah digunakan")
+    g = Gerobak(**body.model_dump())
+    db.add(g)
     await db.commit()
-    await db.refresh(gerobak)
-    return gerobak
-
-
-@router.get("/{gerobak_id}", response_model=GerobakResponse)
-async def get_gerobak(
-    gerobak_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.SHAREHOLDER)),
-):
-    g = await db.get(Gerobak, gerobak_id)
-    if not g:
-        raise HTTPException(404, "Gerobak tidak ditemukan")
+    await db.refresh(g)
     return g
 
 
-@router.patch("/{gerobak_id}", response_model=GerobakResponse)
+@router.patch("/{gerobak_id}")
 async def update_gerobak(
     gerobak_id: int,
-    payload: GerobakUpdate,
+    body: GerobakUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*ADMIN_ONLY)),
+    current_user: User = Depends(get_current_user),
 ):
+    if current_user.role != "ADMIN":
+        raise HTTPException(403, "Hanya ADMIN")
     g = await db.get(Gerobak, gerobak_id)
     if not g:
         raise HTTPException(404, "Gerobak tidak ditemukan")
-    for k, v in payload.model_dump(exclude_none=True).items():
+    for k, v in body.model_dump(exclude_none=True).items():
         setattr(g, k, v)
     await db.commit()
     await db.refresh(g)
     return g
 
 
-@router.delete("/{gerobak_id}", status_code=204)
+@router.delete("/{gerobak_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_gerobak(
     gerobak_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*ADMIN_ONLY)),
+    current_user: User = Depends(get_current_user),
 ):
+    if current_user.role != "ADMIN":
+        raise HTTPException(403, "Hanya ADMIN")
     g = await db.get(Gerobak, gerobak_id)
     if not g:
         raise HTTPException(404, "Gerobak tidak ditemukan")
     await db.delete(g)
     await db.commit()
+
+
+# ─── ShareholderGroup CRUD ─────────────────────────────────────────────────
+
+@router.get("/groups")
+async def list_groups(db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    result = await db.execute(select(ShareholderGroup).order_by(ShareholderGroup.id))
+    groups = result.scalars().all()
+    out = []
+    for g in groups:
+        total_porsi = sum(m.porsi_saham for m in g.memberships)
+        out.append({
+            "id": g.id,
+            "nama": g.nama,
+            "deskripsi": g.deskripsi,
+            "total_porsi": float(total_porsi),
+            "sisa_porsi": round(100 - float(total_porsi), 2),
+            "gerobaks": [{"id": gb.id, "nama": gb.nama, "kode": gb.kode} for gb in g.gerobaks],
+            "memberships": [
+                {
+                    "user_id": m.user_id,
+                    "full_name": m.user.full_name,
+                    "porsi_saham": float(m.porsi_saham),
+                }
+                for m in g.memberships
+            ],
+        })
+    return out
+
+
+@router.post("/groups", status_code=status.HTTP_201_CREATED)
+async def create_group(
+    body: GrupCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "ADMIN":
+        raise HTTPException(403, "Hanya ADMIN")
+    g = ShareholderGroup(nama=body.nama, deskripsi=body.deskripsi)
+    db.add(g)
+    await db.commit()
+    await db.refresh(g)
+    return {"id": g.id, "nama": g.nama, "deskripsi": g.deskripsi, "total_porsi": 0, "sisa_porsi": 100, "memberships": [], "gerobaks": []}
+
+
+@router.patch("/groups/{group_id}")
+async def update_group(
+    group_id: int,
+    body: GrupUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "ADMIN":
+        raise HTTPException(403, "Hanya ADMIN")
+    g = await db.get(ShareholderGroup, group_id)
+    if not g:
+        raise HTTPException(404, "Grup tidak ditemukan")
+    for k, v in body.model_dump(exclude_none=True).items():
+        setattr(g, k, v)
+    await db.commit()
+    await db.refresh(g)
+    return g
+
+
+# ─── Member management ─────────────────────────────────────────────────────
+
+@router.post("/groups/{group_id}/members/{user_id}", status_code=status.HTTP_201_CREATED)
+async def add_member(
+    group_id: int, user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "ADMIN":
+        raise HTTPException(403, "Hanya ADMIN")
+    g = await db.get(ShareholderGroup, group_id)
+    if not g:
+        raise HTTPException(404, "Grup tidak ditemukan")
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User tidak ditemukan")
+    # Cek sudah member?
+    existing = await db.execute(
+        select(GroupMembership).where(GroupMembership.group_id == group_id, GroupMembership.user_id == user_id)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(400, "User sudah menjadi anggota grup ini")
+    m = GroupMembership(group_id=group_id, user_id=user_id, porsi_saham=0)
+    db.add(m)
+    await db.commit()
+    return {"group_id": group_id, "user_id": user_id, "porsi_saham": 0}
+
+
+@router.delete("/groups/{group_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_member(
+    group_id: int, user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "ADMIN":
+        raise HTTPException(403, "Hanya ADMIN")
+    await db.execute(
+        delete(GroupMembership).where(GroupMembership.group_id == group_id, GroupMembership.user_id == user_id)
+    )
+    await db.commit()
+
+
+@router.patch("/groups/{group_id}/members/{user_id}/porsi")
+async def set_porsi_member(
+    group_id: int, user_id: int,
+    body: SetPorsiMember,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Set porsi saham satu member dalam grup. Validasi total seluruh member <= 100."""
+    if current_user.role != "ADMIN":
+        raise HTTPException(403, "Hanya ADMIN")
+    if body.porsi_saham < 0 or body.porsi_saham > 100:
+        raise HTTPException(400, "Porsi harus antara 0 dan 100")
+
+    m = await db.execute(
+        select(GroupMembership).where(GroupMembership.group_id == group_id, GroupMembership.user_id == user_id)
+    )
+    membership = m.scalar_one_or_none()
+    if not membership:
+        raise HTTPException(404, "Member tidak ditemukan dalam grup ini")
+
+    # Cek total porsi semua member lain + porsi baru <= 100
+    all_members = await db.execute(
+        select(GroupMembership).where(
+            GroupMembership.group_id == group_id,
+            GroupMembership.user_id != user_id
+        )
+    )
+    total_others = sum(float(x.porsi_saham) for x in all_members.scalars().all())
+    if total_others + body.porsi_saham > 100.001:
+        raise HTTPException(400, f"Total porsi melebihi 100%. Sisa tersedia: {round(100 - total_others, 2)}%")
+
+    membership.porsi_saham = body.porsi_saham
+    await db.commit()
+    return {"group_id": group_id, "user_id": user_id, "porsi_saham": body.porsi_saham}
