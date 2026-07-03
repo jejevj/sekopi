@@ -1,8 +1,10 @@
 from datetime import datetime, timezone
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 
-from app.models.manufacturing_order import ManufacturingOrder
+from app.models.manufacturing_order import ManufacturingOrder, MOBahanBaku
+from app.models.bahan_baku import BahanBaku
 from app.repositories.base import BaseRepository
 
 
@@ -23,7 +25,15 @@ class MORepository(BaseRepository[ManufacturingOrder]):
 
     async def get_with_lines(self, mo_id: int) -> ManufacturingOrder | None:
         result = await self.db.execute(
-            select(ManufacturingOrder).where(ManufacturingOrder.id == mo_id)
+            select(ManufacturingOrder)
+            .options(
+                selectinload(ManufacturingOrder.bahan_baku_lines)
+                    .joinedload(MOBahanBaku.bahan_baku),
+                joinedload(ManufacturingOrder.created_by_user),
+                joinedload(ManufacturingOrder.approved_by_user),
+                joinedload(ManufacturingOrder.inventori_by_user),
+            )
+            .where(ManufacturingOrder.id == mo_id)
         )
         return result.scalar_one_or_none()
 
@@ -40,6 +50,13 @@ class MORepository(BaseRepository[ManufacturingOrder]):
         total = count_result.scalar() or 0
         result = await self.db.execute(
             select(ManufacturingOrder)
+            .options(
+                selectinload(ManufacturingOrder.bahan_baku_lines)
+                    .joinedload(MOBahanBaku.bahan_baku),
+                joinedload(ManufacturingOrder.created_by_user),
+                joinedload(ManufacturingOrder.approved_by_user),
+                joinedload(ManufacturingOrder.inventori_by_user),
+            )
             .order_by(ManufacturingOrder.created_at.desc())
             .offset((page - 1) * per_page)
             .limit(per_page)
