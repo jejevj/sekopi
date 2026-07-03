@@ -1,9 +1,9 @@
 import { useRouter } from 'expo-router';
 import {
   AlertTriangle, Package, XCircle,
-  RefreshCw, Scan, Ban, Info,
+  RefreshCw, Scan, Ban, Info, Search, X,
 } from 'lucide-react-native';
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { ActivityIndicator, Alert } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../lib/api';
@@ -20,10 +20,6 @@ const STATUS_COLOR: Record<string, string> = {
   returned_damaged:  '#ef4444',
 };
 
-function formatRp(n: number) {
-  return 'Rp ' + n.toLocaleString('id-ID');
-}
-
 type Tab = 'ready' | 'expiry' | 'void';
 
 const TABS: { key: Tab; label: string; Icon: any; activeColor: string }[] = [
@@ -37,6 +33,7 @@ export default function ProduksiScreen() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>('ready');
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
   const [voidBarcode, setVoidBarcode] = useState('');
   const [voidAlasan, setVoidAlasan] = useState('');
 
@@ -52,7 +49,6 @@ export default function ProduksiScreen() {
     enabled: tab === 'expiry',
   });
 
-  // always fetch expiry count for badge (background)
   const { data: expiryBadge } = useQuery({
     queryKey: ['prod-expiry-badge'],
     queryFn: async () => (await api.get('/production-units/expiry-alerts?days=3')).data,
@@ -94,6 +90,17 @@ export default function ProduksiScreen() {
   const totalReady: number = readyData?.total  ?? 0;
   const totalPages: number = readyData?.total_pages ?? 1;
 
+  // client-side filter — search barcode or nama_produk
+  const filteredItems = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return readyItems;
+    return readyItems.filter(
+      (u: any) =>
+        u.barcode.toLowerCase().includes(q) ||
+        u.nama_produk.toLowerCase().includes(q)
+    );
+  }, [readyItems, search]);
+
   const expiringSoon: any[] = expiryData?.units_expiring_soon ?? [];
   const expired: any[]      = expiryData?.units_expired       ?? [];
   const totalExpiringSoon   = expiryData?.total_akan_expired  ?? 0;
@@ -124,7 +131,7 @@ export default function ProduksiScreen() {
             return (
               <button
                 key={t.key}
-                onClick={() => { setTab(t.key); setPage(1); }}
+                onClick={() => { setTab(t.key); setPage(1); setSearch(''); }}
                 style={{
                   padding: '10px 20px',
                   background: 'none',
@@ -138,7 +145,6 @@ export default function ProduksiScreen() {
                   alignItems: 'center',
                   gap: 7,
                   transition: 'color 0.15s',
-                  position: 'relative',
                 }}
               >
                 <t.Icon size={14} color={iconColor} strokeWidth={active ? 2.2 : 1.8} />
@@ -171,7 +177,7 @@ export default function ProduksiScreen() {
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-              <RefreshBtn onClick={() => refetchReady()} />
+              <RefreshBtn onClick={() => { setSearch(''); refetchReady(); }} />
             </div>
 
             {loadingReady ? (
@@ -180,14 +186,67 @@ export default function ProduksiScreen() {
               <EmptyState Icon={Package} message="Tidak ada unit ready saat ini" />
             ) : (
               <div style={glassCard}>
+                {/* Card header */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                   <p style={sectionTitle}>Unit Ready — FEFO Order</p>
                   <span style={{ color: '#444', fontSize: 12 }}>Urut expiry tercepat</span>
                 </div>
-                {readyItems.map((unit: any) => (
-                  <UnitRow key={unit.id} unit={unit} />
-                ))}
-                {totalPages > 1 && (
+
+                {/* Search bar */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  backgroundColor: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.09)',
+                  borderRadius: 8,
+                  padding: '7px 12px',
+                  marginBottom: 14,
+                }}>
+                  <Search size={13} color="#444" strokeWidth={2} style={{ flexShrink: 0 }} />
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={(e: any) => setSearch(e.target.value)}
+                    placeholder="Cari barcode atau nama produk..."
+                    style={{
+                      flex: 1,
+                      background: 'none',
+                      border: 'none',
+                      outline: 'none',
+                      color: 'white',
+                      fontSize: 13,
+                      minWidth: 0,
+                    }}
+                  />
+                  {search.length > 0 && (
+                    <button
+                      onClick={() => setSearch('')}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: 0 }}
+                    >
+                      <X size={13} color="#444" strokeWidth={2} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Result count when searching */}
+                {search.trim() && (
+                  <p style={{ color: '#444', fontSize: 12, margin: '0 0 10px' }}>
+                    {filteredItems.length} hasil dari {readyItems.length} unit
+                  </p>
+                )}
+
+                {/* List */}
+                {filteredItems.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '24px 0', color: '#333', fontSize: 13 }}>
+                    Tidak ada unit yang cocok dengan “{search}”
+                  </div>
+                ) : (
+                  filteredItems.map((unit: any) => (
+                    <UnitRow key={unit.id} unit={unit} />
+                  ))
+                )}
+
+                {/* Pagination — hanya tampil jika tidak sedang search */}
+                {!search.trim() && totalPages > 1 && (
                   <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                     <PageBtn label="‹ Prev" disabled={page <= 1} onClick={() => setPage(p => p - 1)} />
                     <span style={{ color: '#555', fontSize: 13, lineHeight: '32px' }}>{page} / {totalPages}</span>
@@ -252,30 +311,15 @@ export default function ProduksiScreen() {
               <p style={{ color: '#555', fontSize: 13, marginBottom: 20 }}>
                 Void unit yang rusak, tumpah, atau tidak layak jual. Unit akan ditandai void dan tidak bisa di-dispatch.
               </p>
-
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <GlassInput
-                  label="Barcode Unit *"
-                  value={voidBarcode}
-                  onChange={setVoidBarcode}
-                  placeholder="SKP-20260703-0001"
-                />
-                <GlassTextarea
-                  label="Alasan Void *"
-                  value={voidAlasan}
-                  onChange={setVoidAlasan}
-                  placeholder="Contoh: Cup pecah, kopi tumpah, kedaluwarsa sebelum dispatch"
-                />
+                <GlassInput label="Barcode Unit *" value={voidBarcode} onChange={setVoidBarcode} placeholder="SKP-20260703-0001" />
+                <GlassTextarea label="Alasan Void *" value={voidAlasan} onChange={setVoidAlasan} placeholder="Contoh: Cup pecah, kopi tumpah, kedaluwarsa sebelum dispatch" />
                 <button
                   onClick={handleVoid}
                   disabled={!voidBarcode.trim() || !voidAlasan.trim() || voidMutation.isPending}
                   style={{
-                    padding: '11px 0',
-                    borderRadius: 10,
-                    fontWeight: 600,
-                    fontSize: 14,
-                    backgroundColor: (!voidBarcode.trim() || !voidAlasan.trim() || voidMutation.isPending)
-                      ? '#111' : 'rgba(239,68,68,0.12)',
+                    padding: '11px 0', borderRadius: 10, fontWeight: 600, fontSize: 14,
+                    backgroundColor: (!voidBarcode.trim() || !voidAlasan.trim() || voidMutation.isPending) ? '#111' : 'rgba(239,68,68,0.12)',
                     color: (!voidBarcode.trim() || !voidAlasan.trim()) ? '#2a2a2a' : '#ef4444',
                     border: (!voidBarcode.trim() || !voidAlasan.trim()) ? '1px solid #1f1f1f' : '1px solid rgba(239,68,68,0.35)',
                     cursor: (!voidBarcode.trim() || !voidAlasan.trim()) ? 'not-allowed' : 'pointer',
@@ -287,7 +331,6 @@ export default function ProduksiScreen() {
                 </button>
               </div>
             </div>
-
             <div style={{ marginTop: 14, backgroundColor: 'rgba(59,130,246,0.05)', border: '1px solid rgba(59,130,246,0.12)', borderRadius: 12, padding: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
                 <Info size={13} color="#3b82f6" strokeWidth={2} />
@@ -371,9 +414,7 @@ function EmptyState({ Icon, message }: { Icon: any; message: string }) {
 
 function PageBtn({ label, disabled, onClick }: { label: string; disabled: boolean; onClick: () => void }) {
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
+    <button onClick={onClick} disabled={disabled}
       style={{
         padding: '6px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500,
         background: disabled ? 'transparent' : 'rgba(255,255,255,0.05)',
@@ -391,18 +432,8 @@ function GlassInput({ label, value, onChange, placeholder }: {
   return (
     <div>
       <label style={{ color: '#666', fontSize: 13, display: 'block', marginBottom: 6 }}>{label}</label>
-      <input
-        type="text"
-        value={value}
-        onChange={(e: any) => onChange(e.target.value)}
-        placeholder={placeholder}
-        style={{
-          width: '100%', boxSizing: 'border-box',
-          backgroundColor: 'rgba(255,255,255,0.05)',
-          border: '1px solid rgba(255,255,255,0.1)',
-          borderRadius: 8, padding: '10px 14px',
-          color: 'white', fontSize: 14, outline: 'none',
-        }}
+      <input type="text" value={value} onChange={(e: any) => onChange(e.target.value)} placeholder={placeholder}
+        style={{ width: '100%', boxSizing: 'border-box', backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '10px 14px', color: 'white', fontSize: 14, outline: 'none' }}
       />
     </div>
   );
@@ -414,19 +445,8 @@ function GlassTextarea({ label, value, onChange, placeholder }: {
   return (
     <div>
       <label style={{ color: '#666', fontSize: 13, display: 'block', marginBottom: 6 }}>{label}</label>
-      <textarea
-        value={value}
-        onChange={(e: any) => onChange(e.target.value)}
-        placeholder={placeholder}
-        rows={3}
-        style={{
-          width: '100%', boxSizing: 'border-box',
-          backgroundColor: 'rgba(255,255,255,0.05)',
-          border: '1px solid rgba(255,255,255,0.1)',
-          borderRadius: 8, padding: '10px 14px',
-          color: 'white', fontSize: 14, outline: 'none',
-          resize: 'vertical', fontFamily: 'inherit',
-        }}
+      <textarea value={value} onChange={(e: any) => onChange(e.target.value)} placeholder={placeholder} rows={3}
+        style={{ width: '100%', boxSizing: 'border-box', backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '10px 14px', color: 'white', fontSize: 14, outline: 'none', resize: 'vertical', fontFamily: 'inherit' }}
       />
     </div>
   );
