@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Factory, Package, CheckCircle, XCircle, Clock, RefreshCw } from 'lucide-react-native';
+import { ArrowLeft, XCircle } from 'lucide-react-native';
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -119,18 +119,12 @@ export default function MODetailScreen() {
             <ArrowLeft size={16} color="#888" />
             Kembali
           </button>
-
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
               <h1 style={{ color: 'white', fontSize: 22, fontWeight: 700, margin: 0 }}>{mo.nomor_mo}</h1>
               <p style={{ color: '#888', fontSize: 14, margin: '4px 0 0' }}>{mo.nama_produk}</p>
             </div>
-            <span style={{
-              backgroundColor: cfg.color + '22',
-              color: cfg.color,
-              border: `1px solid ${cfg.color}44`,
-              borderRadius: 8, padding: '4px 14px', fontSize: 13, fontWeight: 600,
-            }}>
+            <span style={{ backgroundColor: cfg.color + '22', color: cfg.color, border: `1px solid ${cfg.color}44`, borderRadius: 8, padding: '4px 14px', fontSize: 13, fontWeight: 600 }}>
               {cfg.label}
             </span>
           </div>
@@ -167,7 +161,8 @@ export default function MODetailScreen() {
             ? <p style={{ color: '#555', fontSize: 13, margin: 0 }}>Belum ada bahan baku</p>
             : mo.bahan_baku_lines.map((line: any) => (
                 <div key={line.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                  <span style={{ color: 'white', fontSize: 14 }}>{line.bahan_baku?.nama ?? '-'}</span>
+                  {/* nama_bahan dikirim langsung dari backend — tidak perlu nested object */}
+                  <span style={{ color: 'white', fontSize: 14 }}>{line.nama_bahan ?? '-'}</span>
                   <span style={{ color: '#888', fontSize: 13 }}>
                     {line.qty_rencana} {line.satuan}
                     {line.qty_aktual != null ? ` (aktual: ${line.qty_aktual})` : ''}
@@ -210,10 +205,7 @@ export default function MODetailScreen() {
           <div style={{ ...glassCard, marginBottom: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
               <p style={sectionTitle}>Generate Barcode Unit</p>
-              <button
-                onClick={() => setShowGenerate(!showGenerate)}
-                style={{ background: 'none', border: 'none', color: '#f44444', fontSize: 13, cursor: 'pointer' }}
-              >
+              <button onClick={() => setShowGenerate(!showGenerate)} style={{ background: 'none', border: 'none', color: '#f44444', fontSize: 13, cursor: 'pointer' }}>
                 {showGenerate ? 'Tutup' : 'Buka Form'}
               </button>
             </div>
@@ -268,25 +260,17 @@ export default function MODetailScreen() {
   );
 }
 
-// ─── Style constants ───────────────────────────────────────────────────────
 const glassCard: React.CSSProperties = {
   backgroundColor: 'rgba(255,255,255,0.05)',
   border: '1px solid rgba(255,255,255,0.10)',
-  borderRadius: 12,
-  padding: 20,
+  borderRadius: 12, padding: 20,
 };
-
-const card: React.CSSProperties = {
-  ...glassCard,
-  flex: 1, minWidth: 140,
-};
-
+const card: React.CSSProperties = { ...glassCard, flex: 1, minWidth: 140 };
 const cardLabel: React.CSSProperties = { color: '#888', fontSize: 12, margin: '0 0 4px' };
 const cardValue: React.CSSProperties = { color: 'white', fontSize: 26, fontWeight: 700, margin: 0 };
 const cardSub:   React.CSSProperties = { color: '#555', fontSize: 12, margin: '2px 0 0' };
 const sectionTitle: React.CSSProperties = { color: 'white', fontWeight: 600, fontSize: 15, margin: '0 0 14px' };
 
-// ─── Sub-components ────────────────────────────────────────────────────────
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
