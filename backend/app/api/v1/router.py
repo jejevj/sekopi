@@ -27,3 +27,7 @@ api_router.include_router(production_unit.router, prefix="/production-units", ta
 api_router.include_router(penjualan.router, prefix="/penjualan", tags=["Penjualan"])
 api_router.include_router(return_order.router, prefix="/returns", tags=["Return Orders"])
 api_router.include_router(laporan.router, prefix="/laporan", tags=["Laporan & Reporting"])
+
+# Shortcut alias agar frontend bisa akses /bahan-baku langsung
+from app.api.v1.endpoints.inventori import router as _inv_router  # noqa
+api_router.include_router(_inv_router, prefix="", tags=["Bahan Baku (alias)"], include_in_schema=False)

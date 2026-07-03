@@ -14,7 +14,6 @@ from app.schemas.manufacturing_order import (
     ManufacturingOrderUpdateStatus,
 )
 
-# Transisi yang diizinkan per status
 STATUS_TRANSITIONS: dict[StatusMO, list[StatusMO]] = {
     StatusMO.DRAFT: [StatusMO.CONFIRMED, StatusMO.CANCELLED],
     StatusMO.CONFIRMED: [StatusMO.IN_PROGRESS, StatusMO.CANCELLED],
@@ -23,17 +22,12 @@ STATUS_TRANSITIONS: dict[StatusMO, list[StatusMO]] = {
     StatusMO.CANCELLED: [],
 }
 
-# Role yang diizinkan untuk setiap transisi
-# key: (from_status, to_status) -> set of roles allowed
 TRANSITION_ROLES: dict[tuple[StatusMO, StatusMO], set[UserRole]] = {
-    # PRODUKSI atau ADMIN bisa buat draft & submit ke admin
-    (StatusMO.DRAFT, StatusMO.CONFIRMED): {UserRole.ADMIN},
-    (StatusMO.DRAFT, StatusMO.CANCELLED): {UserRole.ADMIN, UserRole.PRODUKSI},
-    # Hanya INVENTORI (atau ADMIN) yang bisa mulai proses (keluarkan bahan)
+    (StatusMO.DRAFT, StatusMO.CONFIRMED):   {UserRole.ADMIN},
+    (StatusMO.DRAFT, StatusMO.CANCELLED):   {UserRole.ADMIN, UserRole.PRODUKSI},
     (StatusMO.CONFIRMED, StatusMO.IN_PROGRESS): {UserRole.ADMIN, UserRole.INVENTORI},
-    (StatusMO.CONFIRMED, StatusMO.CANCELLED): {UserRole.ADMIN},
-    # PRODUKSI atau ADMIN yang selesaikan MO
-    (StatusMO.IN_PROGRESS, StatusMO.DONE): {UserRole.ADMIN, UserRole.PRODUKSI},
+    (StatusMO.CONFIRMED, StatusMO.CANCELLED):   {UserRole.ADMIN},
+    (StatusMO.IN_PROGRESS, StatusMO.DONE):      {UserRole.ADMIN, UserRole.PRODUKSI},
     (StatusMO.IN_PROGRESS, StatusMO.CANCELLED): {UserRole.ADMIN},
 }
 
@@ -46,7 +40,6 @@ class MOService:
 
     async def create_mo(self, payload: ManufacturingOrderCreate, user_id: int) -> ManufacturingOrder:
         nomor_mo = await self.mo_repo.generate_nomor_mo()
-
         mo = ManufacturingOrder(
             nomor_mo=nomor_mo,
             nama_produk=payload.nama_produk,
@@ -58,16 +51,13 @@ class MOService:
         )
         self.db.add(mo)
         await self.db.flush()
-
         for line in payload.bahan_baku_lines:
-            mo_line = MOBahanBaku(
+            self.db.add(MOBahanBaku(
                 mo_id=mo.id,
                 bahan_baku_id=line.bahan_baku_id,
                 qty_rencana=float(line.qty_rencana),
                 satuan=line.satuan,
-            )
-            self.db.add(mo_line)
-
+            ))
         await self.db.commit()
         await self.db.refresh(mo)
         return mo
@@ -93,7 +83,7 @@ class MOService:
 
         now = datetime.now(timezone.utc)
 
-        # CONFIRMED: admin setujui — cek stok tersedia
+        # CONFIRMED: admin setujui — validasi stok cukup
         if payload.status == StatusMO.CONFIRMED:
             for line in mo.bahan_baku_lines:
                 saldo = await self.stok_repo.get_stok_saldo(line.bahan_baku_id)
@@ -105,41 +95,64 @@ class MOService:
             mo.approved_by = user_id
             mo.approved_at = now
 
-        # IN_PROGRESS: inventori keluarkan bahan
+        # IN_PROGRESS: inventori keluarkan bahan penuh (qty_rencana)
         if payload.status == StatusMO.IN_PROGRESS:
             mo.tanggal_mulai = now
             mo.inventori_by = user_id
             mo.inventori_at = now
             for line in mo.bahan_baku_lines:
-                stok_keluar = Stok(
+                self.db.add(Stok(
                     bahan_baku_id=line.bahan_baku_id,
                     tipe=TipeTransaksiStok.KELUAR,
                     jumlah=float(line.qty_rencana),
                     keterangan=f"Digunakan untuk MO {mo.nomor_mo}",
                     created_by=user_id,
-                )
-                self.db.add(stok_keluar)
+                ))
 
-        # DONE: catat qty aktual & waktu selesai
+        # DONE: catat qty aktual & kembalikan sisa ke stok
         if payload.status == StatusMO.DONE:
             mo.tanggal_selesai = now
+
+            # Build lookup qty_aktual dari payload
+            aktual_map: dict[int, float] = {}
             if payload.bahan_baku_aktual:
                 for item in payload.bahan_baku_aktual:
-                    for line in mo.bahan_baku_lines:
-                        if line.bahan_baku_id == item.get("bahan_baku_id"):
-                            line.qty_aktual = item.get("qty_aktual")
+                    bid = item.get("bahan_baku_id")
+                    qty = item.get("qty_aktual")
+                    if bid is not None and qty is not None:
+                        aktual_map[bid] = float(qty)
+
+            for line in mo.bahan_baku_lines:
+                qty_aktual = aktual_map.get(line.bahan_baku_id)
+
+                if qty_aktual is None:
+                    # Tidak ada input aktual → anggap semua terpakai, tidak ada sisa
+                    qty_aktual = float(line.qty_rencana)
+
+                # Simpan qty_aktual ke line
+                line.qty_aktual = qty_aktual
+
+                # Hitung sisa & kembalikan ke stok jika ada
+                sisa = float(line.qty_rencana) - qty_aktual
+                if sisa > 0.001:  # toleransi floating point
+                    self.db.add(Stok(
+                        bahan_baku_id=line.bahan_baku_id,
+                        tipe=TipeTransaksiStok.MASUK,
+                        jumlah=round(sisa, 4),
+                        keterangan=f"Sisa produksi MO {mo.nomor_mo}",
+                        created_by=user_id,
+                    ))
 
         # CANCELLED: kembalikan stok jika sudah IN_PROGRESS
         if payload.status == StatusMO.CANCELLED and mo.status == StatusMO.IN_PROGRESS:
             for line in mo.bahan_baku_lines:
-                stok_kembali = Stok(
+                self.db.add(Stok(
                     bahan_baku_id=line.bahan_baku_id,
                     tipe=TipeTransaksiStok.MASUK,
                     jumlah=float(line.qty_rencana),
                     keterangan=f"Stok dikembalikan dari MO {mo.nomor_mo} yang dibatalkan",
                     created_by=user_id,
-                )
-                self.db.add(stok_kembali)
+                ))
 
         mo.status = payload.status
         if payload.catatan:
@@ -165,7 +178,6 @@ class MOService:
         mo = await self.mo_repo.get_with_lines(mo_id)
         if not mo:
             raise NotFoundException(f"MO ID {mo_id} tidak ditemukan")
-
         result = []
         all_available = True
         for line in mo.bahan_baku_lines:
@@ -176,12 +188,14 @@ class MOService:
             result.append({
                 "bahan_baku_id": line.bahan_baku_id,
                 "nama": line.bahan_baku.nama if line.bahan_baku else "-",
+                "satuan": line.bahan_baku.satuan if line.bahan_baku else "-",
+                "satuan_display": line.bahan_baku.satuan_display if line.bahan_baku else None,
+                "konversi_factor": float(line.bahan_baku.konversi_factor) if line.bahan_baku and line.bahan_baku.konversi_factor else None,
                 "qty_rencana": float(line.qty_rencana),
                 "stok_tersedia": saldo,
                 "cukup": cukup,
                 "kekurangan": max(0, float(line.qty_rencana) - saldo),
             })
-
         return {
             "mo_id": mo_id,
             "nomor_mo": mo.nomor_mo,

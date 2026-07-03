@@ -11,9 +11,16 @@ class BahanBaku(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     nama: Mapped[str] = mapped_column(String(255), nullable=False)
-    satuan: Mapped[str] = mapped_column(String(50), nullable=False)
+    satuan: Mapped[str] = mapped_column(String(50), nullable=False)  # satuan referensi terbesar (kg, liter, pcs)
+    satuan_display: Mapped[str | None] = mapped_column(String(50), nullable=True)  # hint tampilan (ml, gram) opsional
+    konversi_factor: Mapped[float | None] = mapped_column(Numeric(10, 4), nullable=True)  # 1 satuan = N satuan_display
     stok_minimum: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
     deskripsi: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
