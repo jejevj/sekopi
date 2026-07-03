@@ -1,14 +1,14 @@
 """add approved_by and inventori_by fields to manufacturing_orders
 
 Revision ID: 20260703_mo_approval
-Revises: 
+Revises: 794712529f56
 Create Date: 2026-07-03
 """
 from alembic import op
 import sqlalchemy as sa
 
 revision = '20260703_mo_approval'
-down_revision = None  # ganti dengan revision terakhir di project kamu
+down_revision = '794712529f56'
 branch_labels = None
 depends_on = None
 
