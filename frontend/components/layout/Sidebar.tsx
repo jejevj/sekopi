@@ -34,11 +34,11 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Expiry Alert',href: '/(inventori)/expiry',               Icon: TriangleAlert,   roles: ['INVENTORI', 'ADMIN'],   group: 'Inventori' },
   // Pembelian
   { label: 'Pembelian',   href: '/(admin)/pembelian',                Icon: ShoppingBag,     roles: ['ADMIN', 'INVENTORI'],   group: 'Pembelian' },
+  { label: 'Pengeluaran', href: '/(admin)/gerobak/pengeluaran',      Icon: Wallet,          roles: ['ADMIN'],                group: 'Pembelian' },
   // Gerobak & Saham (admin)
   { label: 'Gerobak',     href: '/(admin)/gerobak',                  Icon: ShoppingCart,    roles: ['ADMIN'],                group: 'Saham & Gerobak', exact: true },
   { label: 'Grup & Saham',href: '/(admin)/gerobak/saham',            Icon: PieChart,        roles: ['ADMIN'],                group: 'Saham & Gerobak' },
   { label: 'Dividen',     href: '/(admin)/gerobak/dividen',          Icon: Banknote,        roles: ['ADMIN'],                group: 'Saham & Gerobak' },
-  { label: 'Pengeluaran', href: '/(admin)/gerobak/pengeluaran',      Icon: Wallet,          roles: ['ADMIN'],                group: 'Saham & Gerobak' },
   // Shareholder view
   { label: 'Portofolio',  href: '/(shareholder)/saham',              Icon: PieChart,        roles: ['SHAREHOLDER'],          group: 'Saham' },
   { label: 'Dividen',     href: '/(shareholder)/dividen',            Icon: Banknote,        roles: ['SHAREHOLDER'],          group: 'Saham' },
