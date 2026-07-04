@@ -59,36 +59,48 @@ export default function StokPage() {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [expandedBahan, setExpandedBahan] = useState<number | null>(null);
 
+  // GET /inventori/bahan-baku → list[BahanBakuResponse]
+  // BahanBakuResponse: { id, nama, satuan, stok_minimum, saldo, ... }
   const { data: bahanList, isLoading: loadingBahan, refetch: refetchBahan } = useQuery({
     queryKey: ['stok-bahan'],
     queryFn: async () => (await api.get('/inventori/bahan-baku')).data,
     enabled: tab === 'bahan',
   });
 
+  // GET /inventori/stok/{id}/histori → list[StokHistoriResponse]
+  // StokHistoriResponse: { id, bahan_baku_id, tipe, jumlah, keterangan, created_at }
   const { data: historiData } = useQuery({
     queryKey: ['stok-histori', expandedBahan],
     queryFn: async () => (await api.get(`/inventori/stok/${expandedBahan}/histori`)).data,
     enabled: expandedBahan !== null,
   });
 
+  // GET /production-units/ready-fefo → PaginatedUnitResponse
+  // PaginatedUnitResponse: { total, page, per_page, total_pages, items: ProductionUnitResponse[] }
+  // ProductionUnitResponse: { id, barcode, nama_produk, expiry_date, status, hari_tersisa, is_expired, is_expiring_soon, ... }
   const { data: unitData, isLoading: loadingUnit, refetch: refetchUnit } = useQuery({
     queryKey: ['stok-unit'],
     queryFn: async () => (await api.get('/production-units/ready-fefo?page=1&per_page=200')).data,
     enabled: tab === 'unit',
   });
 
-  const bahanItems: any[] = bahanList ?? [];
+  const bahanItems: any[] = Array.isArray(bahanList) ? bahanList : [];
+
   const filteredBahan = useMemo(() => {
     const q = searchBahan.trim().toLowerCase();
     if (!q) return bahanItems;
-    return bahanItems.filter((b: any) => b.nama.toLowerCase().includes(q));
+    return bahanItems.filter((b: any) => b.nama?.toLowerCase().includes(q));
   }, [bahanItems, searchBahan]);
 
+  // unit: PaginatedUnitResponse.items
   const unitItems: any[] = unitData?.items ?? [];
+
   const filteredUnit = useMemo(() => {
     const q = searchUnit.trim().toLowerCase();
     return unitItems.filter((u: any) => {
-      const matchQ = !q || u.barcode.toLowerCase().includes(q) || u.nama_produk.toLowerCase().includes(q);
+      const matchQ = !q
+        || u.barcode?.toLowerCase().includes(q)
+        || u.nama_produk?.toLowerCase().includes(q);
       const matchStatus = filterStatus === 'all' || u.status === filterStatus;
       return matchQ && matchStatus;
     });
@@ -101,9 +113,11 @@ export default function StokPage() {
     }, {} as Record<string, number>)
   , [unitItems]);
 
-  const stockLevel = (saldo: number, min_stok: number) => {
+  // stok_minimum (bukan min_stok) sesuai BahanBakuResponse
+  const stockLevel = (saldo: number, stok_minimum: number) => {
     if (saldo <= 0) return { label: 'Habis', color: '#ef4444', Icon: XCircle };
-    if (min_stok && saldo <= min_stok) return { label: 'Hampir Habis', color: '#eab308', Icon: AlertTriangle };
+    if (stok_minimum > 0 && saldo <= stok_minimum)
+      return { label: 'Hampir Habis', color: '#eab308', Icon: AlertTriangle };
     return { label: 'Aman', color: '#22c55e', Icon: CheckCircle };
   };
 
@@ -123,7 +137,11 @@ export default function StokPage() {
             const active = tab === t.key;
             return (
               <button key={t.key}
-                onClick={() => { setTab(t.key); setSearchBahan(''); setSearchUnit(''); setFilterStatus('all'); setExpandedBahan(null); }}
+                onClick={() => {
+                  setTab(t.key);
+                  setSearchBahan(''); setSearchUnit('');
+                  setFilterStatus('all'); setExpandedBahan(null);
+                }}
                 style={{
                   padding: '10px 20px', background: 'none', border: 'none',
                   borderBottom: active ? `2px solid ${t.activeColor}` : '2px solid transparent',
@@ -139,12 +157,13 @@ export default function StokPage() {
           })}
         </div>
 
+        {/* ── TAB BAHAN BAKU ── */}
         {tab === 'bahan' && (
           <div>
             <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-              <StatCard label="Total Bahan" value={bahanItems.length} color="#3b82f6" />
-              <StatCard label="Hampir Habis" value={bahanItems.filter((b: any) => b.saldo > 0 && b.min_stok && b.saldo <= b.min_stok).length} color="#eab308" />
-              <StatCard label="Habis" value={bahanItems.filter((b: any) => b.saldo <= 0).length} color="#ef4444" />
+              <StatCard label="Total Bahan"  value={bahanItems.length} color="#3b82f6" />
+              <StatCard label="Hampir Habis" value={bahanItems.filter((b: any) => b.saldo > 0 && b.stok_minimum > 0 && b.saldo <= b.stok_minimum).length} color="#eab308" />
+              <StatCard label="Habis"        value={bahanItems.filter((b: any) => (b.saldo ?? 0) <= 0).length} color="#ef4444" />
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
@@ -164,17 +183,22 @@ export default function StokPage() {
                   <p style={{ color: '#444', fontSize: 12, margin: '0 0 10px' }}>{filteredBahan.length} hasil dari {bahanItems.length} bahan</p>
                 )}
                 {filteredBahan.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '24px 0', color: '#333', fontSize: 13 }}>Tidak ada bahan yang cocok dengan "{searchBahan}"</div>
+                  <div style={{ textAlign: 'center', padding: '24px 0', color: '#333', fontSize: 13 }}>
+                    Tidak ada bahan yang cocok dengan "{searchBahan}"
+                  </div>
                 ) : (
                   filteredBahan.map((bahan: any) => {
-                    const level = stockLevel(bahan.saldo ?? 0, bahan.min_stok);
+                    const level = stockLevel(bahan.saldo ?? 0, bahan.stok_minimum ?? 0);
                     const isExpanded = expandedBahan === bahan.id;
                     const histori: any[] = isExpanded ? (historiData ?? []) : [];
                     return (
                       <div key={bahan.id}>
                         <div
                           onClick={() => setExpandedBahan(isExpanded ? null : bahan.id)}
-                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer' }}
+                          style={{
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            padding: '11px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer',
+                          }}
                         >
                           <div style={{ flex: 1 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -187,8 +211,10 @@ export default function StokPage() {
                               <span style={{ color: '#3b82f6', fontSize: 13, fontWeight: 600 }}>
                                 {(bahan.saldo ?? 0).toLocaleString('id-ID')} {bahan.satuan}
                               </span>
-                              {bahan.min_stok && (
-                                <span style={{ color: '#333', fontSize: 12 }}>Min: {bahan.min_stok.toLocaleString('id-ID')} {bahan.satuan}</span>
+                              {bahan.stok_minimum > 0 && (
+                                <span style={{ color: '#333', fontSize: 12 }}>
+                                  Min: {bahan.stok_minimum.toLocaleString('id-ID')} {bahan.satuan}
+                                </span>
                               )}
                             </div>
                           </div>
@@ -205,18 +231,22 @@ export default function StokPage() {
                               <p style={{ color: '#333', fontSize: 12, margin: 0 }}>Belum ada transaksi</p>
                             ) : (
                               histori.map((h: any, i: number) => (
-                                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                                <div key={h.id ?? i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
                                   <div>
-                                    <span style={{ color: '#555', fontSize: 12 }}>{h.tipe ?? h.jenis}</span>
-                                    {h.keterangan && <span style={{ color: '#333', fontSize: 11, marginLeft: 8 }}>{h.keterangan}</span>}
+                                    {/* StokHistoriResponse: tipe, keterangan */}
+                                    <span style={{ color: '#888', fontSize: 12, textTransform: 'capitalize' }}>{h.tipe?.replace(/_/g, ' ')}</span>
+                                    {h.keterangan && (
+                                      <span style={{ color: '#444', fontSize: 11, marginLeft: 8 }}>{h.keterangan}</span>
+                                    )}
                                   </div>
                                   <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                                    <span style={{ color: (h.jumlah ?? h.qty) > 0 ? '#22c55e' : '#ef4444', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                                      {(h.jumlah ?? h.qty) > 0 ? '+' : ''}{(h.jumlah ?? h.qty).toLocaleString('id-ID')} {bahan.satuan}
+                                    {/* StokHistoriResponse: jumlah (positif = masuk, negatif = keluar) */}
+                                    <span style={{ color: h.jumlah > 0 ? '#22c55e' : '#ef4444', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                                      {h.jumlah > 0 ? '+' : ''}{Number(h.jumlah).toLocaleString('id-ID')} {bahan.satuan}
                                     </span>
                                     {h.created_at && (
-                                      <span style={{ color: '#2a2a2a', fontSize: 11 }}>
-                                        {new Date(h.created_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })}
+                                      <span style={{ color: '#333', fontSize: 11 }}>
+                                        {new Date(h.created_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: '2-digit' })}
                                       </span>
                                     )}
                                   </div>
@@ -234,12 +264,16 @@ export default function StokPage() {
           </div>
         )}
 
+        {/* ── TAB UNIT PRODUKSI ── */}
         {tab === 'unit' && (
           <div>
             <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
               {UNIT_STATUSES.filter(s => unitStats[s] > 0).map(s => (
-                <StatCard key={s} label={s} value={unitStats[s]} color={UNIT_STATUS_COLOR[s]} />
+                <StatCard key={s} label={s.replace(/_/g, ' ')} value={unitStats[s]} color={UNIT_STATUS_COLOR[s]} />
               ))}
+              {unitData != null && unitItems.length === 0 && (
+                <StatCard label="Total" value={0} color="#555" />
+              )}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
@@ -247,56 +281,74 @@ export default function StokPage() {
             </div>
 
             {loadingUnit ? <LoadingSpinner color="#a855f7" /> : unitItems.length === 0 ? (
-              <EmptyState Icon={Package} message="Belum ada unit produksi" />
+              <EmptyState Icon={Package} message="Belum ada unit produksi dengan status ready" />
             ) : (
               <div style={glassCard}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                  <p style={sectionTitle}>Semua Unit Produksi</p>
-                  <span style={{ color: '#444', fontSize: 12 }}>{filteredUnit.length} unit</span>
+                  <p style={sectionTitle}>Unit Produksi</p>
+                  <span style={{ color: '#444', fontSize: 12 }}>{filteredUnit.length} / {unitItems.length} unit</span>
                 </div>
 
                 <SearchBar value={searchUnit} onChange={setSearchUnit} placeholder="Cari barcode atau nama produk..." />
+
+                {/* Filter status pills */}
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
                   {['all', ...UNIT_STATUSES.filter(s => unitStats[s] > 0)].map(s => {
                     const active = filterStatus === s;
-                    const color = s === 'all' ? '#555' : UNIT_STATUS_COLOR[s];
+                    const color = s === 'all' ? '#6b7280' : UNIT_STATUS_COLOR[s];
                     return (
                       <button key={s} onClick={() => setFilterStatus(s)}
                         style={{
                           padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: active ? 600 : 400,
                           backgroundColor: active ? color + '20' : 'transparent',
                           border: active ? `1px solid ${color}50` : '1px solid rgba(255,255,255,0.08)',
-                          color: active ? color : '#444', cursor: 'pointer',
+                          color: active ? color : '#555', cursor: 'pointer', textTransform: 'capitalize',
                         }}
                       >
-                        {s === 'all' ? 'Semua' : s} {s !== 'all' && `(${unitStats[s]})`}
+                        {s === 'all' ? 'Semua' : s.replace(/_/g, ' ')}
+                        {s !== 'all' && ` (${unitStats[s]})`}
                       </button>
                     );
                   })}
                 </div>
 
-                {searchUnit.trim() && (
-                  <p style={{ color: '#444', fontSize: 12, margin: '0 0 10px' }}>{filteredUnit.length} hasil dari {unitItems.length} unit</p>
-                )}
-
                 {filteredUnit.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '24px 0', color: '#333', fontSize: 13 }}>Tidak ada unit yang cocok</div>
+                  <div style={{ textAlign: 'center', padding: '24px 0', color: '#333', fontSize: 13 }}>
+                    Tidak ada unit yang cocok
+                  </div>
                 ) : (
                   filteredUnit.map((unit: any) => {
                     const uColor = UNIT_STATUS_COLOR[unit.status] ?? '#888';
                     return (
-                      <div key={unit.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      <div key={unit.id} style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)',
+                      }}>
                         <div>
                           <p style={{ color: 'white', fontFamily: 'monospace', fontSize: 13, margin: 0 }}>{unit.barcode}</p>
-                          <p style={{ color: '#444', fontSize: 12, margin: '2px 0 0' }}>{unit.nama_produk}</p>
+                          <p style={{ color: '#555', fontSize: 12, margin: '2px 0 0' }}>{unit.nama_produk}</p>
                           <div style={{ display: 'flex', gap: 10, marginTop: 3, alignItems: 'center', flexWrap: 'wrap' }}>
-                            <span style={{ color: '#333', fontSize: 12 }}>Expiry: {unit.expiry_date}</span>
-                            {unit.is_expired && <span style={{ color: '#ef4444', fontSize: 11, fontWeight: 600 }}>EXPIRED</span>}
-                            {unit.is_expiring_soon && !unit.is_expired && <span style={{ color: '#eab308', fontSize: 11, fontWeight: 600 }}>{unit.hari_tersisa}h lagi</span>}
+                            {/* expiry_date: date string dari ProductionUnitResponse */}
+                            <span style={{ color: '#333', fontSize: 12 }}>
+                              Expiry: {unit.expiry_date}
+                            </span>
+                            {unit.is_expired && (
+                              <span style={{ color: '#ef4444', fontSize: 11, fontWeight: 600 }}>EXPIRED</span>
+                            )}
+                            {unit.is_expiring_soon && !unit.is_expired && (
+                              <span style={{ color: '#eab308', fontSize: 11, fontWeight: 600 }}>
+                                {unit.hari_tersisa != null ? `${unit.hari_tersisa}h lagi` : 'Segera expired'}
+                              </span>
+                            )}
                           </div>
                         </div>
-                        <span style={{ backgroundColor: uColor + '18', color: uColor, border: `1px solid ${uColor}33`, borderRadius: 5, padding: '2px 10px', fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap' }}>
-                          {unit.status}
+                        <span style={{
+                          backgroundColor: uColor + '18', color: uColor,
+                          border: `1px solid ${uColor}33`,
+                          borderRadius: 5, padding: '2px 10px', fontSize: 11,
+                          fontWeight: 500, whiteSpace: 'nowrap', textTransform: 'capitalize',
+                        }}>
+                          {unit.status?.replace(/_/g, ' ')}
                         </span>
                       </div>
                     );
@@ -306,6 +358,7 @@ export default function StokPage() {
             )}
           </div>
         )}
+
       </div>
     </div>
   );
