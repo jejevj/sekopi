@@ -5,6 +5,7 @@ import { Navbar } from '../../../components/layout/Navbar';
 import {
   ShoppingBag, Plus, X, Check, ChevronDown, ChevronUp,
   AlertTriangle, FileText, Building2, Pencil,
+  ClipboardList, BarChart2,
 } from 'lucide-react-native';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -59,6 +60,18 @@ const fmtDate = (s?: string) =>
   s ? new Date(s).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 const todayStr = () => new Date().toISOString().split('T')[0];
 const firstOfMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`; };
+
+// ── Tab icon map ───────────────────────────────────────────────────────────
+const TAB_ICON = {
+  po:       <ClipboardList size={14} />,
+  supplier: <Building2    size={14} />,
+  laporan:  <BarChart2    size={14} />,
+} as const;
+const TAB_LABEL = {
+  po:       'Purchase Order',
+  supplier: 'Supplier',
+  laporan:  'Laporan',
+} as const;
 
 // ── Component ──────────────────────────────────────────────────────────────
 export default function PembelianPage() {
@@ -133,8 +146,6 @@ export default function PembelianPage() {
     setLDari(dari);
     setLSampai(sampai);
     setFetchLaporan(true);
-    // refetch dipicu oleh perubahan queryKey (dari/sampai), tapi kalau queryKey
-    // tidak berubah (sudah sama) kita tetap force refetch
     setTimeout(() => refetchLaporan(), 0);
   };
 
@@ -242,14 +253,25 @@ export default function PembelianPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
           <div style={{ display: 'flex', gap: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 10, padding: 4 }}>
             {(['po', 'supplier', 'laporan'] as const).map(t => {
-              const labels = { po: '📋 Purchase Order', supplier: '🏭 Supplier', laporan: '📈 Laporan' };
+              const active = tab === t;
               return (
-                <button key={t} onClick={() => setTab(t)} style={{
-                  padding: '7px 18px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                  background: tab === t ? 'rgba(244,68,68,0.15)' : 'transparent',
-                  color: tab === t ? '#f87171' : '#666',
-                  outline: tab === t ? '1px solid rgba(244,68,68,0.3)' : 'none',
-                }}>{labels[t]}</button>
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '7px 16px', borderRadius: 8, border: 'none',
+                    fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                    background: active ? 'rgba(244,68,68,0.15)' : 'transparent',
+                    color: active ? '#f87171' : '#666',
+                    outline: active ? '1px solid rgba(244,68,68,0.3)' : 'none',
+                  }}
+                >
+                  <span style={{ display: 'flex', color: active ? '#f87171' : '#555' }}>
+                    {TAB_ICON[t]}
+                  </span>
+                  {TAB_LABEL[t]}
+                </button>
               );
             })}
           </div>
@@ -432,7 +454,6 @@ export default function PembelianPage() {
                   <FileText size={14} color="white" /> Tampilkan
                 </button>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  {/* Bulan Ini & Bulan Lalu langsung fetch tanpa klik Tampilkan */}
                   <button
                     onClick={applyBulanIni}
                     style={{
@@ -442,10 +463,7 @@ export default function PembelianPage() {
                         : {}),
                     }}
                   >Bulan Ini</button>
-                  <button
-                    onClick={applyBulanLalu}
-                    style={btnGhost}
-                  >Bulan Lalu</button>
+                  <button onClick={applyBulanLalu} style={btnGhost}>Bulan Lalu</button>
                 </div>
               </div>
               <div style={{ color: '#444', fontSize: 11, marginTop: 10 }}>⚡ Laporan dihitung berdasarkan <strong style={{ color: '#666' }}>tanggal invoice</strong> — tagihan tempo tetap masuk bulan invoice, bukan bulan bayar.</div>
