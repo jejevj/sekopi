@@ -46,6 +46,7 @@ const lbl: React.CSSProperties = { color: '#888', fontSize: 11, fontWeight: 600,
 const card: React.CSSProperties = { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, overflow: 'hidden' };
 const btnPrimary: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, backgroundColor: '#f44444', border: 'none', borderRadius: 10, padding: '9px 18px', color: 'white', fontWeight: 600, fontSize: 13, cursor: 'pointer' };
 const btnGhost: React.CSSProperties = { padding: '8px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#aaa', cursor: 'pointer', fontSize: 13 };
+const btnGhostActive: React.CSSProperties = { ...btnGhost, border: '1px solid rgba(244,68,68,0.4)', color: '#f87171' };
 
 const STATUS_STYLE: Record<string, { bg: string; color: string; border: string; label: string }> = {
   draft:       { bg: 'rgba(107,114,128,0.12)', color: '#9ca3af', border: 'rgba(107,114,128,0.3)', label: 'Draft' },
@@ -138,6 +139,8 @@ export default function PembelianPage() {
   const overdueCount = poList.filter(po =>
     po.status !== 'lunas' && po.tanggal_jatuh_tempo && new Date(po.tanggal_jatuh_tempo) < new Date()
   ).length;
+
+  const isBulanIniActive = lDari === firstOfMonth() && lSampai === todayStr() && fetchLaporan;
 
   // ── Shortcut helpers ───────────────────────────────────────────────────────
   const applyBulanIni = () => {
@@ -454,15 +457,8 @@ export default function PembelianPage() {
                   <FileText size={14} color="white" /> Tampilkan
                 </button>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    onClick={applyBulanIni}
-                    style={{
-                      ...btnGhost,
-                      ...(lDari === firstOfMonth() && lSampai === todayStr() && fetchLaporan
-                        ? { borderColor: 'rgba(244,68,68,0.4)', color: '#f87171' }
-                        : {}),
-                    }}
-                  >Bulan Ini</button>
+                  {/* Gunakan btnGhostActive sebagai style terpisah, bukan spread borderColor */}
+                  <button onClick={applyBulanIni} style={isBulanIniActive ? btnGhostActive : btnGhost}>Bulan Ini</button>
                   <button onClick={applyBulanLalu} style={btnGhost}>Bulan Lalu</button>
                 </div>
               </div>
@@ -612,7 +608,18 @@ export default function PembelianPage() {
               {poForm.metode_bayar === 'tempo' && (
                 <div>
                   <label style={lbl}>TANGGAL JATUH TEMPO <span style={{ color: '#ef4444' }}>*</span></label>
-                  <input type="date" value={poForm.tanggal_jatuh_tempo} onChange={e => setPOForm({ ...poForm, tanggal_jatuh_tempo: e.target.value })} style={{ ...inp, borderColor: !poForm.tanggal_jatuh_tempo ? 'rgba(239,68,68,0.4)' : 'rgba(255,255,255,0.12)' }} />
+                  {/* Hindari mix border + borderColor: gunakan object style terpisah */}
+                  <input
+                    type="date"
+                    value={poForm.tanggal_jatuh_tempo}
+                    onChange={e => setPOForm({ ...poForm, tanggal_jatuh_tempo: e.target.value })}
+                    style={{
+                      ...inp,
+                      border: poForm.tanggal_jatuh_tempo
+                        ? '1px solid rgba(255,255,255,0.12)'
+                        : '1px solid rgba(239,68,68,0.4)',
+                    }}
+                  />
                 </div>
               )}
               <div style={{ gridColumn: '1 / -1' }}>
