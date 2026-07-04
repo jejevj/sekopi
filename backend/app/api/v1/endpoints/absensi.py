@@ -7,39 +7,89 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db, require_roles
 from app.models.user import User, UserRole
 from app.repositories.absensi import AbsensiRepository
+from app.repositories.absensi_setting import AbsensiSettingRepository
 from app.schemas.absensi import (
-    AbsensiCreate, AbsensiRekapHarian, AbsensiResponse, AbsensiUpdate,
+    AbsensiCreate, AbsensiRekapHarian, AbsensiResponse,
+    AbsensiSettingCreate, AbsensiSettingResponse, AbsensiSettingUpdate,
+    AbsensiUpdate,
 )
-from app.services.absensi import AbsensiService
+from app.services.absensi import AbsensiService, AbsensiSettingService
 
 router = APIRouter()
 
 
+def _setting_svc(db: Session = Depends(get_db)) -> AbsensiSettingService:
+    return AbsensiSettingService(AbsensiSettingRepository(db))
+
+
 def _svc(db: Session = Depends(get_db)) -> AbsensiService:
-    return AbsensiService(AbsensiRepository(db))
+    return AbsensiService(AbsensiRepository(db), AbsensiSettingRepository(db))
 
 
-# ── CRUD ───────────────────────────────────────────────────────────────────
+# ══ Setting Lokasi ═════════════════════════════════════════════════════════════
+
+@router.get("/settings", response_model=list[AbsensiSettingResponse])
+def list_settings(
+    svc: AbsensiSettingService = Depends(_setting_svc),
+    _: User = Depends(get_current_user),
+):
+    """List semua setting lokasi absensi."""
+    return svc.list_all()
+
+
+@router.post("/settings", response_model=AbsensiSettingResponse, status_code=201)
+def create_setting(
+    data: AbsensiSettingCreate,
+    svc: AbsensiSettingService = Depends(_setting_svc),
+    _: User = Depends(require_roles([UserRole.ADMIN])),
+):
+    return svc.create(data)
+
+
+@router.patch("/settings/{setting_id}", response_model=AbsensiSettingResponse)
+def update_setting(
+    setting_id: int,
+    data: AbsensiSettingUpdate,
+    svc: AbsensiSettingService = Depends(_setting_svc),
+    _: User = Depends(require_roles([UserRole.ADMIN])),
+):
+    return svc.update(setting_id, data)
+
+
+@router.delete("/settings/{setting_id}", status_code=204)
+def delete_setting(
+    setting_id: int,
+    svc: AbsensiSettingService = Depends(_setting_svc),
+    _: User = Depends(require_roles([UserRole.ADMIN])),
+):
+    svc.delete(setting_id)
+
+
+# ══ Absensi CRUD ═════════════════════════════════════════════════════════════
 
 @router.post("/", response_model=AbsensiResponse, status_code=201)
 def catat_absensi(
     data: AbsensiCreate,
+    enforce_radius: bool = Query(False, description="True = tolak jika di luar radius (dipakai mobile)"),
     svc: AbsensiService = Depends(_svc),
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.PRODUKSI])),
+    current_user: User = Depends(get_current_user),
 ):
-    """Catat absensi baru (admin / produksi)."""
-    return svc.catat(data, current_user.id)
+    """
+    Catat absensi.
+    - Mobile: kirim latitude/longitude/foto_url + enforce_radius=true
+    - Web/admin: boleh tanpa koordinat
+    """
+    return svc.catat(data, current_user.id, enforce_radius=enforce_radius)
 
 
 @router.get("/", response_model=list[AbsensiResponse])
 def list_absensi(
-    dari: date = Query(..., description="Tanggal mulai (YYYY-MM-DD)"),
-    sampai: date = Query(..., description="Tanggal akhir (YYYY-MM-DD)"),
+    dari: date = Query(...),
+    sampai: date = Query(...),
     user_id: Optional[int] = Query(None),
     svc: AbsensiService = Depends(_svc),
     _: User = Depends(get_current_user),
 ):
-    """List absensi per rentang tanggal (semua role)."""
     if user_id:
         return svc.list_by_user(user_id, dari, sampai)
     return svc.list_range(dari, sampai)
@@ -51,7 +101,6 @@ def rekap_harian(
     svc: AbsensiService = Depends(_svc),
     _: User = Depends(get_current_user),
 ):
-    """Rekap absensi satu hari — dipakai halaman monitoring web."""
     return svc.rekap_harian(tanggal)
 
 
@@ -69,7 +118,7 @@ def update_absensi(
     absensi_id: int,
     data: AbsensiUpdate,
     svc: AbsensiService = Depends(_svc),
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.PRODUKSI])),
+    _: User = Depends(require_roles([UserRole.ADMIN, UserRole.PRODUKSI])),
 ):
     return svc.update(absensi_id, data)
 

@@ -4,46 +4,112 @@ from typing import Optional
 from fastapi import HTTPException, status
 
 from app.repositories.absensi import AbsensiRepository
+from app.repositories.absensi_setting import AbsensiSettingRepository
 from app.schemas.absensi import (
-    AbsensiCreate, AbsensiRekapHarian, AbsensiResponse, AbsensiUpdate,
+    AbsensiCreate, AbsensiRekapHarian, AbsensiResponse,
+    AbsensiSettingCreate, AbsensiSettingResponse, AbsensiSettingUpdate,
+    AbsensiUpdate, haversine_meter,
 )
 
 
-class AbsensiService:
-    def __init__(self, repo: AbsensiRepository):
+class AbsensiSettingService:
+    def __init__(self, repo: AbsensiSettingRepository):
         self.repo = repo
 
-    def catat(self, data: AbsensiCreate, dicatat_oleh: int) -> AbsensiResponse:
+    def list_all(self) -> list[AbsensiSettingResponse]:
+        return [AbsensiSettingResponse.from_orm_obj(o) for o in self.repo.list_all()]
+
+    def get(self, setting_id: int) -> AbsensiSettingResponse:
+        obj = self.repo.get_by_id(setting_id)
+        if not obj:
+            raise HTTPException(404, "Setting tidak ditemukan")
+        return AbsensiSettingResponse.from_orm_obj(obj)
+
+    def create(self, data: AbsensiSettingCreate) -> AbsensiSettingResponse:
+        obj = self.repo.create(data)
+        return AbsensiSettingResponse.from_orm_obj(obj)
+
+    def update(self, setting_id: int, data: AbsensiSettingUpdate) -> AbsensiSettingResponse:
+        obj = self.repo.get_by_id(setting_id)
+        if not obj:
+            raise HTTPException(404, "Setting tidak ditemukan")
+        obj = self.repo.update(obj, data)
+        return AbsensiSettingResponse.from_orm_obj(obj)
+
+    def delete(self, setting_id: int) -> None:
+        obj = self.repo.get_by_id(setting_id)
+        if not obj:
+            raise HTTPException(404, "Setting tidak ditemukan")
+        self.repo.delete(obj)
+
+
+class AbsensiService:
+    def __init__(self, repo: AbsensiRepository, setting_repo: AbsensiSettingRepository):
+        self.repo = repo
+        self.setting_repo = setting_repo
+
+    def _hitung_jarak(self, lat: float, lon: float):
+        """
+        Hitung jarak ke semua lokasi aktif.
+        Return (jarak_terdekat_meter, dalam_radius).
+        Jika tidak ada setting aktif, return (None, None).
+        """
+        settings = self.setting_repo.list_active()
+        if not settings:
+            return None, None
+        jarak_min = min(
+            haversine_meter(lat, lon, float(s.latitude), float(s.longitude))
+            for s in settings
+        )
+        dalam_radius = any(
+            haversine_meter(lat, lon, float(s.latitude), float(s.longitude)) <= s.radius_meter
+            for s in settings
+        )
+        return round(jarak_min, 2), dalam_radius
+
+    def catat(self, data: AbsensiCreate, dicatat_oleh: int,
+              enforce_radius: bool = False) -> AbsensiResponse:
         existing = self.repo.get_by_user_tanggal(data.user_id, data.tanggal)
         if existing:
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Absensi untuk user {data.user_id} pada {data.tanggal} sudah ada.",
+                status.HTTP_409_CONFLICT,
+                detail=f"Absensi user {data.user_id} pada {data.tanggal} sudah ada.",
             )
-        obj = self.repo.create(data, dicatat_oleh)
+
+        jarak = dalam_radius = None
+        if data.latitude is not None and data.longitude is not None:
+            jarak, dalam_radius = self._hitung_jarak(data.latitude, data.longitude)
+            if enforce_radius and dalam_radius is False:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    detail=f"Lokasi terlalu jauh dari titik absensi ({jarak:.0f} m). Harap absen di lokasi yang ditentukan.",
+                )
+
+        obj = self.repo.create(data, dicatat_oleh, jarak_meter=jarak, dalam_radius=dalam_radius)
         return AbsensiResponse.from_orm_obj(obj)
 
     def get(self, absensi_id: int) -> AbsensiResponse:
         obj = self.repo.get_by_id(absensi_id)
         if not obj:
-            raise HTTPException(status_code=404, detail="Absensi tidak ditemukan")
+            raise HTTPException(404, "Absensi tidak ditemukan")
         return AbsensiResponse.from_orm_obj(obj)
 
     def update(self, absensi_id: int, data: AbsensiUpdate) -> AbsensiResponse:
         obj = self.repo.get_by_id(absensi_id)
         if not obj:
-            raise HTTPException(status_code=404, detail="Absensi tidak ditemukan")
+            raise HTTPException(404, "Absensi tidak ditemukan")
         obj = self.repo.update(obj, data)
         return AbsensiResponse.from_orm_obj(obj)
 
     def delete(self, absensi_id: int) -> None:
         obj = self.repo.get_by_id(absensi_id)
         if not obj:
-            raise HTTPException(status_code=404, detail="Absensi tidak ditemukan")
+            raise HTTPException(404, "Absensi tidak ditemukan")
         self.repo.delete(obj)
 
     def rekap_harian(self, tanggal: date) -> AbsensiRekapHarian:
         records = self.repo.list_by_tanggal(tanggal)
+        resp = [AbsensiResponse.from_orm_obj(r) for r in records]
         return AbsensiRekapHarian(
             tanggal=tanggal,
             total=len(records),
@@ -51,13 +117,12 @@ class AbsensiService:
             izin=sum(1 for r in records if r.status.value == "izin"),
             sakit=sum(1 for r in records if r.status.value == "sakit"),
             alpha=sum(1 for r in records if r.status.value == "alpha"),
-            records=[AbsensiResponse.from_orm_obj(r) for r in records],
+            di_luar_radius=sum(1 for r in resp if r.dalam_radius is False),
+            records=resp,
         )
 
     def list_by_user(self, user_id: int, dari: date, sampai: date) -> list[AbsensiResponse]:
-        records = self.repo.list_by_user(user_id, dari, sampai)
-        return [AbsensiResponse.from_orm_obj(r) for r in records]
+        return [AbsensiResponse.from_orm_obj(r) for r in self.repo.list_by_user(user_id, dari, sampai)]
 
     def list_range(self, dari: date, sampai: date) -> list[AbsensiResponse]:
-        records = self.repo.list_range(dari, sampai)
-        return [AbsensiResponse.from_orm_obj(r) for r in records]
+        return [AbsensiResponse.from_orm_obj(r) for r in self.repo.list_range(dari, sampai)]

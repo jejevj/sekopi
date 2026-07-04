@@ -1,7 +1,7 @@
 import enum
 from datetime import date, datetime, time, timezone
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, Time
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -12,10 +12,10 @@ def _enum_values(e):
 
 
 class StatusAbsensi(str, enum.Enum):
-    HADIR      = "hadir"
-    IZIN       = "izin"
-    SAKIT      = "sakit"
-    ALPHA      = "alpha"
+    HADIR = "hadir"
+    IZIN  = "izin"
+    SAKIT = "sakit"
+    ALPHA = "alpha"
 
 
 class Absensi(Base):
@@ -35,10 +35,21 @@ class Absensi(Base):
         default=StatusAbsensi.HADIR,
     )
 
-    jam_masuk: Mapped[time | None] = mapped_column(Time, nullable=True)
+    jam_masuk: Mapped[time | None]  = mapped_column(Time, nullable=True)
     jam_keluar: Mapped[time | None] = mapped_column(Time, nullable=True)
 
-    keterangan: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # ── Lokasi saat absen (dikirim dari mobile)
+    latitude: Mapped[float | None]  = mapped_column(Numeric(10, 7), nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Numeric(10, 7), nullable=True)
+    # Jarak hasil kalkulasi backend (meter) — disimpan agar bisa diaudit
+    jarak_meter: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)
+    # True jika berada dalam radius saat absen
+    dalam_radius: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+    # ── Foto selfie saat absen
+    foto_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    keterangan: Mapped[str | None]   = mapped_column(String(500), nullable=True)
     dicatat_oleh: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -52,6 +63,5 @@ class Absensi(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    # relationships
-    user: Mapped["User"] = relationship("User", foreign_keys=[user_id], lazy="joined")  # type: ignore
+    user: Mapped["User"] = relationship("User", foreign_keys=[user_id], lazy="joined")          # type: ignore
     pencatat: Mapped["User | None"] = relationship("User", foreign_keys=[dicatat_oleh], lazy="joined")  # type: ignore
