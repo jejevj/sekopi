@@ -9,7 +9,7 @@ import {
   Package, FlaskConical, Truck, Coffee,
   TrendingUp, LogOut, ChevronLeft, ChevronRight,
   ShoppingCart, ShoppingBag, PieChart, Banknote, Wallet,
-  BookOpen,
+  BookOpen, PackageCheck, CalendarCheck2,
   type LucideIcon,
 } from 'lucide-react-native';
 
@@ -28,7 +28,9 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Menu & Resep', href: '/(admin)/menu',                    Icon: BookOpen,        roles: ['ADMIN'],                group: 'Operasional' },
   { label: 'Mfg. Order',  href: '/(admin)/mo',                       Icon: ClipboardList,   roles: ['ADMIN', 'PRODUKSI'],    group: 'Operasional' },
   { label: 'Produksi',    href: '/(admin)/produksi',                 Icon: Factory,         roles: ['ADMIN', 'PRODUKSI'],    group: 'Operasional' },
+  { label: 'Loading',     href: '/(admin)/loading',                  Icon: PackageCheck,    roles: ['ADMIN'],                group: 'Operasional' },
   { label: 'Return',      href: '/(admin)/return',                   Icon: Undo2,           roles: ['ADMIN', 'INVENTORI'],   group: 'Operasional' },
+  { label: 'Absensi',     href: '/(admin)/absensi',                  Icon: CalendarCheck2,  roles: ['ADMIN'],                group: 'Operasional' },
   { label: 'Users',       href: '/(admin)/users',                    Icon: Users,           roles: ['ADMIN'],                group: 'Operasional' },
   // Inventori
   { label: 'Bahan Baku',  href: '/(admin)/bahan-baku',               Icon: FlaskConical,    roles: ['ADMIN', 'INVENTORI'],   group: 'Inventori' },
