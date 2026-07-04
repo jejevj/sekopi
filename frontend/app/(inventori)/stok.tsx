@@ -3,7 +3,6 @@ import {
   ChevronDown, ChevronUp, AlertTriangle, CheckCircle, XCircle,
 } from 'lucide-react-native';
 import React, { useState, useMemo } from 'react';
-import { ActivityIndicator } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { Navbar } from '../../components/layout/Navbar';
@@ -11,8 +10,8 @@ import { Navbar } from '../../components/layout/Navbar';
 type Tab = 'bahan' | 'unit';
 
 const TABS: { key: Tab; label: string; Icon: any; activeColor: string }[] = [
-  { key: 'bahan', label: 'Bahan Baku',      Icon: FlaskConical, activeColor: '#3b82f6' },
-  { key: 'unit',  label: 'Unit Produksi',   Icon: Package,      activeColor: '#a855f7' },
+  { key: 'bahan', label: 'Bahan Baku',    Icon: FlaskConical, activeColor: '#3b82f6' },
+  { key: 'unit',  label: 'Unit Produksi', Icon: Package,      activeColor: '#a855f7' },
 ];
 
 const UNIT_STATUS_COLOR: Record<string, string> = {
@@ -60,28 +59,24 @@ export default function StokPage() {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [expandedBahan, setExpandedBahan] = useState<number | null>(null);
 
-  // ── Bahan Baku ────────────────────────────────────────────────────────────
   const { data: bahanList, isLoading: loadingBahan, refetch: refetchBahan } = useQuery({
     queryKey: ['stok-bahan'],
     queryFn: async () => (await api.get('/inventori/bahan-baku')).data,
     enabled: tab === 'bahan',
   });
 
-  // histori per bahan (lazy — only fetched when expanded)
   const { data: historiData } = useQuery({
     queryKey: ['stok-histori', expandedBahan],
     queryFn: async () => (await api.get(`/inventori/stok/${expandedBahan}/histori`)).data,
     enabled: expandedBahan !== null,
   });
 
-  // ── Unit Produksi ─────────────────────────────────────────────────────────
   const { data: unitData, isLoading: loadingUnit, refetch: refetchUnit } = useQuery({
     queryKey: ['stok-unit'],
     queryFn: async () => (await api.get('/production-units/ready-fefo?page=1&per_page=200')).data,
     enabled: tab === 'unit',
   });
 
-  // ── Derived ───────────────────────────────────────────────────────────────
   const bahanItems: any[] = bahanList ?? [];
   const filteredBahan = useMemo(() => {
     const q = searchBahan.trim().toLowerCase();
@@ -99,7 +94,6 @@ export default function StokPage() {
     });
   }, [unitItems, searchUnit, filterStatus]);
 
-  // stat per status
   const unitStats = useMemo(() =>
     UNIT_STATUSES.reduce((acc, s) => {
       acc[s] = unitItems.filter((u: any) => u.status === s).length;
@@ -107,7 +101,6 @@ export default function StokPage() {
     }, {} as Record<string, number>)
   , [unitItems]);
 
-  // bahan stock level helper
   const stockLevel = (saldo: number, min_stok: number) => {
     if (saldo <= 0) return { label: 'Habis', color: '#ef4444', Icon: XCircle };
     if (min_stok && saldo <= min_stok) return { label: 'Hampir Habis', color: '#eab308', Icon: AlertTriangle };
@@ -120,13 +113,11 @@ export default function StokPage() {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
 
-        {/* Header */}
         <div style={{ marginBottom: 24 }}>
           <h1 style={{ color: 'white', fontSize: 22, fontWeight: 700, margin: 0 }}>Stok Inventori</h1>
           <p style={{ color: '#555', fontSize: 14, margin: '4px 0 0' }}>Monitor stok bahan baku dan unit produksi secara real-time</p>
         </div>
 
-        {/* Tabs */}
         <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
           {TABS.map(t => {
             const active = tab === t.key;
@@ -148,10 +139,8 @@ export default function StokPage() {
           })}
         </div>
 
-        {/* ── TAB: BAHAN BAKU ────────────────────────────────────────── */}
         {tab === 'bahan' && (
           <div>
-            {/* Stat cards */}
             <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
               <StatCard label="Total Bahan" value={bahanItems.length} color="#3b82f6" />
               <StatCard label="Hampir Habis" value={bahanItems.filter((b: any) => b.saldo > 0 && b.min_stok && b.saldo <= b.min_stok).length} color="#eab308" />
@@ -175,7 +164,7 @@ export default function StokPage() {
                   <p style={{ color: '#444', fontSize: 12, margin: '0 0 10px' }}>{filteredBahan.length} hasil dari {bahanItems.length} bahan</p>
                 )}
                 {filteredBahan.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '24px 0', color: '#333', fontSize: 13 }}>Tidak ada bahan yang cocok dengan “{searchBahan}”</div>
+                  <div style={{ textAlign: 'center', padding: '24px 0', color: '#333', fontSize: 13 }}>Tidak ada bahan yang cocok dengan "{searchBahan}"</div>
                 ) : (
                   filteredBahan.map((bahan: any) => {
                     const level = stockLevel(bahan.saldo ?? 0, bahan.min_stok);
@@ -209,7 +198,6 @@ export default function StokPage() {
                           </div>
                         </div>
 
-                        {/* Histori transaksi */}
                         {isExpanded && (
                           <div style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 8, padding: '10px 14px', margin: '4px 0 8px', borderLeft: '2px solid rgba(59,130,246,0.3)' }}>
                             <p style={{ color: '#3b82f6', fontSize: 12, fontWeight: 600, margin: '0 0 8px' }}>Histori 50 Transaksi Terakhir</p>
@@ -246,10 +234,8 @@ export default function StokPage() {
           </div>
         )}
 
-        {/* ── TAB: UNIT PRODUKSI ──────────────────────────────────────── */}
         {tab === 'unit' && (
           <div>
-            {/* Stat cards per status */}
             <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
               {UNIT_STATUSES.filter(s => unitStats[s] > 0).map(s => (
                 <StatCard key={s} label={s} value={unitStats[s]} color={UNIT_STATUS_COLOR[s]} />
@@ -269,7 +255,6 @@ export default function StokPage() {
                   <span style={{ color: '#444', fontSize: 12 }}>{filteredUnit.length} unit</span>
                 </div>
 
-                {/* Search + filter status */}
                 <SearchBar value={searchUnit} onChange={setSearchUnit} placeholder="Cari barcode atau nama produk..." />
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
                   {['all', ...UNIT_STATUSES.filter(s => unitStats[s] > 0)].map(s => {
@@ -326,8 +311,6 @@ export default function StokPage() {
   );
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
-
 function StatCard({ label, value, color }: { label: string; value: number | string; color: string }) {
   return (
     <div style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '12px 18px', minWidth: 120 }}>
@@ -350,7 +333,7 @@ function RefreshButton({ onClick }: { onClick: () => void }) {
 function LoadingSpinner({ color }: { color: string }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
-      <ActivityIndicator size="large" color={color} />
+      <div style={{ width: 32, height: 32, border: `3px solid ${color}30`, borderTopColor: color, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
     </div>
   );
 }

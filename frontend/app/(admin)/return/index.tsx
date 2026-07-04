@@ -3,7 +3,6 @@ import {
   RefreshCw, Info, CheckCircle, AlertTriangle,
 } from 'lucide-react-native';
 import React, { useState, useMemo } from 'react';
-import { ActivityIndicator, Alert } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../lib/api';
 import { Navbar } from '../../../components/layout/Navbar';
@@ -47,19 +46,68 @@ function SearchBar({ value, onChange, placeholder }: {
   );
 }
 
+function Toast({ message, type, onClose }: { message: string; type: 'success' | 'error' | 'info'; onClose: () => void }) {
+  const colors: Record<string, string> = { success: '#22c55e', error: '#ef4444', info: '#3b82f6' };
+  const color = colors[type] ?? '#3b82f6';
+  React.useEffect(() => { const t = setTimeout(onClose, 4000); return () => clearTimeout(t); }, [onClose]);
+  return (
+    <div style={{
+      position: 'fixed', top: 20, right: 20, zIndex: 9999,
+      backgroundColor: '#1a1a1a', border: `1px solid ${color}50`,
+      borderRadius: 10, padding: '12px 18px', minWidth: 260, maxWidth: 380,
+      display: 'flex', alignItems: 'flex-start', gap: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+    }}>
+      <div style={{ width: 3, borderRadius: 99, backgroundColor: color, alignSelf: 'stretch', flexShrink: 0 }} />
+      <p style={{ color: 'white', fontSize: 13, margin: 0, flex: 1, lineHeight: 1.5 }}>{message}</p>
+      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#555', fontSize: 16, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
+    </div>
+  );
+}
+
+function ConfirmModal({ title, message, onConfirm, onCancel }: {
+  title: string; message: string; onConfirm: () => void; onCancel: () => void;
+}) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9998,
+    }}>
+      <div style={{
+        backgroundColor: '#161616', border: '1px solid rgba(255,255,255,0.1)',
+        borderRadius: 14, padding: 24, maxWidth: 360, width: '90%',
+      }}>
+        <p style={{ color: 'white', fontWeight: 700, fontSize: 16, margin: '0 0 8px' }}>{title}</p>
+        <p style={{ color: '#888', fontSize: 14, margin: '0 0 20px', lineHeight: 1.6 }}>{message}</p>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={onCancel} style={{
+            flex: 1, padding: '9px 0', borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.05)',
+            border: '1px solid rgba(255,255,255,0.1)', color: '#aaa', fontSize: 13, cursor: 'pointer',
+          }}>Batal</button>
+          <button onClick={onConfirm} style={{
+            flex: 1, padding: '9px 0', borderRadius: 8, backgroundColor: 'rgba(59,130,246,0.15)',
+            border: '1px solid rgba(59,130,246,0.4)', color: '#3b82f6', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+          }}>Ya, Return</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ReturnScreen() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>('scan');
 
-  // Scan Return state
   const [barcode, setBarcode] = useState('');
   const [kondisi, setKondisi] = useState<'good' | 'damaged'>('good');
   const [catatan, setCatatan] = useState('');
-
-  // Log state
   const [searchLog, setSearchLog] = useState('');
 
-  // Fetch riwayat returned units
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') =>
+    setToast({ message, type });
+
   const { data: logData, isLoading: loadingLog, refetch: refetchLog } = useQuery({
     queryKey: ['return-log'],
     queryFn: async () => (await api.get('/production-units/returned')).data,
@@ -77,28 +125,23 @@ export default function ReturnScreen() {
       qc.invalidateQueries({ queryKey: ['return-log'] });
       qc.invalidateQueries({ queryKey: ['prod-ready'] });
       const statusLabel = kondisi === 'good' ? 'returned_good' : 'returned_damaged';
-      Alert.alert(
-        'Return Berhasil',
-        `Unit ${data.barcode} berhasil di-return.\nStatus: ${statusLabel}`,
-      );
+      showToast(`Unit ${data.barcode} berhasil di-return. Status: ${statusLabel}`, 'success');
       setBarcode('');
       setCatatan('');
       setKondisi('good');
     },
     onError: (err: any) =>
-      Alert.alert('Gagal', err?.response?.data?.detail || 'Terjadi kesalahan'),
+      showToast(err?.response?.data?.detail || 'Terjadi kesalahan', 'error'),
   });
 
   const handleReturn = () => {
-    if (!barcode.trim()) return Alert.alert('Error', 'Masukkan barcode unit');
-    Alert.alert(
-      'Konfirmasi Return',
-      `Return unit ${barcode.trim()}?\nKondisi: ${kondisi === 'good' ? 'Baik' : 'Rusak'}`,
-      [
-        { text: 'Batal', style: 'cancel' },
-        { text: 'Ya, Return', onPress: () => returnMutation.mutate() },
-      ]
-    );
+    if (!barcode.trim()) return showToast('Masukkan barcode unit terlebih dahulu', 'error');
+    setConfirmOpen(true);
+  };
+
+  const doReturn = () => {
+    setConfirmOpen(false);
+    returnMutation.mutate();
   };
 
   const logItems: any[] = logData?.items ?? logData ?? [];
@@ -117,17 +160,25 @@ export default function ReturnScreen() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: '#0a0a0a' }}>
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      {confirmOpen && (
+        <ConfirmModal
+          title="Konfirmasi Return"
+          message={`Return unit ${barcode.trim()}?\nKondisi: ${kondisi === 'good' ? 'Baik' : 'Rusak'}`}
+          onConfirm={doReturn}
+          onCancel={() => setConfirmOpen(false)}
+        />
+      )}
+
       <Navbar title="Return" />
 
       <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
 
-        {/* Header */}
         <div style={{ marginBottom: 24 }}>
           <h1 style={{ color: 'white', fontSize: 22, fontWeight: 700, margin: 0 }}>Return Unit</h1>
           <p style={{ color: '#555', fontSize: 14, margin: '4px 0 0' }}>Proses return driver dan monitor unit yang kembali ke gudang</p>
         </div>
 
-        {/* Tabs */}
         <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
           {TABS.map(t => {
             const active = tab === t.key;
@@ -149,7 +200,6 @@ export default function ReturnScreen() {
           })}
         </div>
 
-        {/* ── TAB: SCAN RETURN ─────────────────────────────────────────── */}
         {tab === 'scan' && (
           <div style={{ maxWidth: 560 }}>
             <div style={glassCard}>
@@ -162,7 +212,6 @@ export default function ReturnScreen() {
               </p>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                {/* Barcode input */}
                 <div>
                   <label style={{ color: '#666', fontSize: 13, display: 'block', marginBottom: 6 }}>Barcode Unit *</label>
                   <input
@@ -181,7 +230,6 @@ export default function ReturnScreen() {
                   <p style={{ color: '#333', fontSize: 12, margin: '4px 0 0' }}>Tekan Enter untuk langsung submit</p>
                 </div>
 
-                {/* Kondisi selector */}
                 <div>
                   <label style={{ color: '#666', fontSize: 13, display: 'block', marginBottom: 8 }}>Kondisi Unit *</label>
                   <div style={{ display: 'flex', gap: 10 }}>
@@ -209,7 +257,6 @@ export default function ReturnScreen() {
                   </div>
                 </div>
 
-                {/* Catatan optional */}
                 <div>
                   <label style={{ color: '#666', fontSize: 13, display: 'block', marginBottom: 6 }}>Catatan <span style={{ color: '#333' }}>(opsional)</span></label>
                   <textarea
@@ -228,7 +275,6 @@ export default function ReturnScreen() {
                   />
                 </div>
 
-                {/* Submit button */}
                 <button
                   onClick={handleReturn}
                   disabled={!barcode.trim() || returnMutation.isPending}
@@ -242,12 +288,16 @@ export default function ReturnScreen() {
                   }}
                 >
                   <Undo2 size={14} color={!barcode.trim() ? '#2a2a2a' : '#3b82f6'} strokeWidth={2} />
-                  {returnMutation.isPending ? 'Memproses...' : 'Proses Return'}
+                  {returnMutation.isPending ? (
+                    <>
+                      <span style={{ width: 14, height: 14, border: '2px solid rgba(59,130,246,0.3)', borderTopColor: '#3b82f6', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.8s linear infinite' }} />
+                      Memproses...
+                    </>
+                  ) : 'Proses Return'}
                 </button>
               </div>
             </div>
 
-            {/* Info box */}
             <div style={{ marginTop: 14, backgroundColor: 'rgba(59,130,246,0.05)', border: '1px solid rgba(59,130,246,0.12)', borderRadius: 12, padding: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
                 <Info size={13} color="#3b82f6" strokeWidth={2} />
@@ -263,10 +313,8 @@ export default function ReturnScreen() {
           </div>
         )}
 
-        {/* ── TAB: LOG RETURN ──────────────────────────────────────────── */}
         {tab === 'log' && (
           <div>
-            {/* Stat cards */}
             <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
               <StatCard label="Total Returned" value={logItems.length} color="#a855f7" />
               <StatCard label="Kondisi Baik"   value={totalGood}       color="#22c55e" />
@@ -284,7 +332,7 @@ export default function ReturnScreen() {
 
             {loadingLog ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
-                <ActivityIndicator size="large" color="#a855f7" />
+                <div style={{ width: 32, height: 32, border: '3px solid rgba(168,85,247,0.2)', borderTopColor: '#a855f7', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
               </div>
             ) : logItems.length === 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 24px' }}>
@@ -297,18 +345,15 @@ export default function ReturnScreen() {
                   <p style={sectionTitle}>Riwayat Return</p>
                   <span style={{ color: '#444', fontSize: 12 }}>Urut terbaru</span>
                 </div>
-
                 <SearchBar value={searchLog} onChange={setSearchLog} />
-
                 {searchLog.trim() && (
                   <p style={{ color: '#444', fontSize: 12, margin: '0 0 10px' }}>
                     {filteredLog.length} hasil dari {logItems.length} unit
                   </p>
                 )}
-
                 {filteredLog.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '24px 0', color: '#333', fontSize: 13 }}>
-                    Tidak ada unit yang cocok dengan “{searchLog}”
+                    Tidak ada unit yang cocok dengan "{searchLog}"
                   </div>
                 ) : (
                   filteredLog.map((unit: any) => <ReturnRow key={unit.id} unit={unit} />)
@@ -321,8 +366,6 @@ export default function ReturnScreen() {
     </div>
   );
 }
-
-// ── Sub-components ────────────────────────────────────────────────────────────
 
 function ReturnRow({ unit }: { unit: any }) {
   const isGood = unit.status === 'returned_good';
@@ -339,7 +382,7 @@ function ReturnRow({ unit }: { unit: any }) {
               {new Date(unit.return_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
             </span>
           )}
-          {unit.catatan && <span style={{ color: '#333', fontSize: 12, fontStyle: 'italic' }}>“{unit.catatan}”</span>}
+          {unit.catatan && <span style={{ color: '#333', fontSize: 12, fontStyle: 'italic' }}>"{unit.catatan}"</span>}
         </div>
       </div>
       <span style={{ backgroundColor: statusColor + '18', color: statusColor, border: `1px solid ${statusColor}33`, borderRadius: 5, padding: '2px 10px', fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap', marginLeft: 12, flexShrink: 0 }}>
