@@ -6,11 +6,13 @@ from app.models.user import User, UserRole
 from app.repositories.mo_repo import MORepository
 from app.schemas.manufacturing_order import (
     EstimasiHargaModalResponse,
+    EstimasiHargaModalLineDetail,
     ManufacturingOrderCreate,
     ManufacturingOrderResponse,
     ManufacturingOrderUpdate,
     ManufacturingOrderUpdateStatus,
     MOBahanBakuResponse,
+    MOLineResponse,
     UserShortResponse,
 )
 from app.services.mo_service import MOService
@@ -22,41 +24,61 @@ CREATE_ROLES = (UserRole.ADMIN, UserRole.PRODUKSI)
 STATUS_ROLES = (UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI)
 
 
-def _kalkulasi_estimasi(mo) -> float | None:
-    """Hitung estimasi harga modal per unit dari BOM.
-    Rumus per bahan: harga_beli_per_satuan × qty_per_unit
-    Jika salah satu bahan tidak punya harga → return None.
-    """
+def _hitung_estimasi_line(line) -> float | None:
+    """Hitung estimasi harga modal per unit untuk satu MOLine."""
     total = 0.0
-    for line in mo.bahan_baku_lines or []:
-        bb = line.bahan_baku
-        if bb is None or bb.harga_beli_per_satuan is None or line.qty_per_unit is None:
+    for bb in line.bahan_baku_lines or []:
+        bahan = bb.bahan_baku
+        if bahan is None or bahan.harga_beli_per_satuan is None or bb.qty_per_unit is None:
             return None
-        total += float(bb.harga_beli_per_satuan) * float(line.qty_per_unit)
+        total += float(bahan.harga_beli_per_satuan) * float(bb.qty_per_unit)
     return round(total, 2) if total > 0 else None
 
 
-def _build_response(mo) -> ManufacturingOrderResponse:
-    lines = [
+def _build_line_response(line) -> MOLineResponse:
+    bahan_list = [
         MOBahanBakuResponse(
-            id=line.id,
-            bahan_baku_id=line.bahan_baku_id,
-            qty_rencana=float(line.qty_rencana),
-            qty_per_unit=float(line.qty_per_unit) if line.qty_per_unit is not None else None,
-            qty_aktual=float(line.qty_aktual) if line.qty_aktual is not None else None,
-            satuan=line.satuan,
-            nama_bahan=line.bahan_baku.nama if line.bahan_baku else f"ID-{line.bahan_baku_id}",
-            harga_beli_per_satuan=float(line.bahan_baku.harga_beli_per_satuan)
-                if line.bahan_baku and line.bahan_baku.harga_beli_per_satuan is not None else None,
+            id=bb.id,
+            bahan_baku_id=bb.bahan_baku_id,
+            qty_rencana=float(bb.qty_rencana),
+            qty_per_unit=float(bb.qty_per_unit) if bb.qty_per_unit is not None else None,
+            qty_aktual=float(bb.qty_aktual) if bb.qty_aktual is not None else None,
+            satuan=bb.satuan,
+            nama_bahan=bb.bahan_baku.nama if bb.bahan_baku else f"ID-{bb.bahan_baku_id}",
+            harga_beli_per_satuan=float(bb.bahan_baku.harga_beli_per_satuan)
+                if bb.bahan_baku and bb.bahan_baku.harga_beli_per_satuan is not None else None,
         )
-        for line in (mo.bahan_baku_lines or [])
+        for bb in (line.bahan_baku_lines or [])
     ]
+    return MOLineResponse(
+        id=line.id,
+        menu_id=line.menu_id,
+        nama_produk=line.nama_produk,
+        target_qty=float(line.target_qty),
+        satuan=line.satuan,
+        created_at=line.created_at,
+        bahan_baku_lines=bahan_list,
+        estimasi_harga_modal=_hitung_estimasi_line(line),
+    )
+
+
+def _build_response(mo) -> ManufacturingOrderResponse:
+    lines = [_build_line_response(line) for line in (mo.lines or [])]
+
+    # Hitung estimasi total MO (None jika salah satu line tidak lengkap)
+    estimasi_total: float | None = 0.0
+    for lr in lines:
+        if lr.estimasi_harga_modal is None:
+            estimasi_total = None
+            break
+        # estimasi total = sum(estimasi_per_unit * target_qty) per line
+        estimasi_total += lr.estimasi_harga_modal * lr.target_qty  # type: ignore[operator]
+    if estimasi_total is not None:
+        estimasi_total = round(estimasi_total, 2)
+
     return ManufacturingOrderResponse(
         id=mo.id,
         nomor_mo=mo.nomor_mo,
-        nama_produk=mo.nama_produk,
-        target_qty=float(mo.target_qty),
-        satuan=mo.satuan,
         tanggal_rencana=mo.tanggal_rencana,
         tanggal_mulai=mo.tanggal_mulai,
         tanggal_selesai=mo.tanggal_selesai,
@@ -68,11 +90,11 @@ def _build_response(mo) -> ManufacturingOrderResponse:
         inventori_by=mo.inventori_by,
         inventori_at=mo.inventori_at,
         created_at=mo.created_at,
-        bahan_baku_lines=lines,
+        lines=lines,
         created_by_user=UserShortResponse.model_validate(mo.created_by_user) if mo.created_by_user else None,
         approved_by_user=UserShortResponse.model_validate(mo.approved_by_user) if mo.approved_by_user else None,
         inventori_by_user=UserShortResponse.model_validate(mo.inventori_by_user) if mo.inventori_by_user else None,
-        estimasi_harga_modal=_kalkulasi_estimasi(mo),
+        estimasi_harga_modal_total=estimasi_total,
     )
 
 
@@ -118,46 +140,61 @@ async def estimasi_harga_modal(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*VIEW_ROLES)),
 ):
-    """Hitung estimasi harga modal per unit produk dari BOM + harga beli bahan baku."""
+    """Hitung estimasi harga modal per unit per line dari BOM + harga beli bahan baku."""
     repo = MORepository(db)
     mo = await repo.get_with_lines(mo_id)
     if not mo:
         raise HTTPException(status_code=404, detail="Manufacturing Order tidak ditemukan")
 
-    detail = []
-    total = 0.0
-    semua_tersedia = True
+    mo_semua_tersedia = True
+    mo_total = 0.0
+    lines_detail: list[EstimasiHargaModalLineDetail] = []
 
-    for line in mo.bahan_baku_lines or []:
-        bb = line.bahan_baku
-        harga = float(bb.harga_beli_per_satuan) if bb and bb.harga_beli_per_satuan is not None else None
-        qpu   = float(line.qty_per_unit) if line.qty_per_unit is not None else None
-        kontribusi = round(harga * qpu, 4) if harga is not None and qpu is not None else None
-
-        if kontribusi is None:
-            semua_tersedia = False
-        else:
-            total += kontribusi
-
-        detail.append({
-            "bahan_baku_id"        : line.bahan_baku_id,
-            "nama_bahan"           : bb.nama if bb else f"ID-{line.bahan_baku_id}",
-            "satuan"               : line.satuan,
-            "qty_per_unit"         : qpu,
-            "harga_beli_per_satuan": harga,
-            "kontribusi_per_unit"  : kontribusi,
-            "keterangan"           : None if (harga and qpu) else
-                                     ("harga_beli belum diset" if harga is None else "qty_per_unit belum diset"),
-        })
+    for line in mo.lines or []:
+        line_total = 0.0
+        line_semua = True
+        bahan_detail = []
+        for bb in line.bahan_baku_lines or []:
+            bahan = bb.bahan_baku
+            harga = float(bahan.harga_beli_per_satuan) if bahan and bahan.harga_beli_per_satuan else None
+            qpu   = float(bb.qty_per_unit) if bb.qty_per_unit is not None else None
+            kontribusi = round(harga * qpu, 4) if harga and qpu else None
+            if kontribusi is None:
+                line_semua = False
+                mo_semua_tersedia = False
+            else:
+                line_total += kontribusi
+            bahan_detail.append({
+                "bahan_baku_id":         bb.bahan_baku_id,
+                "nama_bahan":            bahan.nama if bahan else f"ID-{bb.bahan_baku_id}",
+                "satuan":                bb.satuan,
+                "qty_per_unit":          qpu,
+                "harga_beli_per_satuan": harga,
+                "kontribusi_per_unit":   kontribusi,
+                "keterangan": None if (harga and qpu) else
+                    ("harga_beli belum diset" if harga is None else "qty_per_unit belum diset"),
+            })
+        estimasi_per_unit  = round(line_total, 2) if line_semua else None
+        estimasi_total_line = round(line_total * float(line.target_qty), 2) if line_semua else None
+        if estimasi_total_line:
+            mo_total += estimasi_total_line
+        lines_detail.append(EstimasiHargaModalLineDetail(
+            mo_line_id=line.id,
+            nama_produk=line.nama_produk,
+            target_qty=float(line.target_qty),
+            satuan=line.satuan,
+            estimasi_per_unit=estimasi_per_unit,
+            estimasi_total_line=estimasi_total_line,
+            semua_harga_tersedia=line_semua,
+            bahan=bahan_detail,
+        ))
 
     return EstimasiHargaModalResponse(
         mo_id=mo_id,
         nomor_mo=mo.nomor_mo,
-        target_qty=float(mo.target_qty),
-        satuan=mo.satuan,
-        estimasi_harga_modal_per_unit=round(total, 2) if semua_tersedia else None,
-        detail=detail,
-        semua_harga_tersedia=semua_tersedia,
+        estimasi_total_mo=round(mo_total, 2) if mo_semua_tersedia else None,
+        semua_harga_tersedia=mo_semua_tersedia,
+        lines=lines_detail,
     )
 
 

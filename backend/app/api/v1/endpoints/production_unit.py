@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, require_roles
+from app.models.production_unit import GenerateBatch
 from app.models.user import User, UserRole
 from app.repositories.production_unit_repo import ProductionUnitRepository
 from app.schemas.production_unit import (
@@ -30,14 +32,15 @@ async def generate_units(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PRODUKSI)),
 ):
     """
-    Generate unit produksi dari sebuah MO.
-    - Jika jumlah aktual berbeda dari target_qty MO, wajib sertakan alasan_selisih.
-    - Respon mencakup batch info (dengan selisih) + list unit yang di-generate.
+    Generate unit produksi dari satu MOLine.
+    Wajib sertakan mo_line_id agar unit tahu berasal dari produk mana.
+    Jika jumlah aktual berbeda dari target_qty MOLine, wajib sertakan alasan_selisih.
     """
     service = ProductionUnitService(db)
     try:
         return await service.generate_units_with_batch(
             mo_id=payload.mo_id,
+            mo_line_id=payload.mo_line_id,
             jumlah=payload.jumlah,
             expiry_date=payload.expiry_date,
             harga_modal=payload.harga_modal,
@@ -57,29 +60,29 @@ async def list_generate_batches(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*VIEW_ROLES)),
 ):
-    """Lihat riwayat semua sesi generate dari satu MO, termasuk catatan selisih."""
-    from sqlalchemy import select
-    from app.models.production_unit import GenerateBatch
+    """Lihat riwayat semua sesi generate dari satu MO, grouped by mo_line_id."""
     result = await db.execute(
         select(GenerateBatch)
         .where(GenerateBatch.mo_id == mo_id)
-        .order_by(GenerateBatch.created_at)
+        .order_by(GenerateBatch.mo_line_id, GenerateBatch.created_at)
     )
     batches = result.scalars().all()
     return [
         {
-            "id": b.id,
-            "mo_id": b.mo_id,
-            "jumlah_target": b.jumlah_target,
-            "jumlah_aktual": b.jumlah_aktual,
-            "selisih_qty": b.selisih_qty,
-            "alasan_selisih": b.alasan_selisih,
+            "id":              b.id,
+            "mo_id":           b.mo_id,
+            "mo_line_id":      b.mo_line_id,
+            "nama_produk":     b.mo_line.nama_produk if b.mo_line else None,
+            "jumlah_target":   b.jumlah_target,
+            "jumlah_aktual":   b.jumlah_aktual,
+            "selisih_qty":     b.selisih_qty,
+            "alasan_selisih":  b.alasan_selisih,
             "kategori_selisih": b.kategori_selisih,
-            "expiry_date": str(b.expiry_date),
-            "harga_modal": float(b.harga_modal) if b.harga_modal else None,
-            "harga_jual": float(b.harga_jual) if b.harga_jual else None,
-            "generated_by": b.generated_by_user.nama if b.generated_by_user else None,
-            "created_at": b.created_at.isoformat(),
+            "expiry_date":     str(b.expiry_date),
+            "harga_modal":     float(b.harga_modal) if b.harga_modal else None,
+            "harga_jual":      float(b.harga_jual) if b.harga_jual else None,
+            "generated_by":    b.generated_by_user.nama if b.generated_by_user else None,
+            "created_at":      b.created_at.isoformat(),
         }
         for b in batches
     ]

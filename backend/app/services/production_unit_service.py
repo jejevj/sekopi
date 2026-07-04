@@ -1,13 +1,16 @@
 from datetime import datetime, date, timezone
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
-from app.models.production_unit import ProductionUnit, StatusUnit
+from app.models.production_unit import ProductionUnit, GenerateBatch, StatusUnit
 from app.models.penjualan import Penjualan
-from app.models.manufacturing_order import ManufacturingOrder, StatusMO
+from app.models.manufacturing_order import ManufacturingOrder, MOLine, StatusMO
 from app.repositories.production_unit_repo import ProductionUnitRepository
 from app.schemas.production_unit import (
     ExpiryAlertResponse,
+    GenerateBatchResponse,
+    GenerateUnitsResponse,
     PaginatedUnitResponse,
     ProductionUnitResponse,
     ScanDispatchRequest,
@@ -35,27 +38,70 @@ class ProductionUnitService:
         self.db = db
         self.repo = ProductionUnitRepository(db)
 
-    async def generate_units(
-        self, mo_id: int, jumlah: int, expiry_date: date,
-        harga_modal: float | None, user_id: int
-    ) -> list[ProductionUnitResponse]:
-        from sqlalchemy import select
-        result = await self.db.execute(
+    async def generate_units_with_batch(
+        self,
+        mo_id: int,
+        mo_line_id: int,
+        jumlah: int,
+        expiry_date: date,
+        harga_modal: float | None,
+        user_id: int,
+        alasan_selisih: str | None = None,
+        kategori_selisih=None,
+    ) -> GenerateUnitsResponse:
+        # Validasi MO
+        mo_result = await self.db.execute(
             select(ManufacturingOrder).where(ManufacturingOrder.id == mo_id)
         )
-        mo = result.scalar_one_or_none()
+        mo = mo_result.scalar_one_or_none()
         if not mo:
             raise NotFoundException(f"MO ID {mo_id} tidak ditemukan")
         if mo.status != StatusMO.DONE:
             raise ValueError("Unit hanya bisa di-generate jika MO sudah berstatus DONE")
 
+        # Validasi MOLine
+        line_result = await self.db.execute(
+            select(MOLine).where(MOLine.id == mo_line_id, MOLine.mo_id == mo_id)
+        )
+        line = line_result.scalar_one_or_none()
+        if not line:
+            raise NotFoundException(f"MOLine ID {mo_line_id} tidak ditemukan di MO {mo_id}")
+
+        jumlah_target = int(line.target_qty)
+        selisih = jumlah_target - jumlah
+
+        if selisih != 0 and not alasan_selisih:
+            raise ValueError(
+                f"Jumlah aktual ({jumlah}) berbeda dari target ({jumlah_target}). "
+                "Wajib isi alasan_selisih."
+            )
+
+        # Buat GenerateBatch
+        batch = GenerateBatch(
+            mo_id=mo_id,
+            mo_line_id=mo_line_id,
+            generated_by=user_id,
+            jumlah_target=jumlah_target,
+            jumlah_aktual=jumlah,
+            selisih_qty=selisih,
+            alasan_selisih=alasan_selisih,
+            kategori_selisih=kategori_selisih,
+            expiry_date=expiry_date,
+            harga_modal=harga_modal,
+            harga_jual=line.menu.harga_jual if line.menu else None,
+        )
+        self.db.add(batch)
+        await self.db.flush()
+
+        # Generate ProductionUnit
         units = []
         for _ in range(jumlah):
             barcode = await self.repo.generate_barcode()
             unit = ProductionUnit(
                 barcode=barcode,
                 mo_id=mo_id,
-                nama_produk=mo.nama_produk,
+                mo_line_id=mo_line_id,
+                nama_produk=line.nama_produk,
                 expiry_date=expiry_date,
                 harga_modal=harga_modal,
                 status=StatusUnit.READY,
@@ -67,7 +113,21 @@ class ProductionUnitService:
         await self.db.commit()
         for unit in units:
             await self.db.refresh(unit)
-        return [_enrich_unit(u) for u in units]
+        await self.db.refresh(batch)
+
+        peringatan = None
+        if selisih != 0:
+            peringatan = (
+                f"Selisih {abs(selisih)} unit "
+                f"({'kurang' if selisih > 0 else 'lebih'} dari target {jumlah_target}). "
+                f"Alasan: {alasan_selisih}"
+            )
+
+        return GenerateUnitsResponse(
+            batch=GenerateBatchResponse.model_validate(batch),
+            units=[_enrich_unit(u) for u in units],
+            peringatan_selisih=peringatan,
+        )
 
     async def get_by_mo_paginated(
         self, mo_id: int, page: int = 1, per_page: int = 50
@@ -77,7 +137,7 @@ class ProductionUnitService:
             total=total,
             page=page,
             per_page=per_page,
-            total_pages=-(-total // per_page),  # ceiling division
+            total_pages=-(-total // per_page),
             items=[_enrich_unit(u) for u in items],
         )
 
@@ -174,8 +234,8 @@ class ProductionUnitService:
             production_unit_id=unit.id,
             barcode=unit.barcode,
             nama_produk=unit.nama_produk,
-            harga=payload.harga,
-            catatan=payload.catatan,
+            harga=payload.harga if hasattr(payload, 'harga') else None,
+            catatan=payload.catatan if hasattr(payload, 'catatan') else None,
             kasir_id=kasir_id,
             sold_at=now,
         )

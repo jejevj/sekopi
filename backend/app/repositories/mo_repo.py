@@ -3,8 +3,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from app.models.manufacturing_order import ManufacturingOrder, MOBahanBaku
-from app.models.bahan_baku import BahanBaku
+from app.models.manufacturing_order import ManufacturingOrder, MOLine, MOBahanBaku
 from app.repositories.base import BaseRepository
 
 
@@ -24,11 +23,17 @@ class MORepository(BaseRepository[ManufacturingOrder]):
         return f"{prefix}{str(count + 1).zfill(3)}"
 
     async def get_with_lines(self, mo_id: int) -> ManufacturingOrder | None:
+        """
+        Load MO header + semua MOLine + bahan baku per line + user relations.
+        """
         result = await self.db.execute(
             select(ManufacturingOrder)
             .options(
-                selectinload(ManufacturingOrder.bahan_baku_lines)
+                selectinload(ManufacturingOrder.lines)
+                    .selectinload(MOLine.bahan_baku_lines)
                     .joinedload(MOBahanBaku.bahan_baku),
+                selectinload(ManufacturingOrder.lines)
+                    .joinedload(MOLine.menu),
                 joinedload(ManufacturingOrder.created_by_user),
                 joinedload(ManufacturingOrder.approved_by_user),
                 joinedload(ManufacturingOrder.inventori_by_user),
@@ -51,8 +56,11 @@ class MORepository(BaseRepository[ManufacturingOrder]):
         result = await self.db.execute(
             select(ManufacturingOrder)
             .options(
-                selectinload(ManufacturingOrder.bahan_baku_lines)
+                selectinload(ManufacturingOrder.lines)
+                    .selectinload(MOLine.bahan_baku_lines)
                     .joinedload(MOBahanBaku.bahan_baku),
+                selectinload(ManufacturingOrder.lines)
+                    .joinedload(MOLine.menu),
                 joinedload(ManufacturingOrder.created_by_user),
                 joinedload(ManufacturingOrder.approved_by_user),
                 joinedload(ManufacturingOrder.inventori_by_user),
