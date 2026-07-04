@@ -9,6 +9,22 @@ function fmtQty(n: number): string {
   return parseFloat(n.toFixed(6)).toString();
 }
 
+/** Normalise error dari API: bisa string, array of Pydantic errors, atau object */
+function parseApiError(e: any): string {
+  const detail = e?.response?.data?.detail;
+  if (!detail) return 'Gagal membuat MO';
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d: any) => {
+        const loc = Array.isArray(d.loc) ? d.loc.filter((x: any) => x !== 'body').join(' → ') : '';
+        return loc ? `${loc}: ${d.msg}` : d.msg;
+      })
+      .join('\n');
+  }
+  return JSON.stringify(detail);
+}
+
 interface MOLine {
   menuId: string;
   targetQty: string;
@@ -31,7 +47,6 @@ export default function BuatMOPage() {
   });
   const menuList: any[] = (Array.isArray(menuData) ? menuData : []).filter((m: any) => m.is_active);
 
-  // Helpers
   const updateLine = (idx: number, patch: Partial<MOLine>) =>
     setLines(prev => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
   const addLine = () => setLines(prev => [...prev, emptyLine()]);
@@ -46,7 +61,7 @@ export default function BuatMOPage() {
       queryClient.invalidateQueries({ queryKey: ['mo'] });
       router.push('/(admin)/mo' as any);
     },
-    onError: (e: any) => setError(e.response?.data?.detail ?? 'Gagal membuat MO'),
+    onError: (e: any) => setError(parseApiError(e)),
   });
 
   const handleSubmit = () => {
@@ -63,7 +78,8 @@ export default function BuatMOPage() {
       if (!resep) { setError(`Line ${i + 1}: Menu "${menu?.nama}" belum memiliki resep aktif.`); return; }
     }
 
-    const mo_lines = lines.map(l => {
+    // Key: "lines" sesuai ManufacturingOrderCreate schema di backend
+    const builtLines = lines.map(l => {
       const menu = getMenu(l.menuId)!;
       const resep = getResep(menu)!;
       const qty = parseFloat(l.targetQty);
@@ -84,7 +100,7 @@ export default function BuatMOPage() {
     mutation.mutate({
       tanggal_rencana: tanggalRencana,
       catatan: catatan.trim() || undefined,
-      mo_lines,
+      lines: builtLines,   // ← fixed: was mo_lines
     });
   };
 
@@ -102,8 +118,10 @@ export default function BuatMOPage() {
         </button>
 
         {error && (
-          <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, padding: '12px 16px', color: '#f87171', fontSize: 13, marginBottom: 20 }}>
-            {error}
+          <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, padding: '12px 16px', marginBottom: 20 }}>
+            {error.split('\n').map((line, i) => (
+              <div key={i} style={{ color: '#f87171', fontSize: 13, lineHeight: 1.6 }}>{line}</div>
+            ))}
           </div>
         )}
 
@@ -125,7 +143,7 @@ export default function BuatMOPage() {
           </div>
         </div>
 
-        {/* Lines */}
+        {/* Lines header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <BookOpen size={16} color="#f87171" />
@@ -145,7 +163,6 @@ export default function BuatMOPage() {
           const qty = parseFloat(line.targetQty);
           return (
             <div key={idx} style={{ ...card, borderColor: 'rgba(255,255,255,0.1)' }}>
-              {/* Line header */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                 <span style={{ color: '#60a5fa', fontWeight: 700, fontSize: 13 }}>Line {idx + 1}</span>
                 {lines.length > 1 && (
@@ -181,7 +198,6 @@ export default function BuatMOPage() {
                 </div>
               </div>
 
-              {/* Resep info */}
               {menu && (
                 <div style={{ marginTop: 12, background: resep ? 'rgba(96,165,250,0.06)' : 'rgba(234,179,8,0.06)', border: `1px solid ${resep ? 'rgba(96,165,250,0.2)' : 'rgba(234,179,8,0.2)'}`, borderRadius: 10, padding: '10px 14px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: resep ? 8 : 0 }}>
@@ -206,7 +222,6 @@ export default function BuatMOPage() {
                 </div>
               )}
 
-              {/* Preview BOM per line */}
               {resep && !isNaN(qty) && qty > 0 && (
                 <div style={{ marginTop: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 10, padding: '10px 14px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
@@ -216,9 +231,9 @@ export default function BuatMOPage() {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr>
-                        <th style={{ textAlign: 'left', color: '#444', fontSize: 10, fontWeight: 600, letterSpacing: 0.5, paddingBottom: 6, textTransform: 'uppercase' }}>Bahan</th>
-                        <th style={{ textAlign: 'right', color: '#444', fontSize: 10, fontWeight: 600, letterSpacing: 0.5, paddingBottom: 6, textTransform: 'uppercase' }}>Per Unit</th>
-                        <th style={{ textAlign: 'right', color: '#444', fontSize: 10, fontWeight: 600, letterSpacing: 0.5, paddingBottom: 6, textTransform: 'uppercase' }}>Total</th>
+                        <th style={{ textAlign: 'left', color: '#444', fontSize: 10, fontWeight: 600, paddingBottom: 6, textTransform: 'uppercase' }}>Bahan</th>
+                        <th style={{ textAlign: 'right', color: '#444', fontSize: 10, fontWeight: 600, paddingBottom: 6, textTransform: 'uppercase' }}>Per Unit</th>
+                        <th style={{ textAlign: 'right', color: '#444', fontSize: 10, fontWeight: 600, paddingBottom: 6, textTransform: 'uppercase' }}>Total</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -239,7 +254,6 @@ export default function BuatMOPage() {
           );
         })}
 
-        {/* Summary total lines */}
         {lines.length > 1 && (
           <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: '10px 16px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ color: '#888', fontSize: 13 }}>Total Line</span>
