@@ -4,14 +4,14 @@ ubah FK mo_bahan_baku.mo_id → mo_line_id,
 tambah mo_line_id ke production_units, generate_batch, return_items.
 
 Revision ID: 002_mo_lines
-Revises: 001
+Revises: 0002_menu_resep_selisih
 Create Date: 2026-07-04
 """
 from alembic import op
 import sqlalchemy as sa
 
 revision = "002_mo_lines"
-down_revision = None  # ganti dengan revision ID file migrasi sebelumnya jika ada
+down_revision = "0002_menu_resep_selisih"
 branch_labels = None
 depends_on = None
 
