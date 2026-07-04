@@ -1,48 +1,97 @@
 from datetime import date
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, require_roles
 from app.models.user import User, UserRole
 from app.models.penjualan import Penjualan
-from app.schemas.penjualan import PenjualanResponse, PenjualanSummary
+from app.models.gerobak import Gerobak, ShareholderGroup
+from app.models.user import User as UserModel
+from app.schemas.penjualan import PenjualanListItem, PenjualanListResponse
 
 router = APIRouter()
 
-REPORT_ROLES = (UserRole.ADMIN, UserRole.SHAREHOLDER)
 
-
-@router.get("/", response_model=list[PenjualanResponse])
+@router.get("/", response_model=PenjualanListResponse)
 async def list_penjualan(
-    tanggal: date | None = Query(None, description="Filter by tanggal (YYYY-MM-DD)"),
+    dari: date | None = Query(None),
+    sampai: date | None = Query(None),
+    gerobak_id: int | None = Query(None),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*REPORT_ROLES)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.SHAREHOLDER)),
 ):
-    query = select(Penjualan).order_by(Penjualan.sold_at.desc())
-    if tanggal:
-        query = query.where(func.date(Penjualan.sold_at) == tanggal)
-    result = await db.execute(query)
-    return list(result.scalars().all())
+    """
+    List semua transaksi penjualan, join gerobak + driver + grup saham.
+    ADMIN: lihat semua. SHAREHOLDER: otomatis filter ke gerobak di grupnya.
+    """
+    # Build base conditions
+    conds = []
+    if dari:
+        conds.append(func.date(Penjualan.sold_at) >= dari)
+    if sampai:
+        conds.append(func.date(Penjualan.sold_at) <= sampai)
+    if gerobak_id:
+        conds.append(Penjualan.gerobak_id == gerobak_id)
 
+    # Shareholder hanya bisa lihat gerobak di grupnya
+    if current_user.role == UserRole.SHAREHOLDER:
+        from app.models.gerobak import GroupMembership
+        subq = (
+            select(Gerobak.id)
+            .join(ShareholderGroup, Gerobak.shareholder_group_id == ShareholderGroup.id)
+            .join(GroupMembership, GroupMembership.group_id == ShareholderGroup.id)
+            .where(GroupMembership.user_id == current_user.id)
+        )
+        conds.append(Penjualan.gerobak_id.in_(subq))
 
-@router.get("/summary", response_model=PenjualanSummary)
-async def summary_penjualan(
-    tanggal: date = Query(..., description="Tanggal summary (YYYY-MM-DD)"),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*REPORT_ROLES)),
-):
-    result = await db.execute(
-        select(
-            func.count(Penjualan.id),
-            func.sum(Penjualan.harga),
-        ).where(func.date(Penjualan.sold_at) == tanggal)
+    where_clause = and_(*conds) if conds else True
+
+    # Count total
+    count_q = select(func.count(Penjualan.id)).where(where_clause)
+    total = (await db.execute(count_q)).scalar() or 0
+
+    # Fetch page
+    q = (
+        select(Penjualan)
+        .where(where_clause)
+        .order_by(Penjualan.sold_at.desc())
+        .offset((page - 1) * per_page)
+        .limit(per_page)
     )
-    row = result.one()
-    total_terjual = row[0] or 0
-    total_pendapatan = float(row[1] or 0)
-    return PenjualanSummary(
-        total_terjual=total_terjual,
-        total_pendapatan=total_pendapatan,
-        periode=str(tanggal),
+    rows = (await db.execute(q)).scalars().all()
+
+    # Build response dengan enrich gerobak + grup info
+    items = []
+    for p in rows:
+        g: Gerobak | None = p.gerobak  # sudah lazy selectin
+        kasir: UserModel | None = p.kasir
+        grup: ShareholderGroup | None = g.shareholder_group if g else None
+
+        items.append(PenjualanListItem(
+            id=p.id,
+            production_unit_id=p.production_unit_id,
+            barcode=p.barcode,
+            nama_produk=p.nama_produk,
+            harga=float(p.harga),
+            catatan=p.catatan,
+            sold_at=p.sold_at,
+            kasir_id=p.kasir_id,
+            kasir_nama=kasir.full_name if kasir else None,
+            gerobak_id=g.id if g else None,
+            gerobak_nama=g.nama if g else None,
+            gerobak_kode=g.kode if g else None,
+            gerobak_lokasi=g.lokasi if g else None,
+            grup_id=grup.id if grup else None,
+            grup_nama=grup.nama if grup else None,
+        ))
+
+    return PenjualanListResponse(
+        total=total,
+        page=page,
+        per_page=per_page,
+        total_pages=-(-total // per_page),
+        items=items,
     )
