@@ -1,445 +1,279 @@
-import { useRouter } from 'expo-router';
-import {
-  AlertTriangle, Package, XCircle,
-  RefreshCw, Scan, Ban, Info, Search, X,
-} from 'lucide-react-native';
 import React, { useState, useMemo } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../lib/api';
 import { Navbar } from '../../../components/layout/Navbar';
+import { Package, Search, X, RefreshCw, Warehouse, Truck, ShoppingBag, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react-native';
 
-const STATUS_COLOR: Record<string, string> = {
-  ready:             '#3b82f6',
-  dispatched:        '#eab308',
-  delivered:         '#9333ea',
-  sold:              '#22c55e',
-  expired:           '#ef4444',
-  void:              '#6b7280',
-  returned_good:     '#0d9488',
-  returned_damaged:  '#ef4444',
+// ── Styles ──────────────────────────────────────────────────────────────────
+const inp: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: 'white', fontSize: 13, outline: 'none' };
+const card: React.CSSProperties = { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, overflow: 'hidden' };
+const btnGhost: React.CSSProperties = { padding: '7px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#aaa', cursor: 'pointer', fontSize: 12, fontWeight: 600 };
+const btnPrimary: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, backgroundColor: '#f44444', border: 'none', borderRadius: 10, padding: '9px 18px', color: 'white', fontWeight: 600, fontSize: 13, cursor: 'pointer' };
+const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 };
+const modalBox: React.CSSProperties = { background: '#141414', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, padding: 28, width: 520, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' };
+
+// Status unit dengan warna & label yang mencerminkan lokasi barang
+const UNIT_STATUS: Record<string, { label: string; color: string; bg: string; border: string; desc: string }> = {
+  ready:            { label: '📦 Di Gudang',    color: '#a3e635', bg: 'rgba(163,230,53,0.1)',  border: 'rgba(163,230,53,0.25)',  desc: 'Tersedia di gudang — terhitung sebagai stok' },
+  on_gerobak:       { label: '🛒 Di Gerobak',   color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.3)',  desc: 'Sedang dibawa driver — tidak mengurangi stok gudang, belum terjual' },
+  sold:             { label: '✅ Terjual',       color: '#4ade80', bg: 'rgba(74,222,128,0.1)', border: 'rgba(74,222,128,0.25)', desc: 'Sudah terjual — keluar dari stok permanen' },
+  returned_good:    { label: '↩ Kembali Baik',  color: '#60a5fa', bg: 'rgba(96,165,250,0.1)', border: 'rgba(96,165,250,0.25)', desc: 'Dikembalikan kondisi baik — kembali ke stok (READY)' },
+  returned_damaged: { label: '💔 Kembali Rusak',color: '#f87171', bg: 'rgba(248,113,113,0.1)',border: 'rgba(248,113,113,0.25)',desc: 'Dikembalikan rusak — keluar dari stok permanen' },
+  expired:          { label: '⏰ Kadaluarsa',   color: '#6b7280', bg: 'rgba(107,114,128,0.1)',border: 'rgba(107,114,128,0.25)',desc: 'Kadaluarsa — keluar dari stok' },
+  void:             { label: '🚫 Void',          color: '#ef4444', bg: 'rgba(239,68,68,0.1)',  border: 'rgba(239,68,68,0.25)',  desc: 'Di-void manual — keluar dari stok' },
+  dispatched:       { label: '🚚 Dispatched',   color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.3)',  desc: 'Legacy — sama dengan On Gerobak' },
 };
 
-type Tab = 'ready' | 'expiry' | 'void';
+interface ProductionUnit {
+  id: number; barcode: string;
+  nama_produk: string; expiry_date: string;
+  harga_modal: number | null; harga_jual: number | null;
+  status: string; mo_id: number;
+  loading_order_id: number | null;
+  current_gerobak_id: number | null;
+  current_driver_id: number | null;
+  dispatched_at: string | null;
+  sold_at: string | null;
+  returned_at: string | null;
+}
+interface MOHeader {
+  id: number; nomor_mo: string; nama_produk?: string;
+  units: ProductionUnit[];
+}
 
-const TABS: { key: Tab; label: string; Icon: any; activeColor: string }[] = [
-  { key: 'ready',  label: 'Unit Ready',   Icon: Package,       activeColor: '#3b82f6' },
-  { key: 'expiry', label: 'Expiry Alert', Icon: AlertTriangle, activeColor: '#eab308' },
-  { key: 'void',   label: 'Void Unit',    Icon: Ban,           activeColor: '#ef4444' },
-];
-
-function SearchBar({ value, onChange, placeholder }: {
-  value: string; onChange: (v: string) => void; placeholder?: string;
-}) {
+function UnitStatusBadge({ status }: { status: string }) {
+  const s = UNIT_STATUS[status] ?? { label: status, color: '#9ca3af', bg: 'rgba(156,163,175,0.1)', border: 'rgba(156,163,175,0.25)', desc: '' };
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)', borderRadius: 8, padding: '7px 12px', marginBottom: 14 }}>
-      <Search size={13} color="#444" strokeWidth={2} style={{ flexShrink: 0 }} />
-      <input type="text" value={value} onChange={(e: any) => onChange(e.target.value)}
-        placeholder={placeholder ?? 'Cari barcode atau nama produk...'}
-        style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'white', fontSize: 13, minWidth: 0 }} />
-      {value.length > 0 && (
-        <button onClick={() => onChange('')} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: 0 }}>
-          <X size={13} color="#444" strokeWidth={2} />
-        </button>
-      )}
+    <span title={s.desc} style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, color: s.color, background: s.bg, border: `1px solid ${s.border}`, cursor: 'help' }}>
+      {s.label}
+    </span>
+  );
+}
+
+function StatCard({ icon, label, value, color, sub }: { icon: React.ReactNode; label: string; value: number; color: string; sub?: string }) {
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '14px 18px', minWidth: 140 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>{icon}<span style={{ color: '#666', fontSize: 12 }}>{label}</span></div>
+      <p style={{ color, fontSize: 26, fontWeight: 700, margin: 0 }}>{value}</p>
+      {sub && <p style={{ color: '#555', fontSize: 11, margin: '4px 0 0' }}>{sub}</p>}
     </div>
   );
 }
 
-export default function ProduksiScreen() {
-  const router = useRouter();
+export default function StokPage() {
   const qc = useQueryClient();
-  const [tab, setTab]               = useState<Tab>('ready');
-  const [page, setPage]             = useState(1);
-  const [search, setSearch]         = useState('');
-  const [searchExpiry, setSearchExpiry] = useState('');
-  const [voidBarcode, setVoidBarcode] = useState('');
-  const [voidAlasan, setVoidAlasan]   = useState('');
-  const [showVoidConfirm, setShowVoidConfirm] = useState(false);
-  const [toast, setToast] = useState<{ msg: string; type: 'ok' | 'err' } | null>(null);
+  const [search, setSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [expandedMO, setExpandedMO] = useState<Set<number>>(new Set());
+  const [detailUnit, setDetailUnit] = useState<ProductionUnit | null>(null);
 
-  const showToast = (msg: string, type: 'ok' | 'err' = 'ok') => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 4000);
-  };
-
-  const { data: readyData, isLoading: loadingReady, refetch: refetchReady } = useQuery({
-    queryKey: ['prod-ready', page],
-    queryFn:  async () => (await api.get(`/production-units/ready-fefo?page=${page}&per_page=50`)).data,
-    enabled:  tab === 'ready',
+  const { data: rawUnits = [], isLoading, refetch } = useQuery<ProductionUnit[]>({
+    queryKey: ['production-units'],
+    queryFn: () => api.get('/production-units/').then(r => r.data),
   });
 
-  const { data: expiryData, isLoading: loadingExpiry, refetch: refetchExpiry } = useQuery({
-    queryKey: ['prod-expiry'],
-    queryFn:  async () => (await api.get('/production-units/expiry-alerts?days=3')).data,
-    enabled:  tab === 'expiry',
+  const units: ProductionUnit[] = Array.isArray(rawUnits) ? rawUnits : [];
+
+  // ── Statistik
+  const stokGudang     = units.filter(u => u.status === 'ready').length;
+  const onGerobak      = units.filter(u => u.status === 'on_gerobak' || u.status === 'dispatched').length;
+  const terjual        = units.filter(u => u.status === 'sold').length;
+  const rusak          = units.filter(u => u.status === 'returned_damaged' || u.status === 'void').length;
+
+  // ── Filter & search
+  const filtered = useMemo(() => {
+    let list = units;
+    if (filterStatus !== 'all') list = list.filter(u => u.status === filterStatus);
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(u => u.barcode.toLowerCase().includes(q) || u.nama_produk.toLowerCase().includes(q));
+    }
+    return list;
+  }, [units, filterStatus, search]);
+
+  // ── Group by MO
+  const groupedByMO = useMemo(() => {
+    const map = new Map<number, { mo_id: number; units: ProductionUnit[] }>();
+    for (const u of filtered) {
+      if (!map.has(u.mo_id)) map.set(u.mo_id, { mo_id: u.mo_id, units: [] });
+      map.get(u.mo_id)!.units.push(u);
+    }
+    return Array.from(map.values()).sort((a, b) => b.mo_id - a.mo_id);
+  }, [filtered]);
+
+  const toggleMO = (moId: number) => setExpandedMO(prev => {
+    const next = new Set(prev);
+    next.has(moId) ? next.delete(moId) : next.add(moId);
+    return next;
   });
-
-  const { data: expiryBadge } = useQuery({
-    queryKey: ['prod-expiry-badge'],
-    queryFn:  async () => (await api.get('/production-units/expiry-alerts?days=3')).data,
-    staleTime: 60_000,
-  });
-
-  const voidMutation = useMutation({
-    mutationFn: async () =>
-      (await api.post('/production-units/scan/void', {
-        barcode: voidBarcode.trim(),
-        alasan:  voidAlasan.trim(),
-      })).data,
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ['prod-ready'] });
-      qc.invalidateQueries({ queryKey: ['prod-expiry'] });
-      qc.invalidateQueries({ queryKey: ['prod-expiry-badge'] });
-      setVoidBarcode('');
-      setVoidAlasan('');
-      setShowVoidConfirm(false);
-      showToast(`Unit ${data.barcode} berhasil di-void.`);
-    },
-    onError: (err: any) => {
-      setShowVoidConfirm(false);
-      showToast(err?.response?.data?.detail || 'Terjadi kesalahan saat void', 'err');
-    },
-  });
-
-  const handleVoid = () => {
-    if (!voidBarcode.trim() || !voidAlasan.trim()) return;
-    setShowVoidConfirm(true);
-  };
-
-  const readyItems:  any[]   = readyData?.items       ?? [];
-  const totalReady:  number  = readyData?.total        ?? 0;
-  const totalPages:  number  = readyData?.total_pages  ?? 1;
-
-  const filteredReady = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return readyItems;
-    return readyItems.filter((u: any) =>
-      u.barcode.toLowerCase().includes(q) || u.nama_produk.toLowerCase().includes(q)
-    );
-  }, [readyItems, search]);
-
-  const expiringSoon: any[] = expiryData?.units_expiring_soon ?? [];
-  const expired:      any[] = expiryData?.units_expired       ?? [];
-  const totalExpiringSoon   = expiryData?.total_akan_expired  ?? 0;
-  const totalExpired        = expiryData?.total_sudah_expired ?? 0;
-
-  const filteredExpiringSoon = useMemo(() => {
-    const q = searchExpiry.trim().toLowerCase();
-    if (!q) return expiringSoon;
-    return expiringSoon.filter((u: any) =>
-      u.barcode.toLowerCase().includes(q) || u.nama_produk.toLowerCase().includes(q)
-    );
-  }, [expiringSoon, searchExpiry]);
-
-  const filteredExpired = useMemo(() => {
-    const q = searchExpiry.trim().toLowerCase();
-    if (!q) return expired;
-    return expired.filter((u: any) =>
-      u.barcode.toLowerCase().includes(q) || u.nama_produk.toLowerCase().includes(q)
-    );
-  }, [expired, searchExpiry]);
-
-  const totalExpiryAll      = expiringSoon.length + expired.length;
-  const totalExpiryFiltered = filteredExpiringSoon.length + filteredExpired.length;
-  const badgeCount          = (expiryBadge?.total_akan_expired ?? 0) + (expiryBadge?.total_sudah_expired ?? 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: '#0a0a0a' }}>
-      <Navbar title="Produksi" />
-
-      {/* Toast */}
-      {toast && (
-        <div style={{
-          position: 'fixed', top: 70, right: 24, zIndex: 200,
-          background: toast.type === 'ok' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
-          border: `1px solid ${toast.type === 'ok' ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)'}`,
-          borderRadius: 10, padding: '12px 20px',
-          color: toast.type === 'ok' ? '#22c55e' : '#f87171',
-          fontSize: 13, fontWeight: 500, maxWidth: 360,
-        }}>
-          {toast.msg}
-        </div>
-      )}
-
-      {/* Modal konfirmasi void */}
-      {showVoidConfirm && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: 24 }}>
-          <div style={{ background: '#141414', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 16, padding: 28, width: '100%', maxWidth: 400 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-              <Ban size={18} color="#ef4444" />
-              <span style={{ color: 'white', fontWeight: 700, fontSize: 16 }}>Konfirmasi Void</span>
-            </div>
-            <p style={{ color: '#aaa', fontSize: 14, margin: '0 0 6px' }}>Unit: <span style={{ color: 'white', fontFamily: 'monospace' }}>{voidBarcode.trim()}</span></p>
-            <p style={{ color: '#aaa', fontSize: 14, margin: '0 0 20px' }}>Alasan: <span style={{ color: '#888' }}>{voidAlasan.trim()}</span></p>
-            <p style={{ color: '#ef4444', fontSize: 12, margin: '0 0 20px' }}>Unit akan ditandai void dan tidak bisa di-dispatch.</p>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => setShowVoidConfirm(false)} style={{ flex: 1, padding: 11, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: '#aaa', fontSize: 14, cursor: 'pointer' }}>
-                Batal
-              </button>
-              <button onClick={() => voidMutation.mutate()} disabled={voidMutation.isPending}
-                style={{ flex: 1, padding: 11, backgroundColor: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 10, color: '#ef4444', fontWeight: 700, fontSize: 14, cursor: voidMutation.isPending ? 'not-allowed' : 'pointer' }}>
-                {voidMutation.isPending ? 'Memproses...' : 'Ya, Void'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
+      <Navbar title="Stok Produksi" />
       <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
 
-        <div style={{ marginBottom: 24 }}>
-          <h1 style={{ color: 'white', fontSize: 22, fontWeight: 700, margin: 0 }}>Manajemen Unit Produksi</h1>
-          <p style={{ color: '#555', fontSize: 14, margin: '4px 0 0' }}>Monitor stok unit, expiry, dan void unit rusak</p>
-        </div>
-
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-          {TABS.map(t => {
-            const active = tab === t.key;
-            const showBadge = t.key === 'expiry' && badgeCount > 0;
-            return (
-              <button key={t.key}
-                onClick={() => { setTab(t.key); setPage(1); setSearch(''); setSearchExpiry(''); }}
-                style={{ padding: '10px 20px', background: 'none', border: 'none', borderBottom: active ? `2px solid ${t.activeColor}` : '2px solid transparent', color: active ? t.activeColor : '#555', fontWeight: active ? 600 : 400, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }}>
-                <t.Icon size={14} color={active ? t.activeColor : '#555'} strokeWidth={active ? 2.2 : 1.8} />
-                {t.label}
-                {showBadge && (
-                  <span style={{ backgroundColor: 'rgba(234,179,8,0.15)', color: '#eab308', border: '1px solid rgba(234,179,8,0.3)', borderRadius: 99, padding: '1px 6px', fontSize: 11, fontWeight: 600 }}>
-                    {badgeCount}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* ── TAB: READY ── */}
-        {tab === 'ready' && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
           <div>
-            <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-              <StatCard label="Total Unit Ready" value={totalReady} color="#3b82f6" />
-              <StatCard label="Halaman" value={`${page} / ${totalPages}`} color="#666" />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-              <RefreshBtn onClick={() => { setSearch(''); refetchReady(); }} />
-            </div>
-            {loadingReady ? <LoadingSpinner /> : readyItems.length === 0 ? <EmptyState Icon={Package} message="Tidak ada unit ready saat ini" /> : (
-              <div style={glassCard}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                  <p style={sectionTitle}>Unit Ready — FEFO Order</p>
-                  <span style={{ color: '#444', fontSize: 12 }}>Urut expiry tercepat</span>
+            <h1 style={{ color: 'white', fontSize: 20, fontWeight: 700, margin: 0 }}>Stok Produksi</h1>
+            <p style={{ color: '#555', fontSize: 13, margin: '4px 0 0' }}>{units.length} unit total</p>
+          </div>
+          <button onClick={() => refetch()} style={{ ...btnGhost, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <RefreshCw size={12} color="#aaa" /> Refresh
+          </button>
+        </div>
+
+        {/* Stat cards */}
+        <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+          <StatCard icon={<Warehouse size={14} color="#a3e635" />} label="Stok Gudang"   value={stokGudang} color="#a3e635" sub="Status: READY" />
+          <StatCard icon={<Truck size={14} color="#f59e0b" />}     label="Di Gerobak"   value={onGerobak}  color="#f59e0b" sub="Belum terjual" />
+          <StatCard icon={<ShoppingBag size={14} color="#4ade80" />} label="Terjual"    value={terjual}    color="#4ade80" sub="Keluar stok" />
+          <StatCard icon={<AlertTriangle size={14} color="#f87171" />} label="Rusak/Void" value={rusak}    color="#f87171" sub="Keluar stok" />
+        </div>
+
+        {/* Info stok */}
+        <div style={{ background: 'rgba(163,230,53,0.05)', border: '1px solid rgba(163,230,53,0.15)', borderRadius: 10, padding: '10px 16px', marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          <span style={{ color: '#a3e635', fontSize: 12 }}>📦 <strong>Stok Gudang</strong> = hanya unit berstatus READY</span>
+          <span style={{ color: '#6b7280', fontSize: 12 }}>·</span>
+          <span style={{ color: '#f59e0b', fontSize: 12 }}>🛒 Unit <strong>On Gerobak</strong> = sudah dibawa, tapi belum terjual, tidak berkurang dari stok gudang</span>
+          <span style={{ color: '#6b7280', fontSize: 12 }}>·</span>
+          <span style={{ color: '#4ade80', fontSize: 12 }}>↩ Return baik = kembali ke stok</span>
+        </div>
+
+        {/* Filter bar */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ position: 'relative', flex: 1, maxWidth: 280 }}>
+            <Search size={13} color="#555" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)' }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Cari barcode atau produk..." style={{ ...inp, paddingLeft: 30 }} />
+          </div>
+          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ ...inp, width: 'auto', cursor: 'pointer', flex: 'none' }}>
+            <option value="all" style={{ background: '#1a1a1a' }}>Semua Status</option>
+            <option value="ready" style={{ background: '#1a1a1a' }}>📦 Di Gudang (READY)</option>
+            <option value="on_gerobak" style={{ background: '#1a1a1a' }}>🛒 Di Gerobak</option>
+            <option value="sold" style={{ background: '#1a1a1a' }}>✅ Terjual</option>
+            <option value="returned_good" style={{ background: '#1a1a1a' }}>↩ Kembali Baik</option>
+            <option value="returned_damaged" style={{ background: '#1a1a1a' }}>💔 Kembali Rusak</option>
+            <option value="expired" style={{ background: '#1a1a1a' }}>⏰ Kadaluarsa</option>
+            <option value="void" style={{ background: '#1a1a1a' }}>🚫 Void</option>
+          </select>
+          {(search || filterStatus !== 'all') && (
+            <button onClick={() => { setSearch(''); setFilterStatus('all'); }} style={btnGhost}>Reset Filter</button>
+          )}
+        </div>
+
+        {/* List grouped by MO */}
+        {isLoading ? (
+          <div style={{ textAlign: 'center', padding: 40, color: '#555' }}>Memuat...</div>
+        ) : groupedByMO.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 60 }}>
+            <Package size={36} color="#2a2a2a" style={{ marginBottom: 12 }} />
+            <p style={{ color: '#3a3a3a', fontSize: 14 }}>Tidak ada unit ditemukan</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {groupedByMO.map(({ mo_id, units: moUnits }) => {
+              const isOpen = expandedMO.has(mo_id);
+              const ready    = moUnits.filter(u => u.status === 'ready').length;
+              const onGero   = moUnits.filter(u => u.status === 'on_gerobak' || u.status === 'dispatched').length;
+              const sold_cnt = moUnits.filter(u => u.status === 'sold').length;
+              const damaged  = moUnits.filter(u => ['returned_damaged','void','expired'].includes(u.status)).length;
+              return (
+                <div key={mo_id} style={card}>
+                  {/* MO header row */}
+                  <button onClick={() => toggleMO(mo_id)} style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <Package size={15} color="#f87171" />
+                      <span style={{ color: 'white', fontWeight: 600, fontSize: 14 }}>MO #{mo_id}</span>
+                      <span style={{ color: '#555', fontSize: 12 }}>{moUnits[0]?.nama_produk}</span>
+                      <span style={{ color: '#666', fontSize: 12 }}>{moUnits.length} unit</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      {ready    > 0 && <span style={{ fontSize: 11, color: '#a3e635', background: 'rgba(163,230,53,0.1)', border: '1px solid rgba(163,230,53,0.2)', borderRadius: 20, padding: '1px 8px' }}>{ready} gudang</span>}
+                      {onGero   > 0 && <span style={{ fontSize: 11, color: '#f59e0b', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 20, padding: '1px 8px' }}>{onGero} gerobak</span>}
+                      {sold_cnt > 0 && <span style={{ fontSize: 11, color: '#4ade80', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 20, padding: '1px 8px' }}>{sold_cnt} terjual</span>}
+                      {damaged  > 0 && <span style={{ fontSize: 11, color: '#f87171', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: 20, padding: '1px 8px' }}>{damaged} rusak/void</span>}
+                      {isOpen ? <ChevronUp size={14} color="#555" /> : <ChevronDown size={14} color="#555" />}
+                    </div>
+                  </button>
+
+                  {/* Unit list (collapsible) */}
+                  {isOpen && (
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                      {moUnits.map(unit => (
+                        <div key={unit.id}
+                          onClick={() => setDetailUnit(unit)}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 18px', borderBottom: '1px solid rgba(255,255,255,0.03)', cursor: 'pointer' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <span style={{ fontSize: 12, fontFamily: 'monospace', color: '#aaa' }}>{unit.barcode}</span>
+                            <UnitStatusBadge status={unit.status} />
+                          </div>
+                          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                            {unit.status === 'on_gerobak' && unit.loading_order_id && (
+                              <span style={{ fontSize: 11, color: '#f59e0b' }}>Loading #{unit.loading_order_id}</span>
+                            )}
+                            <span style={{ fontSize: 12, color: '#555' }}>Rp {Number(unit.harga_jual ?? 0).toLocaleString('id')}</span>
+                            <span style={{ fontSize: 11, color: '#444' }}>{new Date(unit.expiry_date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <SearchBar value={search} onChange={setSearch} />
-                {search.trim() && <p style={{ color: '#444', fontSize: 12, margin: '0 0 10px' }}>{filteredReady.length} hasil dari {readyItems.length} unit</p>}
-                {filteredReady.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '24px 0', color: '#333', fontSize: 13 }}>Tidak ada unit yang cocok dengan "{search}"</div>
-                ) : (
-                  filteredReady.map((unit: any) => <UnitRow key={unit.id} unit={unit} />)
-                )}
-                {!search.trim() && totalPages > 1 && (
-                  <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                    <PageBtn label="‹ Prev" disabled={page <= 1}      onClick={() => setPage(p => p - 1)} />
-                    <span style={{ color: '#555', fontSize: 13, lineHeight: '32px' }}>{page} / {totalPages}</span>
-                    <PageBtn label="Next ›" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} />
-                  </div>
-                )}
-              </div>
-            )}
+              );
+            })}
           </div>
         )}
-
-        {/* ── TAB: EXPIRY ── */}
-        {tab === 'expiry' && (
-          <div>
-            <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-              <StatCard label="Akan Expired (≤3 hari)" value={totalExpiringSoon} color="#eab308" />
-              <StatCard label="Sudah Expired" value={totalExpired} color="#ef4444" />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-              <RefreshBtn onClick={() => { setSearchExpiry(''); refetchExpiry(); }} />
-            </div>
-            {loadingExpiry ? <LoadingSpinner /> : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {(expiringSoon.length > 0 || expired.length > 0) && (
-                  <div style={glassCard}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                      <Search size={13} color="#eab308" strokeWidth={2} />
-                      <p style={{ ...sectionTitle, color: '#eab308', margin: 0, fontSize: 13 }}>Filter Expiry Alert</p>
-                    </div>
-                    <SearchBar value={searchExpiry} onChange={setSearchExpiry} placeholder="Cari barcode atau nama produk..." />
-                    {searchExpiry.trim() && <p style={{ color: '#444', fontSize: 12, margin: '-6px 0 0' }}>{totalExpiryFiltered} hasil dari {totalExpiryAll} unit</p>}
-                  </div>
-                )}
-                {expiringSoon.length > 0 && (
-                  <div style={glassCard}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-                      <AlertTriangle size={14} color="#eab308" strokeWidth={2} />
-                      <p style={{ ...sectionTitle, color: '#eab308', margin: 0 }}>Akan Expired ({searchExpiry.trim() ? `${filteredExpiringSoon.length}/` : ''}{expiringSoon.length})</p>
-                    </div>
-                    {filteredExpiringSoon.length === 0 ? (
-                      <div style={{ textAlign: 'center', padding: '16px 0', color: '#333', fontSize: 13 }}>Tidak ada unit yang cocok dengan "{searchExpiry}"</div>
-                    ) : filteredExpiringSoon.map((unit: any) => <UnitRow key={unit.id} unit={unit} />)}
-                  </div>
-                )}
-                {expired.length > 0 && (
-                  <div style={{ ...glassCard, borderColor: 'rgba(239,68,68,0.2)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-                      <XCircle size={14} color="#ef4444" strokeWidth={2} />
-                      <p style={{ ...sectionTitle, color: '#ef4444', margin: 0 }}>Sudah Expired ({searchExpiry.trim() ? `${filteredExpired.length}/` : ''}{expired.length})</p>
-                    </div>
-                    {filteredExpired.length === 0 ? (
-                      <div style={{ textAlign: 'center', padding: '16px 0', color: '#333', fontSize: 13 }}>Tidak ada unit yang cocok dengan "{searchExpiry}"</div>
-                    ) : filteredExpired.map((unit: any) => <UnitRow key={unit.id} unit={unit} />)}
-                  </div>
-                )}
-                {expiringSoon.length === 0 && expired.length === 0 && (
-                  <EmptyState Icon={AlertTriangle} message="Tidak ada unit yang akan atau sudah expired" />
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── TAB: VOID ── */}
-        {tab === 'void' && (
-          <div>
-            <div style={{ ...glassCard, maxWidth: 560 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                <Scan size={14} color="#ef4444" strokeWidth={2} />
-                <p style={sectionTitle}>Void Unit Rusak / Tidak Layak</p>
-              </div>
-              <p style={{ color: '#555', fontSize: 13, marginBottom: 20 }}>Void unit yang rusak, tumpah, atau tidak layak jual. Unit akan ditandai void dan tidak bisa di-dispatch.</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <GlassInput  label="Barcode Unit *"  value={voidBarcode} onChange={setVoidBarcode} placeholder="SKP-20260703-0001" />
-                <GlassTextarea label="Alasan Void *" value={voidAlasan}  onChange={setVoidAlasan}  placeholder="Contoh: Cup pecah, kopi tumpah, kedaluwarsa sebelum dispatch" />
-                <button onClick={handleVoid}
-                  disabled={!voidBarcode.trim() || !voidAlasan.trim()}
-                  style={{
-                    padding: '11px 0', borderRadius: 10, fontWeight: 600, fontSize: 14,
-                    backgroundColor: (!voidBarcode.trim() || !voidAlasan.trim()) ? '#111' : 'rgba(239,68,68,0.12)',
-                    color: (!voidBarcode.trim() || !voidAlasan.trim()) ? '#2a2a2a' : '#ef4444',
-                    border: (!voidBarcode.trim() || !voidAlasan.trim()) ? '1px solid #1f1f1f' : '1px solid rgba(239,68,68,0.35)',
-                    cursor: (!voidBarcode.trim() || !voidAlasan.trim()) ? 'not-allowed' : 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                  }}>
-                  <Ban size={14} color={(!voidBarcode.trim() || !voidAlasan.trim()) ? '#2a2a2a' : '#ef4444'} strokeWidth={2} />
-                  Void Unit Ini
-                </button>
-              </div>
-            </div>
-            <div style={{ marginTop: 14, maxWidth: 560, backgroundColor: 'rgba(59,130,246,0.05)', border: '1px solid rgba(59,130,246,0.12)', borderRadius: 12, padding: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
-                <Info size={13} color="#3b82f6" strokeWidth={2} />
-                <p style={{ color: '#3b82f6', fontSize: 13, fontWeight: 600, margin: 0 }}>Tentang Void</p>
-              </div>
-              <ul style={{ color: '#555', fontSize: 13, paddingLeft: 16, margin: 0, lineHeight: 1.9 }}>
-                <li>Unit yang di-void tidak bisa di-dispatch atau dijual</li>
-                <li>Alasan void tercatat permanen di sistem</li>
-                <li>Hanya unit berstatus <strong style={{ color: '#777' }}>ready</strong> yang bisa di-void dari sini</li>
-                <li>Untuk void unit dispatched, hubungi admin</li>
-              </ul>
-            </div>
-          </div>
-        )}
-
       </div>
-    </div>
-  );
-}
 
-// ── Sub-Components ────────────────────────────────────────────────
+      {/* ── Modal: Detail Unit ───────────────────────────────────────────────── */}
+      {detailUnit && (
+        <div style={overlay}>
+          <div style={modalBox}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+              <span style={{ color: 'white', fontWeight: 700, fontSize: 15, fontFamily: 'monospace' }}>{detailUnit.barcode}</span>
+              <button onClick={() => setDetailUnit(null)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={17} color="#555" /></button>
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+              <UnitStatusBadge status={detailUnit.status} />
+              {detailUnit.status === 'on_gerobak' && (
+                <span style={{ fontSize: 11, color: '#f59e0b', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 20, padding: '2px 10px' }}>
+                  Loading #{detailUnit.loading_order_id}
+                </span>
+              )}
+            </div>
 
-function UnitRow({ unit }: { unit: any }) {
-  const uColor = STATUS_COLOR[unit.status] ?? '#888';
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-      <div>
-        <p style={{ color: 'white', fontFamily: 'monospace', fontSize: 13, margin: 0 }}>{unit.barcode}</p>
-        <p style={{ color: '#444', fontSize: 12, margin: '2px 0 0' }}>{unit.nama_produk}</p>
-        <div style={{ display: 'flex', gap: 10, marginTop: 3, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ color: '#444', fontSize: 12 }}>Expiry: {unit.expiry_date}</span>
-          {unit.is_expired    && <span style={{ color: '#ef4444', fontSize: 11, fontWeight: 600 }}>EXPIRED</span>}
-          {unit.is_expiring_soon && !unit.is_expired && <span style={{ color: '#eab308', fontSize: 11, fontWeight: 600 }}>{unit.hari_tersisa}h lagi</span>}
-          {unit.harga_modal != null && <span style={{ color: '#333', fontSize: 12 }}>Rp {unit.harga_modal.toLocaleString('id-ID')}</span>}
+            {detailUnit.status === 'on_gerobak' && (
+              <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 14 }}>
+                <p style={{ color: '#f59e0b', fontSize: 12, margin: 0, fontWeight: 600 }}>⚠ Unit sedang di gerobak</p>
+                <p style={{ color: '#78716c', fontSize: 12, margin: '4px 0 0' }}>Belum terjual. Stok gudang tidak berkurang. Akan kembali ke READY jika return baik, atau menjadi RUSAK jika return rusak.</p>
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+              {([
+                ['Produk',     detailUnit.nama_produk],
+                ['MO',         `#${detailUnit.mo_id}`],
+                ['Harga Modal','Rp ' + Number(detailUnit.harga_modal ?? 0).toLocaleString('id')],
+                ['Harga Jual', 'Rp ' + Number(detailUnit.harga_jual  ?? 0).toLocaleString('id')],
+                ['Expired',    new Date(detailUnit.expiry_date).toLocaleDateString('id-ID')],
+                ['Dispatched', detailUnit.dispatched_at ? new Date(detailUnit.dispatched_at).toLocaleDateString('id-ID') : '—'],
+                ['Terjual',    detailUnit.sold_at      ? new Date(detailUnit.sold_at).toLocaleDateString('id-ID')       : '—'],
+                ['Returned',   detailUnit.returned_at  ? new Date(detailUnit.returned_at).toLocaleDateString('id-ID')   : '—'],
+              ] as [string, string][]).map(([k, v]) => (
+                <div key={k} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, padding: '10px 12px' }}>
+                  <p style={{ color: '#555', fontSize: 11, margin: '0 0 3px', textTransform: 'uppercase', letterSpacing: 0.5 }}>{k}</p>
+                  <p style={{ color: 'white', fontSize: 13, margin: 0, fontWeight: 500 }}>{v}</p>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={() => setDetailUnit(null)} style={btnGhost}>Tutup</button>
+            </div>
+          </div>
         </div>
-      </div>
-      <span style={{ backgroundColor: uColor + '18', color: uColor, border: `1px solid ${uColor}33`, borderRadius: 5, padding: '2px 10px', fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap' }}>
-        {unit.status}
-      </span>
+      )}
     </div>
   );
 }
-
-function StatCard({ label, value, color }: { label: string; value: number | string; color: string }) {
-  return (
-    <div style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '12px 18px', minWidth: 130 }}>
-      <p style={{ color: '#555', fontSize: 12, margin: '0 0 4px' }}>{label}</p>
-      <p style={{ color, fontSize: 24, fontWeight: 700, margin: 0, fontVariantNumeric: 'tabular-nums' }}>{value}</p>
-    </div>
-  );
-}
-
-function RefreshBtn({ onClick }: { onClick: () => void }) {
-  return (
-    <button onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 7, padding: '6px 12px', color: '#555', fontSize: 12, cursor: 'pointer' }}>
-      <RefreshCw size={12} color="#555" strokeWidth={2} /> Refresh
-    </button>
-  );
-}
-
-function LoadingSpinner() {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 48, gap: 12 }}>
-      <div style={{ width: 32, height: 32, border: '3px solid #3b82f6', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-      <span style={{ color: '#333', fontSize: 13 }}>Memuat...</span>
-    </div>
-  );
-}
-
-function EmptyState({ Icon, message }: { Icon: any; message: string }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 24px' }}>
-      <Icon size={32} color="#2a2a2a" strokeWidth={1.5} style={{ marginBottom: 12 }} />
-      <p style={{ color: '#3a3a3a', fontSize: 14, margin: 0 }}>{message}</p>
-    </div>
-  );
-}
-
-function PageBtn({ label, disabled, onClick }: { label: string; disabled: boolean; onClick: () => void }) {
-  return (
-    <button onClick={onClick} disabled={disabled}
-      style={{ padding: '6px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500, background: disabled ? 'transparent' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: disabled ? '#2a2a2a' : '#666', cursor: disabled ? 'not-allowed' : 'pointer' }}>
-      {label}
-    </button>
-  );
-}
-
-function GlassInput({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return (
-    <div>
-      <label style={{ color: '#666', fontSize: 13, display: 'block', marginBottom: 6 }}>{label}</label>
-      <input type="text" value={value} onChange={(e: any) => onChange(e.target.value)} placeholder={placeholder}
-        style={{ width: '100%', boxSizing: 'border-box', backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '10px 14px', color: 'white', fontSize: 14, outline: 'none' }} />
-    </div>
-  );
-}
-
-function GlassTextarea({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return (
-    <div>
-      <label style={{ color: '#666', fontSize: 13, display: 'block', marginBottom: 6 }}>{label}</label>
-      <textarea value={value} onChange={(e: any) => onChange(e.target.value)} placeholder={placeholder} rows={3}
-        style={{ width: '100%', boxSizing: 'border-box', backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '10px 14px', color: 'white', fontSize: 14, outline: 'none', resize: 'vertical', fontFamily: 'inherit' }} />
-    </div>
-  );
-}
-
-const glassCard: React.CSSProperties = {
-  backgroundColor: 'rgba(255,255,255,0.04)',
-  border: '1px solid rgba(255,255,255,0.07)',
-  borderRadius: 12,
-  padding: 20,
-};
-const sectionTitle: React.CSSProperties = {
-  color: 'white', fontWeight: 600, fontSize: 14, margin: 0,
-};
