@@ -52,12 +52,12 @@ class LoadingOrder(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    # relationships
-    gerobak = relationship("Gerobak", foreign_keys=[gerobak_id], lazy="joined")  # type: ignore
-    driver = relationship("User", foreign_keys=[driver_id], lazy="joined")  # type: ignore
-    pembuat = relationship("User", foreign_keys=[dibuat_oleh], lazy="joined")  # type: ignore
+    # relationships — gunakan selectin agar kompatibel dengan AsyncSession
+    gerobak = relationship("Gerobak", foreign_keys=[gerobak_id], lazy="selectin")  # type: ignore
+    driver = relationship("User", foreign_keys=[driver_id], lazy="selectin")  # type: ignore
+    pembuat = relationship("User", foreign_keys=[dibuat_oleh], lazy="selectin")  # type: ignore
     items: Mapped[list["LoadingItem"]] = relationship(
-        "LoadingItem", back_populates="loading_order", cascade="all, delete-orphan"
+        "LoadingItem", back_populates="loading_order", cascade="all, delete-orphan", lazy="selectin"
     )
 
 
@@ -82,4 +82,4 @@ class LoadingItem(Base):
     )
 
     loading_order: Mapped["LoadingOrder"] = relationship("LoadingOrder", back_populates="items")
-    production_unit = relationship("ProductionUnit", foreign_keys=[production_unit_id], lazy="joined")  # type: ignore
+    production_unit = relationship("ProductionUnit", foreign_keys=[production_unit_id], lazy="selectin")  # type: ignore

@@ -3,22 +3,30 @@ import { View, Text, ScrollView, Pressable, TextInput, ActivityIndicator, Modal 
 import { PackageCheck, Plus, Search, X, CheckCircle, AlertCircle, Truck } from 'lucide-react-native';
 import api from '../../../lib/api';
 
-interface LoadingOrder {
-  id: number;
-  nomor_loading: string;
-  status: 'draft' | 'confirmed' | 'dispatched' | 'returned';
-  gerobak_id: number;
-  driver_id: number;
-  catatan: string | null;
-  items: LoadingItem[];
-  created_at: string;
-}
+// ── Types sesuai LoadingOrderResponse dari backend ──────────────────────────
+interface GerobakSnap { id: number; nama: string; }
+interface UserSnap    { id: number; full_name: string; }
 interface LoadingItem {
   id: number;
   production_unit_id: number;
   barcode_snapshot: string;
   harga_modal_snapshot: number;
 }
+interface LoadingOrder {
+  id: number;
+  nomor_loading: string;
+  status: 'draft' | 'confirmed' | 'dispatched' | 'returned';
+  gerobak: GerobakSnap;
+  driver: UserSnap;
+  pembuat: UserSnap;
+  catatan: string | null;
+  items: LoadingItem[];
+  total_unit: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Untuk form create — masih perlu list gerobak & user dari endpoint terpisah
 interface Gerobak { id: number; nama: string; kode: string; }
 interface User    { id: number; full_name: string; role: string; }
 
@@ -59,7 +67,6 @@ export default function LoadingPage() {
   async function fetchAll() {
     setLoading(true);
     try {
-      // GET /api/v1/loading/
       const [o, g, u] = await Promise.all([
         api.get('/loading/'),
         api.get('/gerobak/'),
@@ -80,7 +87,6 @@ export default function LoadingPage() {
     if (!form.gerobak_id || !form.driver_id) return;
     setSaving(true);
     try {
-      // POST /api/v1/loading/
       await api.post('/loading/', {
         gerobak_id: parseInt(form.gerobak_id),
         driver_id:  parseInt(form.driver_id),
@@ -97,7 +103,6 @@ export default function LoadingPage() {
 
   async function updateStatus(order: LoadingOrder, newStatus: string) {
     try {
-      // PATCH /api/v1/loading/{id}  (body: { status })
       await api.patch(`/loading/${order.id}`, { status: newStatus });
       showToast(`Status → ${newStatus}`);
       fetchAll();
@@ -110,7 +115,6 @@ export default function LoadingPage() {
     if (!scanTarget || !barcode.trim()) return;
     setScanning(true); setScanMsg(null);
     try {
-      // POST /api/v1/loading/{id}/scan
       await api.post(`/loading/${scanTarget.id}/scan`, { barcode: barcode.trim() });
       setScanMsg({ ok: true, msg: `✓ ${barcode} berhasil ditambahkan` });
       setBarcode('');
@@ -122,7 +126,6 @@ export default function LoadingPage() {
 
   async function removeItem(orderId: number, itemId: number) {
     try {
-      // DELETE /api/v1/loading/{id}/items/{itemId}
       await api.delete(`/loading/${orderId}/items/${itemId}`);
       showToast('Item dihapus'); fetchAll();
     } catch { showToast('Gagal hapus item', false); }
@@ -131,8 +134,6 @@ export default function LoadingPage() {
   const filtered = orders.filter(o =>
     o.nomor_loading.toLowerCase().includes(search.toLowerCase())
   );
-  const gerobakName = (id: number) => gerobaks.find(g => g.id === id)?.nama ?? `#${id}`;
-  const driverName  = (id: number) => users.find(u => u.id === id)?.full_name ?? `#${id}`;
 
   // glass design tokens
   const glass      = { backgroundColor: '#161b27', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', borderRadius: 16 } as const;
@@ -203,12 +204,13 @@ export default function LoadingPage() {
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                       <Truck size={12} color="rgba(255,255,255,0.25)" />
+                      {/* Gunakan order.gerobak.nama & order.driver.full_name sesuai schema backend */}
                       <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>
-                        {gerobakName(order.gerobak_id)} • {driverName(order.driver_id)}
+                        {order.gerobak.nama} • {order.driver.full_name}
                       </Text>
                     </View>
                     <Text style={{ color: 'rgba(255,255,255,0.25)', fontSize: 12 }}>
-                      {order.items.length} unit dimuat
+                      {order.total_unit} unit dimuat
                     </Text>
                   </View>
                   <View style={{ gap: 6, alignItems: 'flex-end' }}>
@@ -322,7 +324,7 @@ export default function LoadingPage() {
             </View>
             <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', marginBottom: 16 }}>
               {scanTarget?.nomor_loading}
-              <Text style={{ color: 'rgba(255,255,255,0.5)' }}> — {scanTarget?.items.length ?? 0} unit terscan</Text>
+              <Text style={{ color: 'rgba(255,255,255,0.5)' }}> — {scanTarget?.total_unit ?? 0} unit terscan</Text>
             </Text>
 
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
