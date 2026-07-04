@@ -11,6 +11,7 @@ import app.db.base  # noqa: F401
 from app.db.session import AsyncSessionLocal
 from app.models.bahan_baku import BahanBaku
 from app.models.manufacturing_order import ManufacturingOrder, MOBahanBaku, StatusMO
+from app.models.menu import Menu, Resep, ResepBahan
 from app.models.production_unit import ProductionUnit, StatusUnit
 from app.models.stok import Stok, TipeTransaksiStok
 from app.models.user import User, UserRole
@@ -24,6 +25,9 @@ def hash_pw(pw: str) -> str:
 
 async def truncate_all(db: AsyncSession) -> None:
     tables = [
+        "resep_bahan",
+        "resep",
+        "menu",
         "production_units",
         "mo_bahan_baku",
         "manufacturing_orders",
@@ -112,6 +116,140 @@ async def seed_stok(db: AsyncSession, bahan: dict[str, BahanBaku], admin: User) 
         ))
     await db.flush()
     print(f"✅  {len(stok_data)} transaksi stok awal dibuat")
+
+
+async def seed_menu(db: AsyncSession, bahan: dict[str, BahanBaku]) -> list[Menu]:
+    """
+    Seed 4 menu kopi beserta resep aktif (v1) dan bahan bakunya.
+
+    Estimasi harga modal per cup (acuan resep v1):
+      Kopi Susu Robusta  : Rp 4.150  (0.02kg×80k + 0.05kg×14k + 0.1klg×12k + 0.2L×500 + cup+sedotan+stiker)
+      Kopi Susu Arabika  : Rp 5.350  (0.02kg×120k + 0.05kg×14k + 0.1klg×12k + 0.2L×500 + cup+sedotan+stiker)
+      Kopi Hitam Robusta : Rp 2.850  (0.025kg×80k + 0.05kg×14k + 0.2L×500 + cup+sedotan+stiker)
+      Kopi Arabika Es    : Rp 4.750  (0.03kg×120k + 0.06kg×14k + 0.3L×500 + cup+sedotan+stiker)
+    """
+    menus_data = [
+        {
+            "nama": "Kopi Susu Robusta 250ml",
+            "deskripsi": "Kopi susu dengan biji robusta pilihan, manis gurih",
+            "harga_jual": 8_000,
+            "resep": [
+                {"nama_versi": "v1", "is_active": True, "catatan": "Resep standar awal"},
+            ],
+            "bahan_resep": {
+                "v1": [
+                    ("Kopi Robusta",      0.02,  "kg"),
+                    ("Gula Pasir",        0.05,  "kg"),
+                    ("Susu Kental Manis", 0.1,   "kaleng"),
+                    ("Air Mineral",       0.2,   "liter"),
+                    ("Cup Plastik 250ml", 1.0,   "pcs"),
+                    ("Sedotan",           1.0,   "pcs"),
+                    ("Stiker Label",      1.0,   "pcs"),
+                ],
+            },
+        },
+        {
+            "nama": "Kopi Susu Arabika 250ml",
+            "deskripsi": "Kopi susu premium dengan biji arabika, aroma buah segar",
+            "harga_jual": 12_000,
+            "resep": [
+                {"nama_versi": "v1", "is_active": True,  "catatan": "Resep standar awal"},
+                {"nama_versi": "v2-less-sugar", "is_active": False, "catatan": "Versi kurangi gula 20%"},
+            ],
+            "bahan_resep": {
+                "v1": [
+                    ("Kopi Arabika",      0.02,  "kg"),
+                    ("Gula Pasir",        0.05,  "kg"),
+                    ("Susu Kental Manis", 0.1,   "kaleng"),
+                    ("Air Mineral",       0.2,   "liter"),
+                    ("Cup Plastik 250ml", 1.0,   "pcs"),
+                    ("Sedotan",           1.0,   "pcs"),
+                    ("Stiker Label",      1.0,   "pcs"),
+                ],
+                "v2-less-sugar": [
+                    ("Kopi Arabika",      0.02,  "kg"),
+                    ("Gula Pasir",        0.04,  "kg"),
+                    ("Susu Kental Manis", 0.1,   "kaleng"),
+                    ("Air Mineral",       0.2,   "liter"),
+                    ("Cup Plastik 250ml", 1.0,   "pcs"),
+                    ("Sedotan",           1.0,   "pcs"),
+                    ("Stiker Label",      1.0,   "pcs"),
+                ],
+            },
+        },
+        {
+            "nama": "Kopi Hitam Robusta 250ml",
+            "deskripsi": "Kopi hitam tanpa susu, kuat dan pahit, cocok buat yang suka original",
+            "harga_jual": 6_000,
+            "resep": [
+                {"nama_versi": "v1", "is_active": True, "catatan": "Resep standar awal"},
+            ],
+            "bahan_resep": {
+                "v1": [
+                    ("Kopi Robusta",      0.025, "kg"),
+                    ("Gula Pasir",        0.05,  "kg"),
+                    ("Air Mineral",       0.2,   "liter"),
+                    ("Cup Plastik 250ml", 1.0,   "pcs"),
+                    ("Sedotan",           1.0,   "pcs"),
+                    ("Stiker Label",      1.0,   "pcs"),
+                ],
+            },
+        },
+        {
+            "nama": "Kopi Arabika Es 250ml",
+            "deskripsi": "Kopi arabika dingin tanpa susu, segar dan fruity",
+            "harga_jual": 10_000,
+            "resep": [
+                {"nama_versi": "v1", "is_active": True, "catatan": "Resep standar awal"},
+            ],
+            "bahan_resep": {
+                "v1": [
+                    ("Kopi Arabika",      0.03,  "kg"),
+                    ("Gula Pasir",        0.06,  "kg"),
+                    ("Air Mineral",       0.3,   "liter"),
+                    ("Cup Plastik 250ml", 1.0,   "pcs"),
+                    ("Sedotan",           1.0,   "pcs"),
+                    ("Stiker Label",      1.0,   "pcs"),
+                ],
+            },
+        },
+    ]
+
+    menu_list: list[Menu] = []
+    for md in menus_data:
+        menu = Menu(
+            nama=md["nama"],
+            deskripsi=md["deskripsi"],
+            harga_jual=md["harga_jual"],
+            is_active=True,
+        )
+        db.add(menu)
+        await db.flush()
+
+        for rd in md["resep"]:
+            resep = Resep(
+                menu_id=menu.id,
+                nama_versi=rd["nama_versi"],
+                is_active=rd["is_active"],
+                catatan=rd.get("catatan"),
+            )
+            db.add(resep)
+            await db.flush()
+
+            for nama_bahan, qty, satuan in md["bahan_resep"][rd["nama_versi"]]:
+                db.add(ResepBahan(
+                    resep_id=resep.id,
+                    bahan_baku_id=bahan[nama_bahan].id,
+                    qty_per_unit=qty,
+                    satuan=satuan,
+                ))
+
+        menu_list.append(menu)
+
+    await db.flush()
+    total_resep = sum(len(md["resep"]) for md in menus_data)
+    print(f"✅  {len(menu_list)} menu dibuat ({total_resep} resep, dengan bahan baku)")
+    return menu_list
 
 
 async def seed_mo(
@@ -271,6 +409,7 @@ async def run_seed(fresh: bool = True) -> None:
         users   = await seed_users(db)
         bahan   = await seed_bahan_baku(db)
         await seed_stok(db, bahan, users["admin"])
+        await seed_menu(db, bahan)
         mo_list = await seed_mo(db, bahan, users)
         await seed_production_units(db, mo_list[0])
 
@@ -283,6 +422,11 @@ async def run_seed(fresh: bool = True) -> None:
         print("   driver1@sekopi.id      / driver123")
         print("   driver2@sekopi.id      / driver123")
         print("   shareholder@sekopi.id  / shareholder123")
+        print("\n🍵  Menu tersedia:")
+        print("   - Kopi Susu Robusta 250ml   Rp 8.000   (1 resep aktif)")
+        print("   - Kopi Susu Arabika 250ml   Rp 12.000  (2 resep: v1 aktif, v2-less-sugar nonaktif)")
+        print("   - Kopi Hitam Robusta 250ml  Rp 6.000   (1 resep aktif)")
+        print("   - Kopi Arabika Es 250ml     Rp 10.000  (1 resep aktif)")
 
 
 if __name__ == "__main__":
