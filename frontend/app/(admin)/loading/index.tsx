@@ -1,359 +1,366 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, Pressable, TextInput, ActivityIndicator, Modal } from 'react-native';
-import { PackageCheck, Plus, Search, X, CheckCircle, AlertCircle, Truck } from 'lucide-react-native';
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../lib/api';
+import { Navbar } from '../../../components/layout/Navbar';
+import { PackageCheck, Plus, X, Truck, CheckCircle, AlertCircle, Search } from 'lucide-react-native';
 
-// ── Types sesuai LoadingOrderResponse dari backend ──────────────────────────
+// ── Styles (web CSS-in-JS, sesuai pola halaman lain) ──────────────────────
+const inp: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: 'white', fontSize: 13, outline: 'none' };
+const lbl: React.CSSProperties = { color: '#888', fontSize: 11, fontWeight: 600, marginBottom: 4, display: 'block', letterSpacing: 0.5 };
+const card: React.CSSProperties = { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, overflow: 'hidden' };
+const btnPrimary: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, backgroundColor: '#f44444', border: 'none', borderRadius: 10, padding: '9px 18px', color: 'white', fontWeight: 600, fontSize: 13, cursor: 'pointer' };
+const btnGhost: React.CSSProperties = { padding: '7px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#aaa', cursor: 'pointer', fontSize: 12, fontWeight: 600 };
+const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 };
+const modalBox: React.CSSProperties = { background: '#141414', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, padding: 28, width: 480, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' };
+
+const STATUS_STYLE: Record<string, React.CSSProperties> = {
+  draft:      { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: '#9ca3af' },
+  confirmed:  { background: 'rgba(59,130,246,0.12)',  border: '1px solid rgba(59,130,246,0.3)',   color: '#60a5fa' },
+  dispatched: { background: 'rgba(34,197,94,0.12)',   border: '1px solid rgba(34,197,94,0.3)',    color: '#4ade80' },
+  returned:   { background: 'rgba(251,191,36,0.12)',  border: '1px solid rgba(251,191,36,0.3)',   color: '#fbbf24' },
+};
+const STATUS_LABEL: Record<string, string> = { draft: 'Draft', confirmed: 'Confirmed', dispatched: 'Dispatched', returned: 'Returned' };
+const STATUS_NEXT: Record<string, { label: string; status: string }> = {
+  draft:      { label: 'Konfirmasi',  status: 'confirmed' },
+  confirmed:  { label: 'Dispatch',    status: 'dispatched' },
+  dispatched: { label: 'Return',      status: 'returned' },
+};
+
+// ── Types ──────────────────────────────────────────────────────────────────
 interface GerobakSnap { id: number; nama: string; }
 interface UserSnap    { id: number; full_name: string; }
-interface LoadingItem {
-  id: number;
-  production_unit_id: number;
-  barcode_snapshot: string;
-  harga_modal_snapshot: number;
-}
+interface LoadingItem { id: number; production_unit_id: number; barcode_snapshot: string; harga_modal_snapshot: number; }
 interface LoadingOrder {
-  id: number;
-  nomor_loading: string;
+  id: number; nomor_loading: string;
   status: 'draft' | 'confirmed' | 'dispatched' | 'returned';
-  gerobak: GerobakSnap;
-  driver: UserSnap;
-  pembuat: UserSnap;
-  catatan: string | null;
-  items: LoadingItem[];
-  total_unit: number;
-  created_at: string;
-  updated_at: string;
+  gerobak: GerobakSnap; driver: UserSnap; pembuat: UserSnap;
+  catatan: string | null; items: LoadingItem[];
+  total_unit: number; created_at: string; updated_at: string;
 }
-
-// Untuk form create — masih perlu list gerobak & user dari endpoint terpisah
 interface Gerobak { id: number; nama: string; kode: string; }
 interface User    { id: number; full_name: string; role: string; }
 
-const STATUS: Record<string, { bg: string; border: string; text: string; label: string }> = {
-  draft:      { bg: 'rgba(255,255,255,0.06)', border: 'rgba(255,255,255,0.12)', text: '#9ca3af', label: 'Draft' },
-  confirmed:  { bg: 'rgba(59,130,246,0.12)',  border: 'rgba(59,130,246,0.3)',  text: '#60a5fa', label: 'Confirmed' },
-  dispatched: { bg: 'rgba(34,197,94,0.12)',   border: 'rgba(34,197,94,0.3)',   text: '#4ade80', label: 'Dispatched' },
-  returned:   { bg: 'rgba(251,191,36,0.12)',  border: 'rgba(251,191,36,0.3)',  text: '#fbbf24', label: 'Returned' },
-};
-const STATUS_NEXT: Record<string, { label: string; status: string }> = {
-  draft:      { label: 'Konfirmasi', status: 'confirmed' },
-  confirmed:  { label: 'Dispatch',   status: 'dispatched' },
-  dispatched: { label: 'Return',     status: 'returned' },
-};
-
 export default function LoadingPage() {
-  const [orders,   setOrders]   = useState<LoadingOrder[]>([]);
-  const [gerobaks, setGerobaks] = useState<Gerobak[]>([]);
-  const [users,    setUsers]    = useState<User[]>([]);
-  const [loading,  setLoading]  = useState(true);
-  const [search,   setSearch]   = useState('');
+  const qc = useQueryClient();
+  const [search, setSearch] = useState('');
 
+  // ── Create modal
   const [showCreate, setShowCreate] = useState(false);
-  const [form,   setForm]   = useState({ gerobak_id: '', driver_id: '', catatan: '' });
-  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ gerobak_id: '', driver_id: '', catatan: '' });
+  const [formError, setFormError] = useState('');
 
+  // ── Scan modal
   const [scanTarget, setScanTarget] = useState<LoadingOrder | null>(null);
-  const [barcode,    setBarcode]    = useState('');
-  const [scanning,   setScanning]   = useState(false);
-  const [scanMsg,    setScanMsg]    = useState<{ ok: boolean; msg: string } | null>(null);
+  const [barcode, setBarcode] = useState('');
+  const [scanMsg, setScanMsg] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
-  const showToast = (msg: string, ok = true) => {
-    setToast({ msg, ok });
-    setTimeout(() => setToast(null), 3000);
-  };
+  // ── Queries
+  const { data: rawOrders, isLoading } = useQuery<LoadingOrder[]>({
+    queryKey: ['loading-orders'],
+    queryFn: () => api.get('/loading/').then(r => r.data),
+  });
+  const { data: rawGerobak } = useQuery<Gerobak[]>({
+    queryKey: ['gerobak'],
+    queryFn: () => api.get('/gerobak/').then(r => r.data),
+  });
+  const { data: rawUsers } = useQuery<User[]>({
+    queryKey: ['users'],
+    queryFn: () => api.get('/users/').then(r => r.data),
+  });
 
-  async function fetchAll() {
-    setLoading(true);
-    try {
-      const [o, g, u] = await Promise.all([
-        api.get('/loading/'),
-        api.get('/gerobak/'),
-        api.get('/users/'),
-      ]);
-      setOrders(o.data ?? []);
-      setGerobaks(g.data ?? []);
-      setUsers((u.data ?? []).filter((x: User) => x.role === 'DRIVER' || x.role === 'ADMIN'));
-    } catch (e: any) {
-      showToast(e?.response?.data?.detail ?? 'Gagal memuat data', false);
-    } finally {
-      setLoading(false);
-    }
-  }
-  useEffect(() => { fetchAll(); }, []);
+  const orders:   LoadingOrder[] = Array.isArray(rawOrders)  ? rawOrders  : [];
+  const gerobaks: Gerobak[]      = Array.isArray(rawGerobak) ? rawGerobak : [];
+  const drivers:  User[]         = Array.isArray(rawUsers)
+    ? rawUsers.filter((u: User) => u.role === 'DRIVER' || u.role === 'driver' || u.role === 'ADMIN' || u.role === 'admin')
+    : [];
 
-  async function createOrder() {
-    if (!form.gerobak_id || !form.driver_id) return;
-    setSaving(true);
-    try {
-      await api.post('/loading/', {
-        gerobak_id: parseInt(form.gerobak_id),
-        driver_id:  parseInt(form.driver_id),
-        catatan:    form.catatan || null,
-      });
-      showToast('Loading order dibuat');
-      setShowCreate(false);
-      setForm({ gerobak_id: '', driver_id: '', catatan: '' });
-      fetchAll();
-    } catch (e: any) {
-      showToast(e?.response?.data?.detail ?? 'Gagal membuat loading order', false);
-    } finally { setSaving(false); }
-  }
+  // ── Mutations
+  const createOrder = useMutation({
+    mutationFn: (p: any) => api.post('/loading/', p).then(r => r.data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['loading-orders'] }); resetCreate(); },
+    onError: (e: any) => setFormError(e.response?.data?.detail ?? 'Gagal membuat loading order'),
+  });
 
-  async function updateStatus(order: LoadingOrder, newStatus: string) {
-    try {
-      await api.patch(`/loading/${order.id}`, { status: newStatus });
-      showToast(`Status → ${newStatus}`);
-      fetchAll();
-    } catch (e: any) {
-      showToast(e?.response?.data?.detail ?? 'Gagal ubah status', false);
-    }
-  }
+  const updateStatus = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) =>
+      api.patch(`/loading/${id}`, { status }).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['loading-orders'] }),
+  });
 
-  async function doScan() {
-    if (!scanTarget || !barcode.trim()) return;
-    setScanning(true); setScanMsg(null);
-    try {
-      await api.post(`/loading/${scanTarget.id}/scan`, { barcode: barcode.trim() });
+  const scanItem = useMutation({
+    mutationFn: ({ id, barcode }: { id: number; barcode: string }) =>
+      api.post(`/loading/${id}/scan`, { barcode }).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['loading-orders'] });
       setScanMsg({ ok: true, msg: `✓ ${barcode} berhasil ditambahkan` });
       setBarcode('');
-      fetchAll();
-    } catch (e: any) {
-      setScanMsg({ ok: false, msg: e?.response?.data?.detail ?? 'Gagal scan' });
-    } finally { setScanning(false); }
-  }
+    },
+    onError: (e: any) => setScanMsg({ ok: false, msg: e.response?.data?.detail ?? 'Gagal scan' }),
+  });
 
-  async function removeItem(orderId: number, itemId: number) {
-    try {
-      await api.delete(`/loading/${orderId}/items/${itemId}`);
-      showToast('Item dihapus'); fetchAll();
-    } catch { showToast('Gagal hapus item', false); }
-  }
+  const removeItem = useMutation({
+    mutationFn: ({ orderId, itemId }: { orderId: number; itemId: number }) =>
+      api.delete(`/loading/${orderId}/items/${itemId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['loading-orders'] }),
+  });
+
+  const resetCreate = () => { setShowCreate(false); setForm({ gerobak_id: '', driver_id: '', catatan: '' }); setFormError(''); };
+  const openScan = (order: LoadingOrder) => { setScanTarget(order); setBarcode(''); setScanMsg(null); };
+
+  const submitCreate = () => {
+    if (!form.gerobak_id || !form.driver_id) { setFormError('Gerobak dan driver wajib dipilih'); return; }
+    createOrder.mutate({
+      gerobak_id: parseInt(form.gerobak_id),
+      driver_id:  parseInt(form.driver_id),
+      catatan:    form.catatan || null,
+    });
+  };
 
   const filtered = orders.filter(o =>
     o.nomor_loading.toLowerCase().includes(search.toLowerCase())
   );
 
-  // glass design tokens
-  const glass      = { backgroundColor: '#161b27', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', borderRadius: 16 } as const;
-  const glassCard  = { backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', borderRadius: 14 } as const;
-  const inputStyle = { backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, color: 'white' } as const;
-  const btnPrimary = { backgroundColor: '#f44444', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 6 };
-  const btnGhost   = { backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 };
-
   return (
-    <View style={{ flex: 1, backgroundColor: '#0f1117' }}>
-      {toast && (
-        <View style={{ position: 'absolute', top: 20, right: 20, zIndex: 99,
-          backgroundColor: toast.ok ? 'rgba(34,197,94,0.9)' : 'rgba(239,68,68,0.9)',
-          paddingHorizontal: 18, paddingVertical: 10, borderRadius: 10 }}>
-          <Text style={{ color: 'white', fontWeight: '600', fontSize: 13 }}>{toast.msg}</Text>
-        </View>
-      )}
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: '#0a0a0a' }}>
+      <Navbar title="Loading Gerobak" />
+      <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
 
-      {/* Header */}
-      <View style={{ borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.08)',
-        paddingHorizontal: 24, paddingVertical: 16, flexDirection: 'row', alignItems: 'center',
-        justifyContent: 'space-between', backgroundColor: 'rgba(255,255,255,0.02)' }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <PackageCheck size={22} color="#f87171" />
-          <Text style={{ fontSize: 18, fontWeight: '700', color: 'white' }}>Loading Gerobak</Text>
-        </View>
-        <Pressable onPress={() => setShowCreate(true)} style={btnPrimary}>
-          <Plus size={15} color="white" />
-          <Text style={{ color: 'white', fontWeight: '600', fontSize: 13 }}>Buat Loading</Text>
-        </Pressable>
-      </View>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+          <div>
+            <h1 style={{ color: 'white', fontSize: 20, fontWeight: 700, margin: 0 }}>Loading Gerobak</h1>
+            <p style={{ color: '#555', fontSize: 13, margin: '4px 0 0' }}>{orders.length} loading order</p>
+          </div>
+          <button onClick={() => { resetCreate(); setShowCreate(true); }} style={btnPrimary}>
+            <Plus size={14} color="white" /> Buat Loading
+          </button>
+        </div>
 
-      {/* Search */}
-      <View style={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8,
-          backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
-          borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 }}>
-          <Search size={15} color="rgba(255,255,255,0.25)" />
-          <TextInput value={search} onChangeText={setSearch} placeholder="Cari nomor loading..."
-            placeholderTextColor="rgba(255,255,255,0.2)"
-            style={{ flex: 1, fontSize: 14, color: 'white' }} />
-        </View>
-      </View>
+        {/* Search */}
+        <div style={{ position: 'relative', marginBottom: 16, maxWidth: 320 }}>
+          <Search size={14} color="#555" style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)' }} />
+          <input
+            value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Cari nomor loading..."
+            style={{ ...inp, paddingLeft: 34 }}
+          />
+        </div>
 
-      {loading ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator color="#f87171" size="large" />
-        </View>
-      ) : filtered.length === 0 ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-          <PackageCheck size={48} color="rgba(255,255,255,0.08)" />
-          <Text style={{ color: 'rgba(255,255,255,0.25)', fontSize: 15 }}>Belum ada loading order</Text>
-        </View>
-      ) : (
-        <ScrollView style={{ flex: 1, paddingHorizontal: 24, paddingTop: 8 }} showsVerticalScrollIndicator={false}>
-          {filtered.map(order => {
-            const s    = STATUS[order.status] ?? STATUS.draft;
-            const next = STATUS_NEXT[order.status];
-            return (
-              <View key={order.id} style={{ ...glassCard, marginBottom: 12, overflow: 'hidden' }}>
-                <View style={{ padding: 16, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                      <Text style={{ fontWeight: '700', fontSize: 15, color: 'white' }}>{order.nomor_loading}</Text>
-                      <View style={{ backgroundColor: s.bg, borderWidth: 1, borderColor: s.border, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20 }}>
-                        <Text style={{ color: s.text, fontSize: 11, fontWeight: '600' }}>{s.label}</Text>
-                      </View>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                      <Truck size={12} color="rgba(255,255,255,0.25)" />
-                      <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>
-                        {order.gerobak.nama} • {order.driver.full_name}
-                      </Text>
-                    </View>
-                    <Text style={{ color: 'rgba(255,255,255,0.25)', fontSize: 12 }}>
-                      {order.total_unit} unit dimuat
-                    </Text>
-                  </View>
-                  <View style={{ gap: 6, alignItems: 'flex-end' }}>
-                    {order.status === 'draft' && (
-                      <Pressable onPress={() => { setScanTarget(order); setBarcode(''); setScanMsg(null); }} style={btnGhost}>
-                        <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '600' }}>Scan</Text>
-                      </Pressable>
-                    )}
-                    {next && (
-                      <Pressable onPress={() => updateStatus(order, next.status)} style={btnGhost}>
-                        <Text style={{ color: '#4ade80', fontSize: 12, fontWeight: '600' }}>{next.label}</Text>
-                      </Pressable>
-                    )}
-                  </View>
-                </View>
+        {/* Table */}
+        <div style={card}>
+          {isLoading ? (
+            <div style={{ padding: 40, textAlign: 'center', color: '#555' }}>Memuat...</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding: 60, textAlign: 'center' }}>
+              <div style={{ marginBottom: 12, opacity: 0.2 }}><PackageCheck size={36} color="white" /></div>
+              <div style={{ color: '#444', marginBottom: 16 }}>Belum ada loading order</div>
+              <button onClick={() => { resetCreate(); setShowCreate(true); }} style={btnPrimary}>
+                <Plus size={14} color="white" /> Buat Loading Pertama
+              </button>
+            </div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                  {['Nomor', 'Status', 'Gerobak', 'Driver', 'Unit', 'Dibuat', ''].map(h => (
+                    <th key={h} style={{ padding: '12px 16px', textAlign: 'left', color: '#555', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(order => {
+                  const ss = STATUS_STYLE[order.status] ?? STATUS_STYLE.draft;
+                  const next = STATUS_NEXT[order.status];
+                  return (
+                    <tr key={order.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
 
-                {order.items.length > 0 && (
-                  <View style={{ borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)', paddingHorizontal: 16, paddingVertical: 10 }}>
-                    {order.items.map(item => (
-                      <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 3 }}>
-                        <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', fontFamily: 'monospace' }}>{item.barcode_snapshot}</Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                          <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>Rp {Number(item.harga_modal_snapshot).toLocaleString('id')}</Text>
+                      <td style={{ padding: '13px 16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(244,68,68,0.08)', border: '1px solid rgba(244,68,68,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <Truck size={13} color="#f87171" />
+                          </div>
+                          <span style={{ color: 'white', fontWeight: 600, fontSize: 13, fontFamily: 'monospace' }}>{order.nomor_loading}</span>
+                        </div>
+                      </td>
+
+                      <td style={{ padding: '13px 16px' }}>
+                        <span style={{ ...ss, padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600 }}>
+                          {STATUS_LABEL[order.status] ?? order.status}
+                        </span>
+                      </td>
+
+                      <td style={{ padding: '13px 16px', color: '#aaa', fontSize: 13 }}>{order.gerobak.nama}</td>
+                      <td style={{ padding: '13px 16px', color: '#aaa', fontSize: 13 }}>{order.driver.full_name}</td>
+
+                      <td style={{ padding: '13px 16px' }}>
+                        <span style={{ color: '#aaa', fontSize: 13 }}>{order.total_unit} unit</span>
+                      </td>
+
+                      <td style={{ padding: '13px 16px', color: '#555', fontSize: 12 }}>
+                        {new Date(order.created_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </td>
+
+                      <td style={{ padding: '13px 16px' }}>
+                        <div style={{ display: 'flex', gap: 6 }}>
                           {order.status === 'draft' && (
-                            <Pressable onPress={() => removeItem(order.id, item.id)}>
-                              <X size={13} color="#f87171" />
-                            </Pressable>
+                            <button onClick={() => openScan(order)} style={{ ...btnGhost, color: '#60a5fa', borderColor: 'rgba(96,165,250,0.3)' }}>
+                              Scan
+                            </button>
                           )}
-                        </View>
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
-            );
-          })}
-          <View style={{ height: 32 }} />
-        </ScrollView>
+                          {next && (
+                            <button
+                              onClick={() => updateStatus.mutate({ id: order.id, status: next.status })}
+                              disabled={updateStatus.isPending}
+                              style={{ ...btnGhost, color: '#4ade80', borderColor: 'rgba(74,222,128,0.3)' }}>
+                              {next.label}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {/* ── Modal: Buat Loading Order ────────────────────────────────────── */}
+      {showCreate && (
+        <div style={overlay}>
+          <div style={modalBox}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
+              <span style={{ color: 'white', fontWeight: 700, fontSize: 16 }}>Buat Loading Order</span>
+              <button onClick={resetCreate} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                <X size={17} color="#555" />
+              </button>
+            </div>
+
+            {formError && (
+              <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '10px 14px', color: '#f87171', fontSize: 13, marginBottom: 14 }}>
+                {formError}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={lbl}>GEROBAK *</label>
+                <select value={form.gerobak_id} onChange={e => setForm({ ...form, gerobak_id: e.target.value })} style={{ ...inp, cursor: 'pointer' }}>
+                  <option value="" style={{ background: '#1a1a1a' }}>— Pilih gerobak —</option>
+                  {gerobaks.map(g => <option key={g.id} value={g.id} style={{ background: '#1a1a1a' }}>{g.nama} ({g.kode})</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label style={lbl}>DRIVER *</label>
+                <select value={form.driver_id} onChange={e => setForm({ ...form, driver_id: e.target.value })} style={{ ...inp, cursor: 'pointer' }}>
+                  <option value="" style={{ background: '#1a1a1a' }}>— Pilih driver —</option>
+                  {drivers.map(u => <option key={u.id} value={u.id} style={{ background: '#1a1a1a' }}>{u.full_name} ({u.role})</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label style={lbl}>CATATAN</label>
+                <textarea
+                  value={form.catatan}
+                  onChange={e => setForm({ ...form, catatan: e.target.value })}
+                  placeholder="Opsional..."
+                  rows={3}
+                  style={{ ...inp, resize: 'vertical' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
+              <button onClick={resetCreate} style={btnGhost}>Batal</button>
+              <button
+                onClick={submitCreate}
+                disabled={createOrder.isPending || !form.gerobak_id || !form.driver_id}
+                style={{ ...btnPrimary, opacity: (!form.gerobak_id || !form.driver_id) ? 0.4 : 1 }}>
+                {createOrder.isPending ? 'Menyimpan...' : 'Buat'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
-      {/* Modal Buat Loading */}
-      <Modal visible={showCreate} transparent animationType="fade">
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <View style={{ ...glass, width: '100%', maxWidth: 440, padding: 24 }}>
-            <Text style={{ fontWeight: '700', fontSize: 16, color: 'white', marginBottom: 18 }}>Buat Loading Order</Text>
+      {/* ── Modal: Scan Barcode ──────────────────────────────────────────── */}
+      {scanTarget && (
+        <div style={overlay}>
+          <div style={modalBox}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ color: 'white', fontWeight: 700, fontSize: 16 }}>Scan Barcode</span>
+              <button onClick={() => setScanTarget(null)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                <X size={17} color="#555" />
+              </button>
+            </div>
 
-            <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>Gerobak</Text>
-            <View style={{ borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', borderRadius: 10, marginBottom: 14, overflow: 'hidden' }}>
-              {gerobaks.map(g => (
-                <Pressable key={g.id} onPress={() => setForm(f => ({ ...f, gerobak_id: String(g.id) }))}
-                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 11,
-                    backgroundColor: form.gerobak_id === String(g.id) ? 'rgba(244,68,68,0.1)' : 'transparent' }}>
-                  <Text style={{ fontSize: 13, color: form.gerobak_id === String(g.id) ? '#f87171' : 'rgba(255,255,255,0.65)' }}>
-                    {g.nama} <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>({g.kode})</Text>
-                  </Text>
-                  {form.gerobak_id === String(g.id) && <CheckCircle size={15} color="#f87171" />}
-                </Pressable>
-              ))}
-              {gerobaks.length === 0 && (
-                <Text style={{ padding: 12, color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>Tidak ada gerobak</Text>
-              )}
-            </View>
+            <p style={{ color: '#666', fontSize: 13, marginBottom: 20 }}>
+              <span style={{ color: '#aaa', fontFamily: 'monospace' }}>{scanTarget.nomor_loading}</span>
+              &nbsp;—&nbsp;{scanTarget.total_unit} unit terscan
+            </p>
 
-            <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>Driver</Text>
-            <View style={{ borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', borderRadius: 10, marginBottom: 14, overflow: 'hidden' }}>
-              {users.map(u => (
-                <Pressable key={u.id} onPress={() => setForm(f => ({ ...f, driver_id: String(u.id) }))}
-                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 11,
-                    backgroundColor: form.driver_id === String(u.id) ? 'rgba(244,68,68,0.1)' : 'transparent' }}>
-                  <Text style={{ fontSize: 13, color: form.driver_id === String(u.id) ? '#f87171' : 'rgba(255,255,255,0.65)' }}>
-                    {u.full_name} <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>({u.role})</Text>
-                  </Text>
-                  {form.driver_id === String(u.id) && <CheckCircle size={15} color="#f87171" />}
-                </Pressable>
-              ))}
-              {users.length === 0 && (
-                <Text style={{ padding: 12, color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>Tidak ada driver</Text>
-              )}
-            </View>
+            {/* Items terscan */}
+            {scanTarget && (() => {
+              const live = orders.find(o => o.id === scanTarget.id);
+              const items = live?.items ?? scanTarget.items;
+              return items.length > 0 ? (
+                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 8, marginBottom: 16, overflow: 'hidden' }}>
+                  {items.map(item => (
+                    <div key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      <span style={{ fontSize: 12, color: '#aaa', fontFamily: 'monospace' }}>{item.barcode_snapshot}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                        <span style={{ fontSize: 12, color: '#555' }}>Rp {Number(item.harga_modal_snapshot).toLocaleString('id')}</span>
+                        {scanTarget.status === 'draft' && (
+                          <button
+                            onClick={() => removeItem.mutate({ orderId: scanTarget.id, itemId: item.id })}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 0 }}>
+                            <X size={12} color="#f87171" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null;
+            })()}
 
-            <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>Catatan</Text>
-            <TextInput value={form.catatan} onChangeText={t => setForm(f => ({ ...f, catatan: t }))}
-              placeholder="Opsional..." placeholderTextColor="rgba(255,255,255,0.2)"
-              multiline numberOfLines={2}
-              style={{ ...inputStyle, textAlignVertical: 'top', minHeight: 60, marginBottom: 20 }} />
-
-            <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'flex-end' }}>
-              <Pressable onPress={() => setShowCreate(false)} style={{ ...btnGhost, paddingHorizontal: 16, paddingVertical: 9 }}>
-                <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>Batal</Text>
-              </Pressable>
-              <Pressable onPress={createOrder} disabled={saving || !form.gerobak_id || !form.driver_id}
-                style={{ ...btnPrimary, paddingVertical: 9, opacity: (!form.gerobak_id || !form.driver_id) ? 0.35 : 1 }}>
-                <Text style={{ color: 'white', fontWeight: '600', fontSize: 13 }}>{saving ? 'Menyimpan...' : 'Buat'}</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Bottom Sheet Scan */}
-      <Modal visible={!!scanTarget} transparent animationType="slide">
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: '#161b27', borderTopLeftRadius: 24, borderTopRightRadius: 24,
-            borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
-            padding: 24, paddingBottom: 40 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-              <Text style={{ fontWeight: '700', fontSize: 16, color: 'white' }}>Scan Barcode</Text>
-              <Pressable onPress={() => setScanTarget(null)}>
-                <X size={20} color="rgba(255,255,255,0.4)" />
-              </Pressable>
-            </View>
-            <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', marginBottom: 16 }}>
-              {scanTarget?.nomor_loading}
-              <Text style={{ color: 'rgba(255,255,255,0.5)' }}> — {scanTarget?.total_unit ?? 0} unit terscan</Text>
-            </Text>
-
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
-              <TextInput value={barcode} onChangeText={setBarcode} onSubmitEditing={doScan}
-                placeholder="Scan atau ketik barcode..." autoFocus
-                placeholderTextColor="rgba(255,255,255,0.2)"
-                style={{ ...inputStyle, flex: 1, fontFamily: 'monospace' }} />
-              <Pressable onPress={doScan} disabled={scanning || !barcode.trim()}
-                style={{ ...btnPrimary, paddingHorizontal: 18, opacity: !barcode.trim() ? 0.35 : 1 }}>
-                {scanning
-                  ? <ActivityIndicator color="white" size="small" />
-                  : <Text style={{ color: 'white', fontWeight: '700', fontSize: 14 }}>OK</Text>
-                }
-              </Pressable>
-            </View>
+            {/* Input barcode */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <input
+                value={barcode}
+                onChange={e => setBarcode(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && barcode.trim() && scanItem.mutate({ id: scanTarget.id, barcode: barcode.trim() })}
+                placeholder="Scan atau ketik barcode..."
+                autoFocus
+                style={{ ...inp, flex: 1, fontFamily: 'monospace' }}
+              />
+              <button
+                onClick={() => barcode.trim() && scanItem.mutate({ id: scanTarget.id, barcode: barcode.trim() })}
+                disabled={scanItem.isPending || !barcode.trim()}
+                style={{ ...btnPrimary, opacity: !barcode.trim() ? 0.4 : 1 }}>
+                {scanItem.isPending ? '...' : 'OK'}
+              </button>
+            </div>
 
             {scanMsg && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderRadius: 10,
-                backgroundColor: scanMsg.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
-                borderWidth: 1, borderColor: scanMsg.ok ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 8, background: scanMsg.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)', border: `1px solid ${scanMsg.ok ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)'}` }}>
                 {scanMsg.ok
                   ? <CheckCircle size={14} color="#4ade80" />
-                  : <AlertCircle size={14} color="#f87171" />
-                }
-                <Text style={{ fontSize: 13, color: scanMsg.ok ? '#4ade80' : '#f87171', flex: 1 }}>{scanMsg.msg}</Text>
-              </View>
+                  : <AlertCircle size={14} color="#f87171" />}
+                <span style={{ fontSize: 13, color: scanMsg.ok ? '#4ade80' : '#f87171' }}>{scanMsg.msg}</span>
+              </div>
             )}
-          </View>
-        </View>
-      </Modal>
-    </View>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
+              <button onClick={() => setScanTarget(null)} style={btnGhost}>Tutup</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
