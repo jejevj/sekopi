@@ -1,5 +1,4 @@
 import React from 'react';
-import { View, Text, ScrollView, Pressable } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { api } from '../../lib/api';
@@ -33,10 +32,26 @@ function MetricCard({ Icon, label, value, sub, color, iconBg }: {
   );
 }
 
+/** Normalise response: bisa array langsung atau {items:[]} */
+function toList(data: any): any[] {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data.items)) return data.items;
+  return [];
+}
+
+/** Ambil nama produk dari mo.lines[] */
+function getNama(mo: any): string {
+  const lines: any[] = mo.lines ?? [];
+  if (lines.length === 0) return mo.nama_produk ?? '-';
+  if (lines.length === 1) return lines[0].nama_produk;
+  return `${lines[0].nama_produk} +${lines.length - 1} lainnya`;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
 
-  const { data: moList } = useQuery({
+  const { data: moData } = useQuery({
     queryKey: ['mo', 'recent'],
     queryFn: () => api.get('/manufacturing-orders?per_page=5').then(r => r.data),
     retry: false,
@@ -52,13 +67,14 @@ export default function DashboardPage() {
     queryKey: ['laporan', 'today'],
     queryFn: async () => {
       const today = new Date().toISOString().split('T')[0];
-      const r = await api.get(`/laporan/shareholder?dari=${today}&sampai=${today}`);
-      return r.data;
+      return api.get(`/laporan/shareholder?dari=${today}&sampai=${today}`).then(r => r.data);
     },
     retry: false,
   });
 
-  const moAktif = moList?.items?.filter((m: any) => m.status === 'in_progress').length ?? 0;
+  // Normalise: API bisa return array langsung ATAU {items:[]}
+  const moItems: any[] = toList(moData);
+  const moAktif    = moItems.filter((m: any) => m.status === 'in_progress').length;
   const expiryCount = expiry?.expiring_soon?.length ?? 0;
 
   const formatRupiah = (n: number) =>
@@ -68,10 +84,19 @@ export default function DashboardPage() {
     s ? new Date(s).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }) : '';
 
   const statusColor: Record<string, string> = {
-    draft: '#888',
-    in_progress: '#3b82f6',
-    completed: '#22c55e',
-    cancelled: '#ef4444',
+    draft:       '#6b7280',
+    confirmed:   '#3b82f6',
+    in_progress: '#eab308',
+    done:        '#22c55e',
+    cancelled:   '#ef4444',
+  };
+
+  const statusLabel: Record<string, string> = {
+    draft:       'Draft',
+    confirmed:   'Dikonfirmasi',
+    in_progress: 'Produksi',
+    done:        'Selesai',
+    cancelled:   'Dibatalkan',
   };
 
   return (
@@ -88,7 +113,7 @@ export default function DashboardPage() {
           />
           <MetricCard
             Icon={Factory} label="MO Aktif" color="#3b82f6" iconBg="rgba(59,130,246,0.15)"
-            value={moList ? String(moAktif) : '—'}
+            value={moData != null ? String(moAktif) : '—'}
           />
           <MetricCard
             Icon={TriangleAlert} label="Hampir Expired" color="#eab308" iconBg="rgba(234,179,8,0.15)"
@@ -116,29 +141,40 @@ export default function DashboardPage() {
               Lihat semua →
             </button>
           </div>
-          {!moList?.items?.length ? (
+
+          {moItems.length === 0 ? (
             <p style={{ color: '#666', fontSize: 13, margin: 0 }}>Belum ada Manufacturing Order</p>
           ) : (
-            moList.items.map((mo: any) => (
-              <div key={mo.id} style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                padding: '12px 0',
-                borderBottom: '1px solid rgba(255,255,255,0.06)',
-              }}>
-                <div>
-                  <div style={{ color: 'white', fontWeight: 500, fontSize: 14 }}>{mo.nomor_mo}</div>
-                  <div style={{ color: '#888', fontSize: 12 }}>{mo.nama_produk} · {formatDate(mo.created_at)}</div>
+            moItems.slice(0, 5).map((mo: any) => {
+              const col = statusColor[mo.status] ?? '#888';
+              return (
+                <div
+                  key={mo.id}
+                  onClick={() => router.push(`/(admin)/mo/${mo.id}` as any)}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '12px 0',
+                    borderBottom: '1px solid rgba(255,255,255,0.06)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div>
+                    <div style={{ color: 'white', fontWeight: 500, fontSize: 14 }}>{mo.nomor_mo}</div>
+                    <div style={{ color: '#888', fontSize: 12 }}>
+                      {getNama(mo)} · Rencana: {formatDate(mo.tanggal_rencana)}
+                    </div>
+                  </div>
+                  <span style={{
+                    backgroundColor: col + '22',
+                    color: col,
+                    border: `1px solid ${col}44`,
+                    borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 500,
+                  }}>
+                    {statusLabel[mo.status] ?? mo.status}
+                  </span>
                 </div>
-                <span style={{
-                  backgroundColor: statusColor[mo.status] + '22',
-                  color: statusColor[mo.status] ?? '#888',
-                  border: `1px solid ${statusColor[mo.status] ?? '#888'}44`,
-                  borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 500,
-                }}>
-                  {mo.status}
-                </span>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
@@ -168,8 +204,8 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Empty state */}
-        {!moList?.items?.length && !expiryCount && (
+        {/* Empty state — hanya jika benar-benar kosong */}
+        {moItems.length === 0 && expiryCount === 0 && moData != null && (
           <div style={{ textAlign: 'center', padding: '40px 0', color: '#444' }}>
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
               <Coffee size={40} color="#555" />
@@ -187,6 +223,7 @@ export default function DashboardPage() {
             </button>
           </div>
         )}
+
       </div>
     </div>
   );
