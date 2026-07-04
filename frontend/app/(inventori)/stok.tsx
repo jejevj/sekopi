@@ -1,6 +1,7 @@
 import {
   FlaskConical, Package, Search, X, RefreshCw,
   ChevronDown, ChevronUp, AlertTriangle, CheckCircle, XCircle, Clock,
+  Truck, ShoppingBag, HeartCrack, Warehouse,
 } from 'lucide-react-native';
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -14,18 +15,19 @@ const TABS: { key: Tab; label: string; Icon: any; activeColor: string }[] = [
   { key: 'unit',  label: 'Unit Produksi', Icon: Package,      activeColor: '#a855f7' },
 ];
 
-const UNIT_STATUS_COLOR: Record<string, string> = {
-  ready:            '#3b82f6',
-  dispatched:       '#eab308',
-  delivered:        '#9333ea',
-  sold:             '#22c55e',
-  expired:          '#ef4444',
-  void:             '#6b7280',
-  returned_good:    '#0d9488',
-  returned_damaged: '#ef4444',
+// ── Definisi lengkap semua status unit termasuk on_gerobak ──────────────────
+const UNIT_STATUS_META: Record<string, { color: string; label: string; desc: string }> = {
+  ready:            { color: '#a3e635', label: '📦 Di Gudang',     desc: 'Tersedia di gudang — terhitung sebagai stok' },
+  on_gerobak:       { color: '#f59e0b', label: '🛒 Di Gerobak',    desc: 'Sedang dibawa driver — belum terjual, tidak mengurangi stok gudang' },
+  dispatched:       { color: '#f59e0b', label: '🚚 Dispatched',    desc: 'Legacy — setara On Gerobak' },
+  sold:             { color: '#22c55e', label: '✅ Terjual',        desc: 'Sudah terjual — keluar dari stok permanen' },
+  returned_good:    { color: '#0d9488', label: '↩ Kembali Baik',   desc: 'Dikembalikan kondisi baik — kembali ke stok (READY)' },
+  returned_damaged: { color: '#ef4444', label: '💔 Kembali Rusak', desc: 'Dikembalikan rusak — keluar dari stok permanen' },
+  expired:          { color: '#6b7280', label: '⏰ Kadaluarsa',    desc: 'Kadaluarsa — keluar dari stok' },
+  void:             { color: '#374151', label: '🚫 Void',           desc: 'Di-void manual — keluar dari stok' },
 };
 
-const UNIT_STATUSES = Object.keys(UNIT_STATUS_COLOR);
+const UNIT_STATUSES = Object.keys(UNIT_STATUS_META);
 
 function SearchBar({ value, onChange, placeholder }: {
   value: string; onChange: (v: string) => void; placeholder?: string;
@@ -52,6 +54,20 @@ function SearchBar({ value, onChange, placeholder }: {
   );
 }
 
+function UnitStatusBadge({ status }: { status: string }) {
+  const m = UNIT_STATUS_META[status] ?? { color: '#9ca3af', label: status, desc: '' };
+  return (
+    <span title={m.desc} style={{
+      backgroundColor: m.color + '18', color: m.color,
+      border: `1px solid ${m.color}33`,
+      borderRadius: 20, padding: '2px 10px', fontSize: 11,
+      fontWeight: 600, whiteSpace: 'nowrap', cursor: 'help',
+    }}>
+      {m.label}
+    </span>
+  );
+}
+
 export default function StokPage() {
   const [tab, setTab] = useState<Tab>('bahan');
   const [searchBahan, setSearchBahan] = useState('');
@@ -71,15 +87,13 @@ export default function StokPage() {
     enabled: expandedBahan !== null,
   });
 
-  // GET /production-units/ready-fefo → PaginatedUnitResponse { total, page, per_page, items }
-  const { data: unitData, isLoading: loadingUnit, refetch: refetchUnit } = useQuery({
-    queryKey: ['stok-unit'],
-    queryFn: async () => (await api.get('/production-units/ready-fefo?page=1&per_page=200')).data,
+  // Semua unit (semua status) — untuk stat card lengkap
+  const { data: allUnitData, isLoading: loadingUnit, refetch: refetchUnit } = useQuery({
+    queryKey: ['stok-unit-all'],
+    queryFn: async () => (await api.get('/production-units/?page=1&per_page=500')).data,
     enabled: tab === 'unit',
   });
 
-  // GET /production-units/expiry-alerts → ExpiryAlertResponse
-  // { total_akan_expired, total_sudah_expired, units_expiring_soon, units_expired }
   const { data: expiryData, isLoading: loadingExpiry, refetch: refetchExpiry } = useQuery({
     queryKey: ['stok-expiry'],
     queryFn: async () => (await api.get('/production-units/expiry-alerts?days=7')).data,
@@ -94,9 +108,29 @@ export default function StokPage() {
     return bahanItems.filter((b: any) => b.nama?.toLowerCase().includes(q));
   }, [bahanItems, searchBahan]);
 
-  const unitItems: any[] = unitData?.items ?? [];
+  // Ambil items dari berbagai kemungkinan shape API
+  const unitItems: any[] = useMemo(() => {
+    if (!allUnitData) return [];
+    if (Array.isArray(allUnitData)) return allUnitData;
+    if (Array.isArray(allUnitData.items)) return allUnitData.items;
+    return [];
+  }, [allUnitData]);
+
   const expiringSoon: any[] = expiryData?.units_expiring_soon ?? [];
   const expiredItems: any[] = expiryData?.units_expired ?? [];
+
+  // ── Hitung stat per status ─────────────────────────────────────────────────
+  const unitStats = useMemo(() =>
+    UNIT_STATUSES.reduce((acc, s) => {
+      acc[s] = unitItems.filter((u: any) => u.status === s).length;
+      return acc;
+    }, {} as Record<string, number>)
+  , [unitItems]);
+
+  const stokGudang   = unitStats['ready'] ?? 0;
+  const diGerobak    = (unitStats['on_gerobak'] ?? 0) + (unitStats['dispatched'] ?? 0);
+  const terjual      = unitStats['sold'] ?? 0;
+  const rusakVoid    = (unitStats['returned_damaged'] ?? 0) + (unitStats['void'] ?? 0);
 
   const filteredUnit = useMemo(() => {
     const q = searchUnit.trim().toLowerCase();
@@ -109,13 +143,6 @@ export default function StokPage() {
     });
   }, [unitItems, searchUnit, filterStatus]);
 
-  const unitStats = useMemo(() =>
-    UNIT_STATUSES.reduce((acc, s) => {
-      acc[s] = unitItems.filter((u: any) => u.status === s).length;
-      return acc;
-    }, {} as Record<string, number>)
-  , [unitItems]);
-
   const stockLevel = (saldo: number, stok_minimum: number) => {
     if (saldo <= 0) return { label: 'Habis', color: '#ef4444', Icon: XCircle };
     if (stok_minimum > 0 && saldo <= stok_minimum)
@@ -123,39 +150,33 @@ export default function StokPage() {
     return { label: 'Aman', color: '#22c55e', Icon: CheckCircle };
   };
 
-  const unitTableRow = (unit: any, accent: string) => {
-    const uColor = UNIT_STATUS_COLOR[unit.status] ?? accent;
-    return (
-      <div key={unit.id} style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)',
-      }}>
-        <div>
-          <p style={{ color: 'white', fontFamily: 'monospace', fontSize: 13, margin: 0 }}>{unit.barcode}</p>
-          <p style={{ color: '#555', fontSize: 12, margin: '2px 0 0' }}>{unit.nama_produk}</p>
-          <div style={{ display: 'flex', gap: 10, marginTop: 3, alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{ color: '#333', fontSize: 12 }}>Expiry: {unit.expiry_date}</span>
-            {unit.is_expired && (
-              <span style={{ color: '#ef4444', fontSize: 11, fontWeight: 600 }}>EXPIRED</span>
-            )}
-            {unit.is_expiring_soon && !unit.is_expired && (
-              <span style={{ color: '#eab308', fontSize: 11, fontWeight: 600 }}>
-                {unit.hari_tersisa != null ? `${unit.hari_tersisa}h lagi` : 'Segera expired'}
-              </span>
-            )}
-          </div>
+  const unitTableRow = (unit: any) => (
+    <div key={unit.id} style={{
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)',
+    }}>
+      <div>
+        <p style={{ color: 'white', fontFamily: 'monospace', fontSize: 13, margin: 0 }}>{unit.barcode}</p>
+        <p style={{ color: '#555', fontSize: 12, margin: '2px 0 0' }}>{unit.nama_produk}</p>
+        <div style={{ display: 'flex', gap: 10, marginTop: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ color: '#333', fontSize: 12 }}>Expiry: {unit.expiry_date}</span>
+          {unit.is_expired && <span style={{ color: '#ef4444', fontSize: 11, fontWeight: 600 }}>EXPIRED</span>}
+          {unit.is_expiring_soon && !unit.is_expired && (
+            <span style={{ color: '#eab308', fontSize: 11, fontWeight: 600 }}>
+              {unit.hari_tersisa != null ? `${unit.hari_tersisa}h lagi` : 'Segera expired'}
+            </span>
+          )}
+          {/* Tampilkan loading order jika on_gerobak */}
+          {(unit.status === 'on_gerobak' || unit.status === 'dispatched') && unit.loading_order_id && (
+            <span style={{ color: '#f59e0b', fontSize: 11, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 20, padding: '1px 7px' }}>
+              Loading #{unit.loading_order_id}
+            </span>
+          )}
         </div>
-        <span style={{
-          backgroundColor: uColor + '18', color: uColor,
-          border: `1px solid ${uColor}33`,
-          borderRadius: 5, padding: '2px 10px', fontSize: 11,
-          fontWeight: 500, whiteSpace: 'nowrap', textTransform: 'capitalize',
-        }}>
-          {unit.status?.replace(/_/g, ' ')}
-        </span>
       </div>
-    );
-  };
+      <UnitStatusBadge status={unit.status} />
+    </div>
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: '#0a0a0a' }}>
@@ -193,7 +214,7 @@ export default function StokPage() {
           })}
         </div>
 
-        {/* ── TAB BAHAN BAKU ── */}
+        {/* ── TAB BAHAN BAKU ──────────────────────────────────────────────── */}
         {tab === 'bahan' && (
           <div>
             <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
@@ -290,109 +311,154 @@ export default function StokPage() {
           </div>
         )}
 
-        {/* ── TAB UNIT PRODUKSI ── */}
+        {/* ── TAB UNIT PRODUKSI ───────────────────────────────────────────── */}
         {tab === 'unit' && (
           <div>
-            {/* Stat cards: ready + expiring + expired */}
-            <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-              <StatCard label="Ready"         value={unitData != null ? (unitData.total ?? unitItems.length) : '—'} color="#3b82f6" />
-              <StatCard label="Akan Expired"  value={expiryData != null ? (expiryData.total_akan_expired ?? 0) : '—'} color="#eab308" />
-              <StatCard label="Sudah Expired" value={expiryData != null ? (expiryData.total_sudah_expired ?? 0) : '—'} color="#ef4444" />
+
+            {/* Stat cards: 4 kartu utama */}
+            <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+              <StatCard
+                Icon={<Warehouse size={14} color="#a3e635" />}
+                label="Stok Gudang"
+                value={stokGudang}
+                color="#a3e635"
+                sub="Status: READY"
+              />
+              <StatCard
+                Icon={<Truck size={14} color="#f59e0b" />}
+                label="Di Gerobak"
+                value={diGerobak}
+                color="#f59e0b"
+                sub="Belum terjual"
+              />
+              <StatCard
+                Icon={<ShoppingBag size={14} color="#22c55e" />}
+                label="Terjual"
+                value={terjual}
+                color="#22c55e"
+                sub="Keluar stok"
+              />
+              <StatCard
+                Icon={<HeartCrack size={14} color="#ef4444" />}
+                label="Rusak / Void"
+                value={rusakVoid}
+                color="#ef4444"
+                sub="Keluar stok"
+              />
+            </div>
+
+            {/* Info banner stok */}
+            <div style={{ background: 'rgba(163,230,53,0.05)', border: '1px solid rgba(163,230,53,0.15)', borderRadius: 10, padding: '9px 16px', marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ color: '#a3e635', fontSize: 12 }}>📦 <strong>Stok Gudang</strong> = hanya unit READY</span>
+              <span style={{ color: '#444' }}>·</span>
+              <span style={{ color: '#f59e0b', fontSize: 12 }}>🛒 Unit <strong>Di Gerobak</strong> = dibawa driver, belum terjual — tidak mengurangi stok gudang</span>
+              <span style={{ color: '#444' }}>·</span>
+              <span style={{ color: '#0d9488', fontSize: 12 }}>↩ Return baik = kembali ke stok</span>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
               <RefreshButton onClick={() => { setSearchUnit(''); setFilterStatus('all'); refetchUnit(); refetchExpiry(); }} />
             </div>
 
-            {/* ─ Layout dua kolom (atau stack di layar kecil) ─ */}
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            {loadingUnit ? <LoadingSpinner color="#a855f7" /> : (
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
 
-              {/* Kolom kiri: Ready FEFO */}
-              <div style={{ flex: '1 1 380px', minWidth: 0 }}>
-                {loadingUnit ? <LoadingSpinner color="#3b82f6" /> : (
+                {/* Kolom kiri: semua unit dengan filter */}
+                <div style={{ flex: '1 1 380px', minWidth: 0 }}>
                   <div style={glassCard}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Package size={15} color="#3b82f6" />
-                        <p style={{ ...sectionTitle, color: '#3b82f6' }}>Unit Ready (FEFO)</p>
+                        <Package size={15} color="#a855f7" />
+                        <p style={{ ...sectionTitle, color: '#a855f7' }}>Semua Unit</p>
                       </div>
                       <span style={{ color: '#444', fontSize: 12 }}>{filteredUnit.length} / {unitItems.length}</span>
                     </div>
 
                     <SearchBar value={searchUnit} onChange={setSearchUnit} placeholder="Cari barcode atau produk..." />
 
+                    {/* Filter chips per status */}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-                      {['all', ...UNIT_STATUSES.filter(s => unitStats[s] > 0)].map(s => {
+                      <button
+                        onClick={() => setFilterStatus('all')}
+                        style={{
+                          padding: '3px 10px', borderRadius: 99, fontSize: 11,
+                          fontWeight: filterStatus === 'all' ? 600 : 400,
+                          backgroundColor: filterStatus === 'all' ? 'rgba(107,114,128,0.2)' : 'transparent',
+                          border: filterStatus === 'all' ? '1px solid rgba(107,114,128,0.5)' : '1px solid rgba(255,255,255,0.08)',
+                          color: filterStatus === 'all' ? '#9ca3af' : '#555', cursor: 'pointer',
+                        }}
+                      >
+                        Semua ({unitItems.length})
+                      </button>
+                      {UNIT_STATUSES.filter(s => (unitStats[s] ?? 0) > 0).map(s => {
+                        const m = UNIT_STATUS_META[s];
                         const active = filterStatus === s;
-                        const color = s === 'all' ? '#6b7280' : UNIT_STATUS_COLOR[s];
                         return (
                           <button key={s} onClick={() => setFilterStatus(s)}
                             style={{
-                              padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: active ? 600 : 400,
-                              backgroundColor: active ? color + '20' : 'transparent',
-                              border: active ? `1px solid ${color}50` : '1px solid rgba(255,255,255,0.08)',
-                              color: active ? color : '#555', cursor: 'pointer', textTransform: 'capitalize',
+                              padding: '3px 10px', borderRadius: 99, fontSize: 11,
+                              fontWeight: active ? 600 : 400,
+                              backgroundColor: active ? m.color + '20' : 'transparent',
+                              border: active ? `1px solid ${m.color}50` : '1px solid rgba(255,255,255,0.08)',
+                              color: active ? m.color : '#555', cursor: 'pointer',
                             }}
+                            title={m.desc}
                           >
-                            {s === 'all' ? 'Semua' : s.replace(/_/g, ' ')}{s !== 'all' && ` (${unitStats[s]})`}
+                            {m.label} ({unitStats[s]})
                           </button>
                         );
                       })}
                     </div>
 
-                    {unitItems.length === 0 ? (
-                      <EmptyState Icon={Package} message="Belum ada unit ready" />
-                    ) : filteredUnit.length === 0 ? (
-                      <div style={{ textAlign: 'center', padding: '20px 0', color: '#333', fontSize: 13 }}>Tidak ada unit yang cocok</div>
+                    {filteredUnit.length === 0 ? (
+                      <EmptyState Icon={Package} message="Tidak ada unit yang cocok" />
                     ) : (
-                      filteredUnit.map((u: any) => unitTableRow(u, '#3b82f6'))
+                      filteredUnit.map((u: any) => unitTableRow(u))
                     )}
                   </div>
-                )}
-              </div>
+                </div>
 
-              {/* Kolom kanan: Expiry Alert */}
-              <div style={{ flex: '1 1 340px', minWidth: 0 }}>
-                {loadingExpiry ? <LoadingSpinner color="#eab308" /> : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {/* Kolom kanan: Expiry Alert */}
+                <div style={{ flex: '1 1 340px', minWidth: 0 }}>
+                  {loadingExpiry ? <LoadingSpinner color="#eab308" /> : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-                    {/* Akan Expired (dalam 7 hari) */}
-                    <div style={{ ...glassCard, borderColor: 'rgba(234,179,8,0.25)', backgroundColor: 'rgba(234,179,8,0.04)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-                        <Clock size={15} color="#eab308" />
-                        <p style={{ ...sectionTitle, color: '#eab308' }}>Akan Expired (7 hari)</p>
-                        <span style={{ marginLeft: 'auto', backgroundColor: 'rgba(234,179,8,0.15)', color: '#eab308', borderRadius: 99, padding: '1px 8px', fontSize: 11, fontWeight: 600 }}>
-                          {expiringSoon.length}
-                        </span>
-                      </div>
-                      {expiringSoon.length === 0 ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 0', color: '#22c55e', fontSize: 13 }}>
-                          <CheckCircle size={14} color="#22c55e" /> Tidak ada unit yang akan expired
-                        </div>
-                      ) : (
-                        expiringSoon.map((u: any) => unitTableRow(u, '#eab308'))
-                      )}
-                    </div>
-
-                    {/* Sudah Expired */}
-                    {expiredItems.length > 0 && (
-                      <div style={{ ...glassCard, borderColor: 'rgba(239,68,68,0.25)', backgroundColor: 'rgba(239,68,68,0.04)' }}>
+                      <div style={{ ...glassCard, borderColor: 'rgba(234,179,8,0.25)', backgroundColor: 'rgba(234,179,8,0.04)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-                          <XCircle size={15} color="#ef4444" />
-                          <p style={{ ...sectionTitle, color: '#ef4444' }}>Sudah Expired</p>
-                          <span style={{ marginLeft: 'auto', backgroundColor: 'rgba(239,68,68,0.15)', color: '#ef4444', borderRadius: 99, padding: '1px 8px', fontSize: 11, fontWeight: 600 }}>
-                            {expiredItems.length}
+                          <Clock size={15} color="#eab308" />
+                          <p style={{ ...sectionTitle, color: '#eab308' }}>Akan Expired (7 hari)</p>
+                          <span style={{ marginLeft: 'auto', backgroundColor: 'rgba(234,179,8,0.15)', color: '#eab308', borderRadius: 99, padding: '1px 8px', fontSize: 11, fontWeight: 600 }}>
+                            {expiringSoon.length}
                           </span>
                         </div>
-                        {expiredItems.map((u: any) => unitTableRow(u, '#ef4444'))}
+                        {expiringSoon.length === 0 ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 0', color: '#22c55e', fontSize: 13 }}>
+                            <CheckCircle size={14} color="#22c55e" /> Tidak ada unit yang akan expired
+                          </div>
+                        ) : (
+                          expiringSoon.map((u: any) => unitTableRow(u))
+                        )}
                       </div>
-                    )}
 
-                  </div>
-                )}
+                      {expiredItems.length > 0 && (
+                        <div style={{ ...glassCard, borderColor: 'rgba(239,68,68,0.25)', backgroundColor: 'rgba(239,68,68,0.04)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                            <XCircle size={15} color="#ef4444" />
+                            <p style={{ ...sectionTitle, color: '#ef4444' }}>Sudah Expired</p>
+                            <span style={{ marginLeft: 'auto', backgroundColor: 'rgba(239,68,68,0.15)', color: '#ef4444', borderRadius: 99, padding: '1px 8px', fontSize: 11, fontWeight: 600 }}>
+                              {expiredItems.length}
+                            </span>
+                          </div>
+                          {expiredItems.map((u: any) => unitTableRow(u))}
+                        </div>
+                      )}
+
+                    </div>
+                  )}
+                </div>
+
               </div>
-
-            </div>
+            )}
           </div>
         )}
 
@@ -401,11 +467,15 @@ export default function StokPage() {
   );
 }
 
-function StatCard({ label, value, color }: { label: string; value: number | string; color: string }) {
+function StatCard({ Icon, label, value, color, sub }: { Icon?: React.ReactNode; label: string; value: number | string; color: string; sub?: string }) {
   return (
-    <div style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '12px 18px', minWidth: 120 }}>
-      <p style={{ color: '#555', fontSize: 11, margin: '0 0 4px', textTransform: 'capitalize' }}>{label}</p>
+    <div style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '12px 18px', minWidth: 130 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        {Icon}
+        <p style={{ color: '#555', fontSize: 11, margin: 0, textTransform: 'capitalize' }}>{label}</p>
+      </div>
       <p style={{ color, fontSize: 22, fontWeight: 700, margin: 0, fontVariantNumeric: 'tabular-nums' }}>{value}</p>
+      {sub && <p style={{ color: '#444', fontSize: 11, margin: '3px 0 0' }}>{sub}</p>}
     </div>
   );
 }
