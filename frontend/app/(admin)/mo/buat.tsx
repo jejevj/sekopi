@@ -5,6 +5,12 @@ import { api } from '../../../lib/api';
 import { Navbar } from '../../../components/layout/Navbar';
 import { ArrowLeft, ClipboardList, Package, BookOpen, Info } from 'lucide-react-native';
 
+/** Format angka: buang trailing zeros, tapi tetap presisi sampai 6 desimal */
+function fmtQty(n: number): string {
+  // toFixed(6) lalu strip trailing zeros dan titik di akhir
+  return parseFloat(n.toFixed(6)).toString();
+}
+
 export default function BuatMOPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -108,7 +114,7 @@ export default function BuatMOPage() {
                   {resepAktif.bahan_list?.map((b: any) => (
                     <div key={b.bahan_baku_id} style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: '#666', fontSize: 13 }}>{b.nama_bahan ?? `Bahan ID-${b.bahan_baku_id}`}</span>
-                      <span style={{ color: '#555', fontSize: 13 }}>{b.qty_per_unit} {b.satuan} / unit</span>
+                      <span style={{ color: '#555', fontSize: 13 }}>{fmtQty(b.qty_per_unit)} {b.satuan} / unit</span>
                     </div>
                   ))}
                   <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 6, paddingTop: 6 }}>
@@ -173,9 +179,9 @@ export default function BuatMOPage() {
                 {resepAktif.bahan_list?.map((b: any) => (
                   <tr key={b.bahan_baku_id} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
                     <td style={{ color: '#666', fontSize: 13, padding: '6px 0' }}>{b.nama_bahan ?? `Bahan ID-${b.bahan_baku_id}`}</td>
-                    <td style={{ color: '#555', fontSize: 13, textAlign: 'right', padding: '6px 0' }}>{b.qty_per_unit} {b.satuan}</td>
+                    <td style={{ color: '#555', fontSize: 13, textAlign: 'right', padding: '6px 0' }}>{fmtQty(b.qty_per_unit)} {b.satuan}</td>
                     <td style={{ color: '#aaa', fontSize: 13, textAlign: 'right', padding: '6px 0', fontWeight: 600 }}>
-                      {(b.qty_per_unit * parseFloat(targetQty)).toFixed(3)} {b.satuan}
+                      {fmtQty(b.qty_per_unit * parseFloat(targetQty))} {b.satuan}
                     </td>
                   </tr>
                 ))}
