@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,6 +7,7 @@ from app.models.return_order import (
     ReturnOrder, ReturnItem,
     StatusReturnOrder, KategoriReturn, KondisiKonfirmasi,
 )
+from app.models.loading import LoadingOrder, StatusLoading
 from app.models.production_unit import ProductionUnit, StatusUnit
 from app.schemas.return_order import ReturnOrderCreate, ReviewReturnOrderRequest
 
@@ -26,8 +27,43 @@ class ReturnOrderService:
         count = result.scalar() or 0
         return f"{prefix}{str(count + 1).zfill(3)}"
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # Ambil loading order hari ini milik driver (untuk dipilih saat buat return)
+    # ──────────────────────────────────────────────────────────────────────────
+    async def get_my_loading_today(self, driver_id: int) -> list[LoadingOrder]:
+        """
+        Kembalikan semua loading order milik driver ini yang dibuat HARI INI
+        dan statusnya dispatched (sudah keluar) atau returned (sudah balik).
+        Hanya status yang sudah dispatched yang relevan untuk return.
+        """
+        today_start = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        today_end = today_start.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+        result = await self.db.execute(
+            select(LoadingOrder).where(
+                LoadingOrder.driver_id == driver_id,
+                LoadingOrder.status.in_([
+                    StatusLoading.DISPATCHED,
+                    StatusLoading.RETURNED,
+                ]),
+                LoadingOrder.created_at >= today_start,
+                LoadingOrder.created_at <= today_end,
+            ).order_by(LoadingOrder.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Buat return order
+    # ──────────────────────────────────────────────────────────────────────────
     async def create_return(self, payload: ReturnOrderCreate, driver_id: int) -> ReturnOrder:
-        # Validasi setiap barcode
+        # ── Validasi loading_order_id: harus milik driver ini, dibuat hari ini ──
+        loading_order = await self._validate_loading_for_driver(
+            payload.loading_order_id, driver_id
+        )
+
+        # ── Validasi setiap barcode ──
         validated_items = []
         errors = []
         for item in payload.items:
@@ -58,6 +94,7 @@ class ReturnOrderService:
         return_order = ReturnOrder(
             nomor_return=nomor_return,
             pengiriman_id=payload.pengiriman_id,
+            loading_order_id=loading_order.id,
             driver_id=driver_id,
             catatan_driver=payload.catatan_driver,
             status=StatusReturnOrder.DRAFT,
@@ -78,7 +115,6 @@ class ReturnOrderService:
             )
             self.db.add(return_item)
 
-            # Update status unit sementara
             unit.returned_at = now
             if item_payload.kategori == KategoriReturn.RUSAK:
                 unit.status = StatusUnit.RETURNED_DAMAGED
@@ -89,8 +125,41 @@ class ReturnOrderService:
         await self.db.refresh(return_order)
         return return_order
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # Validasi loading order: harus milik driver, dibuat hari ini, sudah dispatch
+    # ──────────────────────────────────────────────────────────────────────────
+    async def _validate_loading_for_driver(
+        self, loading_order_id: int, driver_id: int
+    ) -> LoadingOrder:
+        result = await self.db.execute(
+            select(LoadingOrder).where(LoadingOrder.id == loading_order_id)
+        )
+        lo = result.scalar_one_or_none()
+        if not lo:
+            raise ValueError(f"Loading order ID {loading_order_id} tidak ditemukan")
+        if lo.driver_id != driver_id:
+            raise ValueError(
+                "Anda hanya bisa membuat return untuk loading order milik Anda sendiri"
+            )
+        # Pastikan dibuat hari ini (timezone UTC)
+        today_start = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        if lo.created_at < today_start:
+            raise ValueError(
+                "Return hanya bisa dibuat untuk loading order hari ini"
+            )
+        if lo.status not in (StatusLoading.DISPATCHED, StatusLoading.RETURNED):
+            raise ValueError(
+                f"Loading order harus berstatus dispatched untuk bisa di-return "
+                f"(saat ini: {lo.status})"
+            )
+        return lo
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Submit, review, summary — tidak berubah
+    # ──────────────────────────────────────────────────────────────────────────
     async def submit_return(self, return_id: int, driver_id: int) -> ReturnOrder:
-        """Driver submit return order untuk direview gudang."""
         ro = await self._get_or_404(return_id)
         if ro.driver_id != driver_id:
             raise ValueError("Hanya driver yang membuat return ini yang bisa submit")
@@ -104,16 +173,10 @@ class ReturnOrderService:
     async def review_return(
         self, return_id: int, payload: ReviewReturnOrderRequest, reviewer_id: int
     ) -> ReturnOrder:
-        """
-        Admin/Inventori review setiap item:
-        - BAIK     → unit kembali ke READY (bisa dijual lagi)
-        - RUSAK_KONFIRMASI → unit → VOID (kerugian tercatat)
-        """
         ro = await self._get_or_404(return_id)
         if ro.status != StatusReturnOrder.SUBMITTED:
             raise ValueError("Return order harus berstatus SUBMITTED untuk direview")
 
-        # Build lookup map item by id
         item_map = {item.id: item for item in ro.items}
 
         for review in payload.items:
@@ -124,7 +187,6 @@ class ReturnOrderService:
             ret_item.kondisi_konfirmasi = review.kondisi_konfirmasi
             ret_item.catatan_reviewer = review.catatan_reviewer
 
-            # Update production unit berdasarkan hasil konfirmasi
             result = await self.db.execute(
                 select(ProductionUnit).where(
                     ProductionUnit.id == ret_item.production_unit_id
@@ -135,11 +197,9 @@ class ReturnOrderService:
                 continue
 
             if review.kondisi_konfirmasi == KondisiKonfirmasi.BAIK:
-                # Kondisi baik: kembalikan ke READY, bisa dijual lagi
                 unit.status = StatusUnit.READY
-                unit.pengiriman_id = None  # lepas dari pengiriman lama
+                unit.pengiriman_id = None
             elif review.kondisi_konfirmasi == KondisiKonfirmasi.RUSAK_KONFIRMASI:
-                # Benar-benar rusak: VOID
                 unit.status = StatusUnit.VOID
                 unit.void_reason = (
                     f"Rusak dikonfirmasi saat retur {ro.nomor_return}. "
@@ -157,7 +217,6 @@ class ReturnOrderService:
         return ro
 
     async def get_return_summary(self, return_id: int) -> dict:
-        """Summary retur: berapa sisa, berapa rusak, berapa dikonfirmasi."""
         ro = await self._get_or_404(return_id)
         total_sisa = sum(1 for i in ro.items if i.kategori == KategoriReturn.SISA)
         total_rusak = sum(1 for i in ro.items if i.kategori == KategoriReturn.RUSAK)
@@ -171,22 +230,26 @@ class ReturnOrderService:
             1 for i in ro.items if i.kondisi_konfirmasi == KondisiKonfirmasi.PENDING
         )
 
-        # Group by batch (mo_id)
         batch_summary: dict[int, dict] = {}
         for item in ro.items:
             if item.mo_id not in batch_summary:
-                batch_summary[item.mo_id] = {
-                    "mo_id": item.mo_id,
-                    "sisa": 0, "rusak": 0
-                }
+                batch_summary[item.mo_id] = {"mo_id": item.mo_id, "sisa": 0, "rusak": 0}
             if item.kategori == KategoriReturn.SISA:
                 batch_summary[item.mo_id]["sisa"] += 1
             else:
                 batch_summary[item.mo_id]["rusak"] += 1
 
+        loading_info = None
+        if ro.loading_order:
+            loading_info = {
+                "id": ro.loading_order.id,
+                "nomor_loading": ro.loading_order.nomor_loading,
+            }
+
         return {
             "nomor_return": ro.nomor_return,
             "status": ro.status,
+            "loading_order": loading_info,
             "total_item": len(ro.items),
             "total_sisa": total_sisa,
             "total_rusak": total_rusak,

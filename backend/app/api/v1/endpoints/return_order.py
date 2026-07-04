@@ -7,12 +7,45 @@ from app.schemas.return_order import (
     ReturnOrderCreate,
     ReturnOrderResponse,
     ReviewReturnOrderRequest,
+    LoadingOrderForReturnResponse,
 )
 from app.services.return_order_service import ReturnOrderService
 
 router = APIRouter()
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# GET /return/my-loading-today
+# Driver ambil daftar loading order miliknya hari ini yang sudah dispatched.
+# Digunakan frontend untuk mengisi dropdown saat driver buat return order.
+# HARUS di atas route /{return_id} agar tidak di-shadow oleh path param.
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get(
+    "/my-loading-today",
+    response_model=list[LoadingOrderForReturnResponse],
+    summary="Loading order milik driver hari ini (untuk dropdown pilih saat return)",
+)
+async def my_loading_today(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.DRIVER)),
+):
+    service = ReturnOrderService(db)
+    orders = await service.get_my_loading_today(current_user.id)
+    return [
+        LoadingOrderForReturnResponse(
+            id=lo.id,
+            nomor_loading=lo.nomor_loading,
+            gerobak_nama=lo.gerobak.nama,
+            total_unit=len(lo.items),
+            status=lo.status.value,
+        )
+        for lo in orders
+    ]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# POST /return/
+# ──────────────────────────────────────────────────────────────────────────────
 @router.post("/", response_model=ReturnOrderResponse, status_code=status.HTTP_201_CREATED)
 async def create_return(
     payload: ReturnOrderCreate,
@@ -21,7 +54,8 @@ async def create_return(
 ):
     """
     Driver buat return order.
-    Scan barcode per item, tandai SISA atau RUSAK.
+    - `loading_order_id` wajib diisi, harus milik driver ini dan dibuat hari ini.
+    - Scan barcode per item, tandai SISA atau RUSAK.
     """
     service = ReturnOrderService(db)
     try:
@@ -30,6 +64,9 @@ async def create_return(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# POST /return/{return_id}/submit
+# ──────────────────────────────────────────────────────────────────────────────
 @router.post("/{return_id}/submit", response_model=ReturnOrderResponse)
 async def submit_return(
     return_id: int,
@@ -44,6 +81,9 @@ async def submit_return(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# POST /return/{return_id}/review
+# ──────────────────────────────────────────────────────────────────────────────
 @router.post("/{return_id}/review", response_model=ReturnOrderResponse)
 async def review_return(
     return_id: int,
@@ -63,6 +103,9 @@ async def review_return(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# GET /return/{return_id}/summary
+# ──────────────────────────────────────────────────────────────────────────────
 @router.get("/{return_id}/summary")
 async def return_summary(
     return_id: int,
@@ -71,7 +114,7 @@ async def return_summary(
         UserRole.ADMIN, UserRole.INVENTORI, UserRole.SHAREHOLDER
     )),
 ):
-    """Summary retur: sisa, rusak, per batch MO."""
+    """Summary retur: sisa, rusak, per batch MO. Kini menyertakan info loading order."""
     service = ReturnOrderService(db)
     try:
         return await service.get_return_summary(return_id)
@@ -79,6 +122,9 @@ async def return_summary(
         raise HTTPException(status_code=404, detail=str(e))
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# GET /return/
+# ──────────────────────────────────────────────────────────────────────────────
 @router.get("/", response_model=list[ReturnOrderResponse])
 async def list_returns(
     db: AsyncSession = Depends(get_db),
@@ -96,6 +142,9 @@ async def list_returns(
     return orders
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# GET /return/{return_id}
+# ──────────────────────────────────────────────────────────────────────────────
 @router.get("/{return_id}", response_model=ReturnOrderResponse)
 async def get_return(
     return_id: int,

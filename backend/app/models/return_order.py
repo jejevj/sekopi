@@ -35,6 +35,16 @@ class ReturnOrder(Base):
     nomor_return: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     pengiriman_id: Mapped[int] = mapped_column(ForeignKey("pengiriman.id"), nullable=False)
     driver_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+
+    # ── FK ke LoadingOrder (Opsi A) — nullable agar data lama tetap valid ──
+    loading_order_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("loading_orders.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="FK ke loading_orders — trip loading yang menjadi sumber retur ini.",
+    )
+
     status: Mapped[StatusReturnOrder] = mapped_column(
         Enum(StatusReturnOrder, values_callable=_enum_values),
         default=StatusReturnOrder.DRAFT,
@@ -53,10 +63,11 @@ class ReturnOrder(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    pengiriman = relationship("Pengiriman", lazy="selectin")
-    driver     = relationship("User", foreign_keys=[driver_id], lazy="selectin")
-    reviewer   = relationship("User", foreign_keys=[reviewed_by], lazy="selectin")
-    items      = relationship("ReturnItem", back_populates="return_order", lazy="selectin")
+    pengiriman    = relationship("Pengiriman", lazy="selectin")
+    driver        = relationship("User", foreign_keys=[driver_id], lazy="selectin")
+    reviewer      = relationship("User", foreign_keys=[reviewed_by], lazy="selectin")
+    items         = relationship("ReturnItem", back_populates="return_order", lazy="selectin")
+    loading_order = relationship("LoadingOrder", foreign_keys=[loading_order_id], lazy="selectin")
 
 
 class ReturnItem(Base):
@@ -67,12 +78,10 @@ class ReturnItem(Base):
     production_unit_id: Mapped[int] = mapped_column(ForeignKey("production_units.id"), nullable=False)
     barcode: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
 
-    # Tetap simpan mo_id (MO header) agar laporan return per-MO tetap bisa dibuat
     mo_id: Mapped[int] = mapped_column(
         ForeignKey("manufacturing_orders.id"), nullable=False,
         comment="FK ke MO header — untuk laporan return per-MO."
     )
-    # Tambah mo_line_id agar return bisa ditelusuri sampai produk spesifik
     mo_line_id: Mapped[int | None] = mapped_column(
         ForeignKey("mo_lines.id"), nullable=True,
         comment="FK ke MOLine — nullable untuk backward compat data lama."
