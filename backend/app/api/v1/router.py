@@ -20,7 +20,7 @@ api_router.include_router(manufacturing_order.router, prefix="/manufacturing-ord
 api_router.include_router(production_unit.router,     prefix="/production-units",     tags=["Production Units"])
 api_router.include_router(menu.router,                prefix="/menu",                 tags=["Menu & Resep"])
 api_router.include_router(penjualan.router,           prefix="/penjualan",            tags=["Penjualan"])
-api_router.include_router(return_order.router,        prefix="/returns",              tags=["Return Orders"])
+api_router.include_router(return_order.router,        prefix="/return",               tags=["Return Orders"])
 api_router.include_router(laporan.router,             prefix="/laporan",              tags=["Laporan"])
 api_router.include_router(gerobak.router,             prefix="/gerobak",              tags=["Gerobak & Shareholder Groups"])
 api_router.include_router(purchase_order.router,      prefix="/pembelian",            tags=["Pembelian & Supplier"])
