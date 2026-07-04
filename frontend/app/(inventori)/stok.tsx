@@ -1,7 +1,7 @@
 import {
   FlaskConical, Package, Search, X, RefreshCw,
   ChevronDown, ChevronUp, AlertTriangle, CheckCircle, XCircle, Clock,
-  Truck, ShoppingBag, HeartCrack, Warehouse,
+  Truck, ShoppingBag, HeartCrack, Warehouse, MapPin, RotateCcw, Ban,
 } from 'lucide-react-native';
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -15,16 +15,17 @@ const TABS: { key: Tab; label: string; Icon: any; activeColor: string }[] = [
   { key: 'unit',  label: 'Unit Produksi', Icon: Package,      activeColor: '#a855f7' },
 ];
 
-const UNIT_STATUS_META: Record<string, { color: string; label: string; desc: string }> = {
-  ready:            { color: '#a3e635', label: '📦 Di Gudang',     desc: 'Tersedia di gudang — terhitung sebagai stok' },
-  on_gerobak:       { color: '#f59e0b', label: '🛒 Di Gerobak',    desc: 'Sedang dibawa driver — belum terjual, tidak mengurangi stok gudang' },
-  dispatched:       { color: '#f59e0b', label: '🚚 Dispatched',    desc: 'Legacy — setara On Gerobak' },
-  delivered:        { color: '#818cf8', label: '📬 Delivered',     desc: 'Sudah diterima driver, siap dijual' },
-  sold:             { color: '#22c55e', label: '✅ Terjual',        desc: 'Sudah terjual — keluar dari stok permanen' },
-  returned_good:    { color: '#0d9488', label: '↩ Kembali Baik',   desc: 'Dikembalikan kondisi baik — kembali ke stok (READY)' },
-  returned_damaged: { color: '#ef4444', label: '💔 Kembali Rusak', desc: 'Dikembalikan rusak — keluar dari stok permanen' },
-  expired:          { color: '#6b7280', label: '⏰ Kadaluarsa',    desc: 'Kadaluarsa — keluar dari stok' },
-  void:             { color: '#374151', label: '🚫 Void',           desc: 'Di-void manual — keluar dari stok' },
+// Flat icon per status — tanpa emoji
+const UNIT_STATUS_META: Record<string, { color: string; label: string; desc: string; Icon: any }> = {
+  ready:            { color: '#a3e635', label: 'Di Gudang',     desc: 'Tersedia di gudang — terhitung sebagai stok',                              Icon: Warehouse    },
+  on_gerobak:       { color: '#f59e0b', label: 'Di Gerobak',    desc: 'Sedang dibawa driver — belum terjual, tidak mengurangi stok gudang',       Icon: MapPin       },
+  dispatched:       { color: '#f59e0b', label: 'Dispatched',    desc: 'Legacy — setara On Gerobak',                                                Icon: Truck        },
+  delivered:        { color: '#818cf8', label: 'Delivered',     desc: 'Sudah diterima driver, siap dijual',                                        Icon: Package      },
+  sold:             { color: '#22c55e', label: 'Terjual',       desc: 'Sudah terjual — keluar dari stok permanen',                                 Icon: ShoppingBag  },
+  returned_good:    { color: '#0d9488', label: 'Kembali Baik',  desc: 'Dikembalikan kondisi baik — kembali ke stok (READY)',                       Icon: RotateCcw    },
+  returned_damaged: { color: '#ef4444', label: 'Kembali Rusak', desc: 'Dikembalikan rusak — keluar dari stok permanen',                            Icon: HeartCrack   },
+  expired:          { color: '#6b7280', label: 'Kadaluarsa',    desc: 'Kadaluarsa — keluar dari stok',                                             Icon: Clock        },
+  void:             { color: '#374151', label: 'Void',          desc: 'Di-void manual — keluar dari stok',                                         Icon: Ban          },
 };
 
 const UNIT_STATUSES = Object.keys(UNIT_STATUS_META);
@@ -55,14 +56,17 @@ function SearchBar({ value, onChange, placeholder }: {
 }
 
 function UnitStatusBadge({ status }: { status: string }) {
-  const m = UNIT_STATUS_META[status] ?? { color: '#9ca3af', label: status, desc: '' };
+  const m = UNIT_STATUS_META[status] ?? { color: '#9ca3af', label: status, desc: '', Icon: Package };
+  const { Icon } = m;
   return (
     <span title={m.desc} style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
       backgroundColor: m.color + '18', color: m.color,
       border: `1px solid ${m.color}33`,
-      borderRadius: 20, padding: '2px 10px', fontSize: 11,
+      borderRadius: 20, padding: '2px 8px', fontSize: 11,
       fontWeight: 600, whiteSpace: 'nowrap', cursor: 'help',
     }}>
+      <Icon size={10} color={m.color} strokeWidth={2.5} />
       {m.label}
     </span>
   );
@@ -87,7 +91,6 @@ export default function StokPage() {
     enabled: expandedBahan !== null,
   });
 
-  // GET /production-units/?page=1&per_page=500 → PaginatedUnitResponse { total, items }
   const { data: allUnitData, isLoading: loadingUnit, refetch: refetchUnit } = useQuery({
     queryKey: ['stok-unit-all'],
     queryFn: async () => (await api.get('/production-units/?page=1&per_page=500')).data,
@@ -148,6 +151,8 @@ export default function StokPage() {
     return { label: 'Aman', color: '#22c55e', Icon: CheckCircle };
   };
 
+  const isOnGerobak = (s: string) => ['on_gerobak', 'dispatched', 'delivered'].includes(s);
+
   const unitTableRow = (unit: any) => (
     <div key={unit.id} style={{
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -158,15 +163,20 @@ export default function StokPage() {
         <p style={{ color: '#555', fontSize: 12, margin: '2px 0 0' }}>{unit.nama_produk}</p>
         <div style={{ display: 'flex', gap: 10, marginTop: 4, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ color: '#333', fontSize: 12 }}>Expiry: {unit.expiry_date}</span>
-          {unit.is_expired && <span style={{ color: '#ef4444', fontSize: 11, fontWeight: 600 }}>EXPIRED</span>}
+          {unit.is_expired && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#ef4444', fontSize: 11, fontWeight: 600 }}>
+              <XCircle size={10} color="#ef4444" /> EXPIRED
+            </span>
+          )}
           {unit.is_expiring_soon && !unit.is_expired && (
-            <span style={{ color: '#eab308', fontSize: 11, fontWeight: 600 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#eab308', fontSize: 11, fontWeight: 600 }}>
+              <AlertTriangle size={10} color="#eab308" />
               {unit.hari_tersisa != null ? `${unit.hari_tersisa}h lagi` : 'Segera expired'}
             </span>
           )}
-          {(unit.status === 'on_gerobak' || unit.status === 'dispatched' || unit.status === 'delivered') && unit.loading_order_id && (
-            <span style={{ color: '#f59e0b', fontSize: 11, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 20, padding: '1px 7px' }}>
-              Loading #{unit.loading_order_id}
+          {isOnGerobak(unit.status) && unit.loading_order_id && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#f59e0b', fontSize: 11, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 20, padding: '1px 7px' }}>
+              <Truck size={9} color="#f59e0b" /> #{unit.loading_order_id}
             </span>
           )}
         </div>
@@ -186,6 +196,7 @@ export default function StokPage() {
           <p style={{ color: '#555', fontSize: 14, margin: '4px 0 0' }}>Monitor stok bahan baku dan unit produksi secara real-time</p>
         </div>
 
+        {/* Tab bar */}
         <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
           {TABS.map(t => {
             const active = tab === t.key;
@@ -311,43 +322,30 @@ export default function StokPage() {
         {/* ── TAB UNIT PRODUKSI ─────────────────────────────────── */}
         {tab === 'unit' && (
           <div>
+            {/* Stat cards */}
             <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-              <StatCard
-                Icon={<Warehouse size={14} color="#a3e635" />}
-                label="Stok Gudang"
-                value={stokGudang}
-                color="#a3e635"
-                sub="Status: READY"
-              />
-              <StatCard
-                Icon={<Truck size={14} color="#f59e0b" />}
-                label="Di Gerobak"
-                value={diGerobak}
-                color="#f59e0b"
-                sub="Dispatched / On Gerobak"
-              />
-              <StatCard
-                Icon={<ShoppingBag size={14} color="#22c55e" />}
-                label="Terjual"
-                value={terjual}
-                color="#22c55e"
-                sub="Keluar stok"
-              />
-              <StatCard
-                Icon={<HeartCrack size={14} color="#ef4444" />}
-                label="Rusak / Void"
-                value={rusakVoid}
-                color="#ef4444"
-                sub="Keluar stok"
-              />
+              <StatCard Icon={<Warehouse   size={14} color="#a3e635" />} label="Stok Gudang" value={stokGudang} color="#a3e635" sub="Status: READY" />
+              <StatCard Icon={<Truck       size={14} color="#f59e0b" />} label="Di Gerobak"  value={diGerobak}  color="#f59e0b" sub="Dispatched / On Gerobak" />
+              <StatCard Icon={<ShoppingBag size={14} color="#22c55e" />} label="Terjual"    value={terjual}    color="#22c55e" sub="Keluar stok" />
+              <StatCard Icon={<HeartCrack  size={14} color="#ef4444" />} label="Rusak / Void" value={rusakVoid} color="#ef4444" sub="Keluar stok" />
             </div>
 
+            {/* Info banner — flat icons */}
             <div style={{ background: 'rgba(163,230,53,0.05)', border: '1px solid rgba(163,230,53,0.15)', borderRadius: 10, padding: '9px 16px', marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-              <span style={{ color: '#a3e635', fontSize: 12 }}>📦 <strong>Stok Gudang</strong> = hanya unit READY</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: '#a3e635', fontSize: 12 }}>
+                <Warehouse size={12} color="#a3e635" />
+                <strong>Stok Gudang</strong> = hanya unit READY
+              </span>
               <span style={{ color: '#444' }}>·</span>
-              <span style={{ color: '#f59e0b', fontSize: 12 }}>🛒 Unit <strong>Di Gerobak</strong> = dibawa driver, belum terjual — tidak mengurangi stok gudang</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: '#f59e0b', fontSize: 12 }}>
+                <MapPin size={12} color="#f59e0b" />
+                Unit <strong>Di Gerobak</strong> = dibawa driver, belum terjual
+              </span>
               <span style={{ color: '#444' }}>·</span>
-              <span style={{ color: '#0d9488', fontSize: 12 }}>↩ Return baik = kembali ke stok</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: '#0d9488', fontSize: 12 }}>
+                <RotateCcw size={12} color="#0d9488" />
+                Return baik = kembali ke stok
+              </span>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
@@ -357,6 +355,7 @@ export default function StokPage() {
             {loadingUnit ? <LoadingSpinner color="#a855f7" /> : (
               <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
 
+                {/* Kolom kiri: semua unit + filter */}
                 <div style={{ flex: '1 1 380px', minWidth: 0 }}>
                   <div style={glassCard}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
@@ -369,10 +368,12 @@ export default function StokPage() {
 
                     <SearchBar value={searchUnit} onChange={setSearchUnit} placeholder="Cari barcode atau produk..." />
 
+                    {/* Filter pills — icon + label, tanpa emoji */}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
                       <button
                         onClick={() => setFilterStatus('all')}
                         style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
                           padding: '3px 10px', borderRadius: 99, fontSize: 11,
                           fontWeight: filterStatus === 'all' ? 600 : 400,
                           backgroundColor: filterStatus === 'all' ? 'rgba(107,114,128,0.2)' : 'transparent',
@@ -385,9 +386,11 @@ export default function StokPage() {
                       {UNIT_STATUSES.filter(s => (unitStats[s] ?? 0) > 0).map(s => {
                         const m = UNIT_STATUS_META[s];
                         const active = filterStatus === s;
+                        const { Icon } = m;
                         return (
                           <button key={s} onClick={() => setFilterStatus(s)}
                             style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 4,
                               padding: '3px 10px', borderRadius: 99, fontSize: 11,
                               fontWeight: active ? 600 : 400,
                               backgroundColor: active ? m.color + '20' : 'transparent',
@@ -396,6 +399,7 @@ export default function StokPage() {
                             }}
                             title={m.desc}
                           >
+                            <Icon size={10} color={active ? m.color : '#555'} strokeWidth={2.2} />
                             {m.label} ({unitStats[s]})
                           </button>
                         );
@@ -410,6 +414,7 @@ export default function StokPage() {
                   </div>
                 </div>
 
+                {/* Kolom kanan: expiry alerts */}
                 <div style={{ flex: '1 1 340px', minWidth: 0 }}>
                   {loadingExpiry ? <LoadingSpinner color="#eab308" /> : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
