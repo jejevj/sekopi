@@ -24,6 +24,11 @@ class ManufacturingOrder(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     nomor_mo: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
+    # Relasi ke menu — nullable untuk backward compat data lama
+    menu_id: Mapped[int | None] = mapped_column(
+        ForeignKey("menu.id"), nullable=True, index=True,
+        comment="FK ke master Menu. Jika diset, nama_produk & harga_jual diambil dari sini."
+    )
     nama_produk: Mapped[str] = mapped_column(String(255), nullable=False)
     target_qty: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     satuan: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -54,6 +59,7 @@ class ManufacturingOrder(Base):
     approved_by_user = relationship("User", foreign_keys=[approved_by], lazy="selectin")
     inventori_by_user = relationship("User", foreign_keys=[inventori_by], lazy="selectin")
     bahan_baku_lines = relationship("MOBahanBaku", back_populates="manufacturing_order", lazy="selectin")
+    menu = relationship("Menu", lazy="selectin")
 
 
 class MOBahanBaku(Base):
@@ -62,8 +68,8 @@ class MOBahanBaku(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     mo_id: Mapped[int] = mapped_column(ForeignKey("manufacturing_orders.id"), nullable=False)
     bahan_baku_id: Mapped[int] = mapped_column(ForeignKey("bahan_baku.id"), nullable=False)
-    qty_rencana: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)  # total untuk seluruh MO
-    qty_per_unit: Mapped[float | None] = mapped_column(Numeric(12, 6), nullable=True)  # qty bahan per 1 cup/unit produk
+    qty_rencana: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    qty_per_unit: Mapped[float | None] = mapped_column(Numeric(12, 6), nullable=True)
     qty_aktual: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     satuan: Mapped[str] = mapped_column(String(50), nullable=False)
 
