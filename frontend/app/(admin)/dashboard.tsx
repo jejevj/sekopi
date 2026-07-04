@@ -32,7 +32,6 @@ function MetricCard({ Icon, label, value, sub, color, iconBg }: {
   );
 }
 
-/** Normalise response: bisa array langsung atau {items:[]} */
 function toList(data: any): any[] {
   if (!data) return [];
   if (Array.isArray(data)) return data;
@@ -40,7 +39,6 @@ function toList(data: any): any[] {
   return [];
 }
 
-/** Ambil nama produk dari mo.lines[] */
 function getNama(mo: any): string {
   const lines: any[] = mo.lines ?? [];
   if (lines.length === 0) return mo.nama_produk ?? '-';
@@ -72,10 +70,12 @@ export default function DashboardPage() {
     retry: false,
   });
 
-  // Normalise: API bisa return array langsung ATAU {items:[]}
   const moItems: any[] = toList(moData);
-  const moAktif    = moItems.filter((m: any) => m.status === 'in_progress').length;
-  const expiryCount = expiry?.expiring_soon?.length ?? 0;
+  const moAktif = moItems.filter((m: any) => m.status === 'in_progress').length;
+
+  // ExpiryAlertResponse: { total_akan_expired, total_sudah_expired, units_expiring_soon }
+  const expiryCount  = expiry?.total_akan_expired ?? 0;
+  const expiryList: any[] = expiry?.units_expiring_soon ?? [];
 
   const formatRupiah = (n: number) =>
     n != null ? 'Rp ' + n.toLocaleString('id-ID') : '—';
@@ -109,7 +109,7 @@ export default function DashboardPage() {
           <MetricCard
             Icon={Coffee} label="Terjual Hari Ini" color="#22c55e" iconBg="rgba(34,197,94,0.15)"
             value={laporan?.total_unit_terjual != null ? String(laporan.total_unit_terjual) : '—'}
-            sub={laporan ? formatRupiah(laporan.total_pendapatan) : undefined}
+            sub={laporan?.total_pendapatan != null ? formatRupiah(laporan.total_pendapatan) : undefined}
           />
           <MetricCard
             Icon={Factory} label="MO Aktif" color="#3b82f6" iconBg="rgba(59,130,246,0.15)"
@@ -117,12 +117,12 @@ export default function DashboardPage() {
           />
           <MetricCard
             Icon={TriangleAlert} label="Hampir Expired" color="#eab308" iconBg="rgba(234,179,8,0.15)"
-            value={expiry ? String(expiryCount) : '—'}
+            value={expiry != null ? String(expiryCount) : '—'}
             sub="dalam 3 hari"
           />
           <MetricCard
             Icon={TrendingDown} label="Est. Kerugian" color="#ef4444" iconBg="rgba(239,68,68,0.15)"
-            value={laporan ? formatRupiah(laporan.estimasi_kerugian) : '—'}
+            value={laporan?.estimasi_kerugian != null ? formatRupiah(laporan.estimasi_kerugian) : '—'}
           />
         </div>
 
@@ -183,28 +183,30 @@ export default function DashboardPage() {
           <div style={{
             backgroundColor: 'rgba(234,179,8,0.07)',
             border: '1px solid rgba(234,179,8,0.25)',
-            borderRadius: 12, padding: 20,
+            borderRadius: 12, padding: 20, marginBottom: 24,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#eab308', fontWeight: 600, fontSize: 15, marginBottom: 12 }}>
               <TriangleAlert size={16} color="#eab308" />
-              Expiry Alert
+              Expiry Alert ({expiryCount} unit)
             </div>
-            {expiry.expiring_soon.slice(0, 5).map((u: any) => (
+            {expiryList.slice(0, 5).map((u: any) => (
               <div key={u.id} style={{
                 display: 'flex', justifyContent: 'space-between',
                 padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)',
               }}>
                 <div>
                   <div style={{ color: 'white', fontSize: 13, fontWeight: 500 }}>{u.barcode}</div>
-                  <div style={{ color: '#888', fontSize: 12 }}>{u.nama_produk}</div>
+                  <div style={{ color: '#888', fontSize: 12 }}>{u.nama_produk ?? '-'}</div>
                 </div>
-                <span style={{ color: '#eab308', fontSize: 12, fontWeight: 600 }}>{u.hari_tersisa}h lagi</span>
+                <span style={{ color: '#eab308', fontSize: 12, fontWeight: 600 }}>
+                  {u.hari_tersisa != null ? `${u.hari_tersisa}h lagi` : u.expiry_date}
+                </span>
               </div>
             ))}
           </div>
         )}
 
-        {/* Empty state — hanya jika benar-benar kosong */}
+        {/* Empty state */}
         {moItems.length === 0 && expiryCount === 0 && moData != null && (
           <div style={{ textAlign: 'center', padding: '40px 0', color: '#444' }}>
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
