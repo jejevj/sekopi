@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.gerobak import Gerobak, ShareholderGroup, GroupMembership
 from app.models.production_unit import ProductionUnit, StatusUnit
 from app.models.penjualan import Penjualan
-from app.models.manufacturing_order import ManufacturingOrder
+from app.models.manufacturing_order import ManufacturingOrder, MOLine
 from app.models.return_order import ReturnItem, KondisiKonfirmasi
 from app.models.user import User
 from app.schemas.laporan import (
@@ -132,8 +132,31 @@ class LaporanService:
             .order_by(ManufacturingOrder.id)
         )
         mos = result.scalars().all()
+
+        # Ambil semua MOLine untuk MO dalam periode ini sekaligus (1 query)
+        mo_ids = [mo.id for mo in mos]
+        lines_result = await self.db.execute(
+            select(MOLine.mo_id, MOLine.nama_produk)
+            .where(MOLine.mo_id.in_(mo_ids))
+            .order_by(MOLine.mo_id, MOLine.id)
+        )
+        # Build map: mo_id -> list nama produk
+        from collections import defaultdict
+        mo_produk_map: dict[int, list[str]] = defaultdict(list)
+        for row in lines_result.all():
+            mo_produk_map[row.mo_id].append(row.nama_produk)
+
         batches = []
         for mo in mos:
+            # Gabungkan nama produk dari semua lines
+            produk_names = mo_produk_map.get(mo.id, [])
+            if len(produk_names) == 0:
+                nama_produk = "-"
+            elif len(produk_names) == 1:
+                nama_produk = produk_names[0]
+            else:
+                nama_produk = f"{produk_names[0]} +{len(produk_names) - 1} lainnya"
+
             r = await self.db.execute(
                 select(
                     func.count(ProductionUnit.id).label("total"),
@@ -147,9 +170,13 @@ class LaporanService:
             total = row.total or 0
             terjual = row.terjual or 0
             batches.append(BatchProduksiSummary(
-                mo_id=mo.id, nomor_mo=mo.nomor_mo, nama_produk=mo.nama_produk,
-                total_diproduksi=total, total_terjual=terjual,
-                total_sisa_kembali=row.sisa or 0, total_rusak=row.rusak or 0,
+                mo_id=mo.id,
+                nomor_mo=mo.nomor_mo,
+                nama_produk=nama_produk,
+                total_diproduksi=total,
+                total_terjual=terjual,
+                total_sisa_kembali=row.sisa or 0,
+                total_rusak=row.rusak or 0,
                 total_expired=row.expired or 0,
                 persentase_terjual=round((terjual / total * 100) if total > 0 else 0, 2),
             ))
@@ -241,8 +268,6 @@ class LaporanService:
         if group_id:
             aktif_group = await self.db.get(ShareholderGroup, group_id)
         elif user_id:
-            # Cari grup pertama yang user ini terdaftar sebagai member
-            # Pakai GroupMembership ORM class (pengganti shareholder_group_members Table)
             r = await self.db.execute(
                 select(ShareholderGroup)
                 .join(GroupMembership, ShareholderGroup.id == GroupMembership.group_id)
