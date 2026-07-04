@@ -1,78 +1,69 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../lib/api';
 import { Navbar } from '../../../components/layout/Navbar';
-import { ArrowLeft, Plus, Trash2, ClipboardList, Package } from 'lucide-react-native';
-
-interface BahanLine {
-  bahan_baku_id: string;
-  qty_rencana: string;
-  satuan: string;
-  _nama?: string;
-  _satuan_ref?: string;
-  _satuan_display?: string;
-  _konversi?: number | null;
-}
+import { ArrowLeft, ClipboardList, Package, BookOpen, Info } from 'lucide-react-native';
 
 export default function BuatMOPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [form, setForm] = useState({ nama_produk: '', target_qty: '', satuan: 'unit', tanggal_rencana: '', catatan: '' });
-  const [lines, setLines] = useState<BahanLine[]>([{ bahan_baku_id: '', qty_rencana: '', satuan: '' }]);
+
+  const [menuId, setMenuId] = useState('');
+  const [targetQty, setTargetQty] = useState('');
+  const [tanggalRencana, setTanggalRencana] = useState('');
+  const [catatan, setCatatan] = useState('');
   const [error, setError] = useState('');
 
-  const { data: bahanData } = useQuery({
-    queryKey: ['bahan-baku'],
-    queryFn: () => api.get('/inventori/bahan-baku').then(r => r.data),
+  // Fetch daftar menu aktif
+  const { data: menuData } = useQuery({
+    queryKey: ['menu'],
+    queryFn: () => api.get('/menu/').then(r => r.data),
   });
-  const bahanList: any[] = Array.isArray(bahanData) ? bahanData : [];
+  const menuList: any[] = (Array.isArray(menuData) ? menuData : []).filter((m: any) => m.is_active);
+
+  // Detail menu yang dipilih
+  const menuDipilih = menuList.find(m => m.id.toString() === menuId) ?? null;
+  const resepAktif = menuDipilih?.resep_list?.find((r: any) => r.is_active) ?? null;
 
   const mutation = useMutation({
-    mutationFn: (payload: any) => api.post('/manufacturing-orders', payload).then(r => r.data),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['mo'] }); router.push('/(admin)/mo' as any); },
+    mutationFn: (payload: any) => api.post('/manufacturing-orders/', payload).then(r => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mo'] });
+      router.push('/(admin)/mo' as any);
+    },
     onError: (e: any) => setError(e.response?.data?.detail ?? 'Gagal membuat MO'),
   });
 
-  const addLine = () => setLines([...lines, { bahan_baku_id: '', qty_rencana: '', satuan: '' }]);
-  const removeLine = (i: number) => setLines(lines.filter((_, idx) => idx !== i));
-
-  const updateLine = (i: number, field: keyof BahanLine, val: string) => {
-    const next = [...lines];
-    if (field === 'bahan_baku_id') {
-      const found = bahanList.find(b => b.id.toString() === val);
-      next[i] = {
-        ...next[i],
-        bahan_baku_id: val,
-        satuan: found?.satuan ?? '',
-        _nama: found?.nama,
-        _satuan_ref: found?.satuan,
-        _satuan_display: found?.satuan_display,
-        _konversi: found?.konversi_factor ?? null,
-      };
-    } else {
-      next[i] = { ...next[i], [field]: val };
-    }
-    setLines(next);
-  };
-
   const handleSubmit = () => {
     setError('');
-    if (!form.nama_produk || !form.target_qty || !form.tanggal_rencana) { setError('Nama produk, target qty, dan tanggal rencana wajib diisi.'); return; }
-    const validLines = lines.filter(l => l.bahan_baku_id && l.qty_rencana);
+    if (!menuId) { setError('Pilih menu terlebih dahulu.'); return; }
+    if (!targetQty || parseFloat(targetQty) <= 0) { setError('Target qty wajib diisi.'); return; }
+    if (!tanggalRencana) { setError('Tanggal rencana wajib diisi.'); return; }
+    if (!resepAktif) { setError('Menu yang dipilih belum memiliki resep aktif. Tambahkan resep di halaman Menu dulu.'); return; }
+
+    // BOM diambil otomatis dari resep aktif menu
+    const bahanLines = resepAktif.bahan_list.map((b: any) => ({
+      bahan_baku_id: b.bahan_baku_id,
+      qty_rencana: parseFloat((b.qty_per_unit * parseFloat(targetQty)).toFixed(6)),
+      qty_per_unit: b.qty_per_unit,
+      satuan: b.satuan,
+    }));
+
     mutation.mutate({
-      ...form,
-      target_qty: parseFloat(form.target_qty),
-      bahan_baku_lines: validLines.map(l => ({
-        bahan_baku_id: parseInt(l.bahan_baku_id),
-        qty_rencana: parseFloat(l.qty_rencana),
-        satuan: l.satuan,
-      })),
+      menu_id: parseInt(menuId),
+      nama_produk: menuDipilih.nama,
+      target_qty: parseFloat(targetQty),
+      satuan: 'unit',
+      tanggal_rencana: tanggalRencana,
+      catatan: catatan.trim() || undefined,
+      bahan_baku_lines: bahanLines,
     });
   };
 
   const inp: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, color: 'white', fontSize: 14, outline: 'none' };
   const lbl: React.CSSProperties = { color: '#aaa', fontSize: 12, fontWeight: 600, marginBottom: 6, display: 'block', letterSpacing: 0.5 };
+  const card: React.CSSProperties = { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 24, marginBottom: 20 };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: '#0a0a0a' }}>
@@ -84,109 +75,112 @@ export default function BuatMOPage() {
 
         {error && <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, padding: '12px 16px', color: '#f87171', fontSize: 14, marginBottom: 20 }}>{error}</div>}
 
-        {/* Info MO */}
-        <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 24, marginBottom: 20 }}>
+        {/* Pilih Menu */}
+        <div style={card}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-            <ClipboardList size={16} color="#f87171" />
-            <span style={{ color: 'white', fontWeight: 700, fontSize: 15 }}>Informasi MO</span>
+            <BookOpen size={16} color="#f87171" />
+            <span style={{ color: 'white', fontWeight: 700, fontSize: 15 }}>Pilih Menu</span>
+          </div>
+
+          <div>
+            <label style={lbl}>MENU PRODUK *</label>
+            <select
+              value={menuId}
+              onChange={e => setMenuId((e.target as any).value)}
+              style={{ ...inp, cursor: 'pointer' }}
+            >
+              <option value="">Pilih menu...</option>
+              {menuList.map((m: any) => (
+                <option key={m.id} value={m.id} style={{ background: '#1a1a1a' }}>
+                  {m.nama} — Rp {Number(m.harga_jual).toLocaleString('id-ID')}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Info menu dipilih */}
+          {menuDipilih && (
+            <div style={{ marginTop: 14, background: resepAktif ? 'rgba(96,165,250,0.06)' : 'rgba(234,179,8,0.06)', border: `1px solid ${resepAktif ? 'rgba(96,165,250,0.2)' : 'rgba(234,179,8,0.2)'}`, borderRadius: 10, padding: '12px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <Info size={13} color={resepAktif ? '#60a5fa' : '#eab308'} />
+                <span style={{ color: resepAktif ? '#60a5fa' : '#eab308', fontSize: 13, fontWeight: 600 }}>
+                  {resepAktif ? `Resep Aktif: ${resepAktif.nama_versi}` : '⚠️ Belum ada resep aktif!'}
+                </span>
+              </div>
+              {resepAktif && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {resepAktif.bahan_list?.map((b: any) => (
+                    <div key={b.bahan_baku_id} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#555', fontSize: 13 }}>{b.nama_bahan ?? `Bahan ID-${b.bahan_baku_id}`}</span>
+                      <span style={{ color: '#444', fontSize: 13 }}>{b.qty_per_unit} {b.satuan} / unit</span>
+                    </div>
+                  ))}
+                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 6, paddingTop: 6 }}>
+                    <span style={{ color: '#22c55e', fontSize: 13 }}>Harga Jual: Rp {Number(menuDipilih.harga_jual).toLocaleString('id-ID')} / unit</span>
+                  </div>
+                </div>
+              )}
+              {!resepAktif && (
+                <button
+                  onClick={() => router.push(`/(admin)/menu/${menuDipilih.id}` as any)}
+                  style={{ marginTop: 6, background: 'none', border: '1px solid rgba(234,179,8,0.3)', borderRadius: 7, padding: '6px 12px', color: '#eab308', fontSize: 12, cursor: 'pointer' }}
+                >
+                  Tambah Resep di Halaman Menu →
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Detail MO */}
+        <div style={card}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+            <ClipboardList size={16} color="#60a5fa" />
+            <span style={{ color: 'white', fontWeight: 700, fontSize: 15 }}>Detail Produksi</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <div style={{ gridColumn: '1 / -1' }}>
-              <label style={lbl}>NAMA PRODUK</label>
-              <input value={form.nama_produk} onChange={e => setForm({ ...form, nama_produk: e.target.value })} placeholder="Kopi Susu Gula Aren" style={inp} />
-            </div>
             <div>
-              <label style={lbl}>TARGET QTY</label>
-              <input type="number" value={form.target_qty} onChange={e => setForm({ ...form, target_qty: e.target.value })} placeholder="100" style={inp} />
+              <label style={lbl}>TARGET QTY *</label>
+              <input type="number" value={targetQty} onChange={e => setTargetQty((e.target as any).value)} placeholder="100" style={inp} />
             </div>
             <div>
               <label style={lbl}>SATUAN</label>
-              <input value={form.satuan} onChange={e => setForm({ ...form, satuan: e.target.value })} placeholder="unit" style={inp} />
+              <input value="unit" readOnly style={{ ...inp, color: '#555', cursor: 'default' }} />
             </div>
             <div style={{ gridColumn: '1 / -1' }}>
-              <label style={lbl}>TANGGAL RENCANA</label>
-              <input type="date" value={form.tanggal_rencana} onChange={e => setForm({ ...form, tanggal_rencana: e.target.value })} style={{ ...inp, colorScheme: 'dark' }} />
+              <label style={lbl}>TANGGAL RENCANA *</label>
+              <input type="date" value={tanggalRencana} onChange={e => setTanggalRencana((e.target as any).value)} style={{ ...inp, colorScheme: 'dark' }} />
             </div>
             <div style={{ gridColumn: '1 / -1' }}>
               <label style={lbl}>CATATAN (opsional)</label>
-              <textarea value={form.catatan} onChange={e => setForm({ ...form, catatan: e.target.value })} placeholder="Catatan tambahan..." rows={2} style={{ ...inp, resize: 'vertical' }} />
+              <textarea value={catatan} onChange={e => setCatatan((e.target as any).value)} placeholder="Catatan tambahan..." rows={2} style={{ ...inp, resize: 'vertical', fontFamily: 'inherit' }} />
             </div>
           </div>
         </div>
 
-        {/* Bahan Baku */}
-        <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 24, marginBottom: 24 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Package size={16} color="#60a5fa" />
-              <span style={{ color: 'white', fontWeight: 700, fontSize: 15 }}>Bahan Baku</span>
+        {/* Preview BOM */}
+        {resepAktif && targetQty && parseFloat(targetQty) > 0 && (
+          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: 16, marginBottom: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <Package size={14} color="#555" />
+              <span style={{ color: '#555', fontSize: 13, fontWeight: 600 }}>Preview BOM untuk {targetQty} unit</span>
             </div>
-            <button onClick={addLine} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '6px 12px', color: '#aaa', cursor: 'pointer', fontSize: 13 }}>
-              <Plus size={13} color="#aaa" /> Tambah
-            </button>
-          </div>
-
-          {lines.map((line, i) => (
-            <div key={i} style={{ marginBottom: 14 }}>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
-                {/* Pilih bahan */}
-                <div style={{ flex: 2 }}>
-                  {i === 0 && <label style={lbl}>BAHAN BAKU</label>}
-                  <select value={line.bahan_baku_id} onChange={e => updateLine(i, 'bahan_baku_id', e.target.value)}
-                    style={{ ...inp, cursor: 'pointer' }}>
-                    <option value="">Pilih bahan baku...</option>
-                    {bahanList.map((b: any) => (
-                      <option key={b.id} value={b.id} style={{ background: '#1a1a1a' }}>
-                        {b.nama} ({b.satuan}){b.saldo !== undefined ? ` — stok: ${b.saldo}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {/* Qty */}
-                <div style={{ flex: 1 }}>
-                  {i === 0 && <label style={lbl}>QTY ({line._satuan_ref || 'satuan'})</label>}
-                  <input type="number" value={line.qty_rencana}
-                    onChange={e => updateLine(i, 'qty_rencana', e.target.value)}
-                    placeholder="0" style={inp} />
-                </div>
-                {/* Satuan (readonly, dari master) */}
-                <div style={{ width: 80 }}>
-                  {i === 0 && <label style={lbl}>SATUAN</label>}
-                  <input value={line.satuan} readOnly
-                    style={{ ...inp, color: '#666', cursor: 'default', backgroundColor: 'rgba(255,255,255,0.03)' }} />
-                </div>
-                <button onClick={() => removeLine(i)} disabled={lines.length === 1}
-                  style={{ padding: '10px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, cursor: lines.length === 1 ? 'not-allowed' : 'pointer', opacity: lines.length === 1 ? 0.4 : 1 }}>
-                  <Trash2 size={15} color="#f87171" />
-                </button>
+            {resepAktif.bahan_list?.map((b: any) => (
+              <div key={b.bahan_baku_id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                <span style={{ color: '#555', fontSize: 13 }}>{b.nama_bahan ?? `Bahan ID-${b.bahan_baku_id}`}</span>
+                <span style={{ color: '#444', fontSize: 13 }}>
+                  {(b.qty_per_unit * parseFloat(targetQty)).toFixed(3)} {b.satuan}
+                </span>
               </div>
-              {/* Helper konversi */}
-              {line._konversi && line.qty_rencana && (
-                <div style={{ color: '#555', fontSize: 11, marginTop: 4, paddingLeft: 2 }}>
-                  = {(parseFloat(line.qty_rencana) * line._konversi).toFixed(0)} {line._satuan_display}
-                </div>
-              )}
-              {/* Warning stok */}
-              {line.bahan_baku_id && line.qty_rencana && (() => {
-                const b = bahanList.find(b => b.id.toString() === line.bahan_baku_id);
-                if (!b) return null;
-                const kurang = parseFloat(line.qty_rencana) > b.saldo;
-                return kurang ? (
-                  <div style={{ color: '#f59e0b', fontSize: 11, marginTop: 4, paddingLeft: 2 }}>
-                    ⚠️ Stok tersedia: {b.saldo} {b.satuan} (kurang {(parseFloat(line.qty_rencana) - b.saldo).toFixed(3)})
-                  </div>
-                ) : (
-                  <div style={{ color: '#22c55e', fontSize: 11, marginTop: 4, paddingLeft: 2 }}>
-                    ✓ Stok cukup ({b.saldo} {b.satuan})
-                  </div>
-                );
-              })()}
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
-        <button onClick={handleSubmit} disabled={mutation.isPending}
-          style={{ width: '100%', padding: '13px', backgroundColor: mutation.isPending ? 'rgba(244,68,68,0.5)' : '#f44444', border: 'none', borderRadius: 12, color: 'white', fontWeight: 700, fontSize: 15, cursor: mutation.isPending ? 'not-allowed' : 'pointer' }}>
+        <button
+          onClick={handleSubmit}
+          disabled={mutation.isPending || !menuId || !resepAktif}
+          style={{ width: '100%', padding: 13, backgroundColor: (mutation.isPending || !menuId || !resepAktif) ? 'rgba(244,68,68,0.3)' : '#f44444', border: 'none', borderRadius: 12, color: 'white', fontWeight: 700, fontSize: 15, cursor: (mutation.isPending || !menuId || !resepAktif) ? 'not-allowed' : 'pointer' }}
+        >
           {mutation.isPending ? 'Menyimpan...' : 'Buat Manufacturing Order'}
         </button>
       </div>
