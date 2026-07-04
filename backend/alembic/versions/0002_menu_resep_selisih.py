@@ -1,20 +1,16 @@
 """feat: tambah tabel menu, resep, resep_bahan, generate_batch + kolom menu_id di mo + harga_jual di production_units
 
 Revision ID: 0002_menu_resep_selisih
-Revises: (isi dengan revision ID migrasi sebelumnya)
+Revises: df0eda7995da
 Create Date: 2026-07-04
 """
 from alembic import op
 import sqlalchemy as sa
 
-# ───────────────────────────────────────────────────────────────
-# PENTING: Isi `down_revision` dengan revision ID dari migrasi terakhirmu
-# Jalankan: alembic heads   → copy revision ID yang muncul ke bawah
 revision = "0002_menu_resep_selisih"
-down_revision = None  # <-- GANTI dengan revision ID terakhirmu
+down_revision = "df0eda7995da"
 branch_labels = None
 depends_on = None
-# ───────────────────────────────────────────────────────────────
 
 
 def upgrade() -> None:
@@ -80,7 +76,7 @@ def upgrade() -> None:
         sa.Column("alasan_selisih", sa.Text(), nullable=True),
         sa.Column(
             "kategori_selisih",
-            sa.Enum("human_error", "bahan", "alat", "lainnya", name="kategorinselisih"),
+            sa.Enum("human_error", "bahan", "alat", "lainnya", name="kategoriselisih"),
             nullable=True,
         ),
         sa.Column("expiry_date", sa.Date(), nullable=False),
@@ -103,4 +99,4 @@ def downgrade() -> None:
     op.drop_table("resep")
     op.drop_index("ix_menu_nama", "menu")
     op.drop_table("menu")
-    op.execute("DROP TYPE IF EXISTS kategorinselisih")
+    op.execute("DROP TYPE IF EXISTS kategoriselisih")
