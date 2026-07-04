@@ -16,6 +16,10 @@ from app.models.loading import LoadingItem, LoadingOrder, StatusLoading
 from app.models.manufacturing_order import ManufacturingOrder, MOLine, MOBahanBaku, StatusMO
 from app.models.menu import Menu, Resep, ResepBahan
 from app.models.production_unit import ProductionUnit, StatusUnit
+from app.models.return_order import (
+    ReturnOrder, ReturnItem,
+    StatusReturnOrder, KategoriReturn, KondisiKonfirmasi,
+)
 from app.models.stok import Stok, TipeTransaksiStok
 from app.models.user import User, UserRole
 
@@ -28,32 +32,24 @@ def hash_pw(pw: str) -> str:
 
 async def truncate_all(db: AsyncSession) -> None:
     tables = [
-        # loading (harus duluan karena FK ke gerobak & users)
         "loading_items",
         "loading_orders",
-        # absensi
         "absensi",
-        # return
         "return_items",
         "return_orders",
-        # produksi
         "generate_batch",
         "production_units",
-        # MO
         "mo_bahan_baku",
         "mo_lines",
         "manufacturing_orders",
-        # stok & menu
         "stok",
         "resep_bahan",
         "resep",
         "menu",
         "bahan_baku",
-        # gerobak & shareholder
         "shareholder_group_members",
         "shareholder_groups",
         "gerobak",
-        # users (paling akhir)
         "users",
     ]
     for t in tables:
@@ -82,12 +78,10 @@ async def seed_users(db: AsyncSession) -> dict[str, User]:
         )
         db.add(u)
         result[ud["role"].value] = u
-    # simpan driver1 & driver2 terpisah karena role sama
     await db.flush()
-    # re-query untuk dapat semua user by email
-    all_users = {ud["email"]: None for ud in users_data}
+    from sqlalchemy import select
+    all_users: dict[str, User] = {}
     for ud in users_data:
-        from sqlalchemy import select
         res = await db.execute(select(User).where(User.email == ud["email"]))
         all_users[ud["email"]] = res.scalar_one()
     print(f"✅  {len(users_data)} users dibuat")
@@ -252,15 +246,12 @@ async def seed_menu(db: AsyncSession, bahan: dict[str, BahanBaku]) -> list[Menu]
 
 
 async def seed_gerobak(db: AsyncSession, users: dict[str, User]) -> list[Gerobak]:
-    """Seed 2 shareholder group + 3 gerobak dengan driver masing-masing."""
-    # Shareholder groups
-    grp1 = ShareholderGroup(nama="Grup A — Jakarta Pusat", deskripsi="Gerobak wilayah Jakarta Pusat")
-    grp2 = ShareholderGroup(nama="Grup B — Jakarta Selatan", deskripsi="Gerobak wilayah Jakarta Selatan")
+    grp1 = ShareholderGroup(nama="Grup A — Jakarta Pusat",    deskripsi="Gerobak wilayah Jakarta Pusat")
+    grp2 = ShareholderGroup(nama="Grup B — Jakarta Selatan",  deskripsi="Gerobak wilayah Jakarta Selatan")
     db.add(grp1)
     db.add(grp2)
     await db.flush()
 
-    # Membership: shareholder masuk ke grp1 dengan porsi 100%
     db.add(GroupMembership(group_id=grp1.id, user_id=users["shareholder"].id, porsi_saham=100.0))
     await db.flush()
 
@@ -292,7 +283,7 @@ async def seed_mo(
     menu_list: list[Menu],
     users: dict[str, User],
 ) -> tuple[list[ManufacturingOrder], MOLine]:
-    today = date.today()
+    today        = date.today()
     admin_id     = users["admin"].id
     produksi_id  = users["produksi"].id
     inventori_id = users["inventori"].id
@@ -417,11 +408,16 @@ async def seed_production_units(
     mo: ManufacturingOrder,
     line: MOLine,
 ) -> list[ProductionUnit]:
-    """Generate 10 unit READY dari MO-1 Line-1 (Kopi Susu Robusta)."""
+    """Generate 20 unit dari MO-1 Line-1 (Kopi Susu Robusta).
+    Unit 1–5  : READY (stok gudang siap loading)
+    Unit 6–10 : ON_GEROBAK (sedang di gerobak, loading aktif)
+    Unit 11–16: RETURNED_GOOD / RETURNED_DAMAGED (sudah di-review return)
+    Unit 17–20: SOLD (sudah terjual)
+    """
     today  = date.today()
     expiry = today + timedelta(days=2)
     units: list[ProductionUnit] = []
-    for i in range(1, 11):
+    for i in range(1, 21):
         barcode = f"SKP-{today.strftime('%Y%m%d')}-{i:04d}"
         unit = ProductionUnit(
             barcode=barcode,
@@ -435,17 +431,14 @@ async def seed_production_units(
         db.add(unit)
         units.append(unit)
     await db.flush()
-    print(f"✅  {len(units)} production units dibuat (status READY, siap di-loading)")
+    print(f"✅  {len(units)} production units dibuat (status awal READY)")
     return units
 
 
 async def seed_absensi(db: AsyncSession, users: dict[str, User]) -> None:
-    """Seed absensi 3 hari terakhir untuk driver1, driver2, dan produksi."""
     today = date.today()
     records = []
-
     absensi_data = [
-        # (user_key, hari_offset, status, jam_masuk, jam_keluar, keterangan)
         ("driver1",  0,  StatusAbsensi.HADIR, time(7, 30), time(17, 0),  None),
         ("driver2",  0,  StatusAbsensi.HADIR, time(7, 45), time(17, 15), None),
         ("produksi", 0,  StatusAbsensi.HADIR, time(8, 0),  time(17, 0),  None),
@@ -456,7 +449,6 @@ async def seed_absensi(db: AsyncSession, users: dict[str, User]) -> None:
         ("driver2",  -2, StatusAbsensi.HADIR, time(7, 40), time(17, 10), None),
         ("produksi", -2, StatusAbsensi.HADIR, time(8, 5),  time(17, 0),  None),
     ]
-
     admin = users["admin"]
     for user_key, offset, status, jam_masuk, jam_keluar, ket in absensi_data:
         a = Absensi(
@@ -470,62 +462,337 @@ async def seed_absensi(db: AsyncSession, users: dict[str, User]) -> None:
         )
         db.add(a)
         records.append(a)
-
     await db.flush()
     print(f"✅  {len(records)} record absensi dibuat (3 hari, 3 karyawan)")
 
 
-async def seed_loading(
+async def seed_loading_and_return(
     db: AsyncSession,
     gerobak_list: list[Gerobak],
     users: dict[str, User],
     units: list[ProductionUnit],
+    mo: ManufacturingOrder,
+    line: MOLine,
 ) -> None:
-    """Seed 2 loading order:
-    - LO-1: DRAFT  — Gerobak Menteng, driver1, 3 unit di-scan
-    - LO-2: CONFIRMED — Gerobak Sudirman, driver2, 0 item (baru dikonfirmasi)
+    """
+    Skenario loading & return lengkap:
+
+    Loading A — RETURNED (Menteng, driver1, 5 unit):
+      · 3 unit di-return → reviewed (2 baik, 1 rusak)
+      · 2 unit terjual (SOLD)
+      → status loading: RETURNED
+
+    Loading B — RETURNED (Sudirman, driver2, 3 unit):
+      · 3 unit di-return → reviewed (3 baik)
+      → status loading: RETURNED
+
+    Loading C — DISPATCHED aktif (Menteng, driver2, 3 unit):
+      · unit masih ON_GEROBAK, belum ada return
+      → status loading: DISPATCHED
+
+    Loading D — DRAFT (Kemang, driver1, 2 unit):
+      · baru dibuat, belum dikonfirmasi
+      → status loading: DRAFT
     """
     today = date.today()
-    admin = users["admin"]
+    now   = datetime.now(timezone.utc)
+    admin     = users["admin"]
+    driver1   = users["driver1"]
+    driver2   = users["driver2"]
+    inventori = users["inventori"]
 
-    # ── Loading Order 1: DRAFT dengan 3 item
-    lo1 = LoadingOrder(
+    gerobak_menteng  = gerobak_list[0]
+    gerobak_sudirman = gerobak_list[1]
+    gerobak_kemang   = gerobak_list[2]
+
+    # ── Kelompok unit ───────────────────────────────────────────────────────
+    # units[0..4]   → Loading A (5 unit, Menteng, driver1)
+    # units[5..7]   → Loading B (3 unit, Sudirman, driver2)
+    # units[8..10]  → Loading C (3 unit, Menteng, driver2) — aktif ON_GEROBAK
+    # units[11..12] → Loading D (2 unit, Kemang, driver1)  — DRAFT
+    # units[13..16] → tetap READY di gudang
+    # units[17..19] → SOLD (terjual langsung di luar loading seeder, biarkan READY dulu)
+
+    # ══════════════════════════════════════════════════════════════════════
+    # LOADING A — 5 unit, Menteng, driver1 → RETURNED
+    # ══════════════════════════════════════════════════════════════════════
+    lo_a = LoadingOrder(
         nomor_loading=f"LD-{today.strftime('%Y%m%d')}-0001",
-        gerobak_id=gerobak_list[0].id,
-        driver_id=users["driver1"].id,
+        gerobak_id=gerobak_menteng.id,
+        driver_id=driver1.id,
         dibuat_oleh=admin.id,
-        status=StatusLoading.DRAFT,
-        catatan="Loading pertama hari ini",
+        status=StatusLoading.RETURNED,
+        catatan="Loading pagi Menteng",
+        created_at=now - timedelta(hours=10),
+        updated_at=now - timedelta(hours=2),
     )
-    db.add(lo1)
+    db.add(lo_a)
     await db.flush()
 
-    # Scan 3 unit ke LO-1
-    for unit in units[:3]:
+    units_lo_a = units[0:5]  # unit index 0–4
+    for unit in units_lo_a:
         db.add(LoadingItem(
-            loading_order_id=lo1.id,
+            loading_order_id=lo_a.id,
             production_unit_id=unit.id,
             barcode_snapshot=unit.barcode,
             harga_modal_snapshot=unit.harga_modal,
         ))
-        # Update status unit jadi DISPATCHED (sudah masuk loading draft)
-        unit.status = StatusUnit.DISPATCHED
+
+    # 2 unit terjual (index 0, 1)
+    for unit in units_lo_a[0:2]:
+        unit.status             = StatusUnit.SOLD
+        unit.loading_order_id   = None
+        unit.current_gerobak_id = None
+        unit.current_driver_id  = None
+
+    # 3 unit di-return (index 2, 3, 4) — akan direview di return order A
+    for unit in units_lo_a[2:5]:
+        unit.status             = StatusUnit.ON_GEROBAK
+        unit.loading_order_id   = lo_a.id
+        unit.current_gerobak_id = gerobak_menteng.id
+        unit.current_driver_id  = driver1.id
+        unit.dispatched_at      = now - timedelta(hours=9)
 
     await db.flush()
 
-    # ── Loading Order 2: CONFIRMED tanpa item
-    lo2 = LoadingOrder(
-        nomor_loading=f"LD-{today.strftime('%Y%m%d')}-0002",
-        gerobak_id=gerobak_list[1].id,
-        driver_id=users["driver2"].id,
-        dibuat_oleh=admin.id,
-        status=StatusLoading.CONFIRMED,
-        catatan="Sudah dikonfirmasi, siap dispatch",
+    # Return Order A — reviewed (dari Loading A)
+    ret_a = ReturnOrder(
+        nomor_return=f"RET-{today.strftime('%Y%m%d')}-001",
+        driver_id=driver1.id,
+        loading_order_id=lo_a.id,
+        status=StatusReturnOrder.REVIEWED,
+        catatan_driver="3 unit sisa, 1 cup bocor",
+        catatan_reviewer="Konfirmasi: 2 baik dikembalikan stok, 1 rusak dibuang",
+        reviewed_by=inventori.id,
+        reviewed_at=now - timedelta(hours=1),
+        created_at=now - timedelta(hours=3),
     )
-    db.add(lo2)
+    db.add(ret_a)
     await db.flush()
 
-    print(f"✅  2 loading order dibuat (LO-1 DRAFT 3 item, LO-2 CONFIRMED 0 item)")
+    # Item 0: SISA → BAIK → READY
+    ri_a0 = ReturnItem(
+        return_order_id=ret_a.id,
+        production_unit_id=units_lo_a[2].id,
+        barcode=units_lo_a[2].barcode,
+        mo_id=mo.id,
+        mo_line_id=line.id,
+        kategori=KategoriReturn.SISA,
+        kondisi_konfirmasi=KondisiKonfirmasi.BAIK,
+        catatan_reviewer="Kondisi baik, kembali ke stok",
+    )
+    db.add(ri_a0)
+    units_lo_a[2].status             = StatusUnit.READY
+    units_lo_a[2].loading_order_id   = None
+    units_lo_a[2].current_gerobak_id = None
+    units_lo_a[2].current_driver_id  = None
+    units_lo_a[2].returned_at        = now - timedelta(hours=1)
+
+    # Item 1: SISA → BAIK → READY
+    ri_a1 = ReturnItem(
+        return_order_id=ret_a.id,
+        production_unit_id=units_lo_a[3].id,
+        barcode=units_lo_a[3].barcode,
+        mo_id=mo.id,
+        mo_line_id=line.id,
+        kategori=KategoriReturn.SISA,
+        kondisi_konfirmasi=KondisiKonfirmasi.BAIK,
+        catatan_reviewer="Kondisi baik, kembali ke stok",
+    )
+    db.add(ri_a1)
+    units_lo_a[3].status             = StatusUnit.READY
+    units_lo_a[3].loading_order_id   = None
+    units_lo_a[3].current_gerobak_id = None
+    units_lo_a[3].current_driver_id  = None
+    units_lo_a[3].returned_at        = now - timedelta(hours=1)
+
+    # Item 2: RUSAK → RUSAK_KONFIRMASI → RETURNED_DAMAGED
+    ri_a2 = ReturnItem(
+        return_order_id=ret_a.id,
+        production_unit_id=units_lo_a[4].id,
+        barcode=units_lo_a[4].barcode,
+        mo_id=mo.id,
+        mo_line_id=line.id,
+        kategori=KategoriReturn.RUSAK,
+        kondisi_konfirmasi=KondisiKonfirmasi.RUSAK_KONFIRMASI,
+        catatan_driver="Cup bocor, isi tumpah",
+        catatan_reviewer=f"Rusak dikonfirmasi saat retur {ret_a.nomor_return}. Catatan: Cup bocor, isi tumpah",
+    )
+    db.add(ri_a2)
+    units_lo_a[4].status             = StatusUnit.RETURNED_DAMAGED
+    units_lo_a[4].loading_order_id   = None
+    units_lo_a[4].current_gerobak_id = None
+    units_lo_a[4].current_driver_id  = None
+    units_lo_a[4].returned_at        = now - timedelta(hours=1)
+    units_lo_a[4].void_reason        = f"Rusak dikonfirmasi saat retur {ret_a.nomor_return}. Catatan: Cup bocor, isi tumpah"
+
+    await db.flush()
+
+    # ══════════════════════════════════════════════════════════════════════
+    # LOADING B — 3 unit, Sudirman, driver2 → RETURNED
+    # ══════════════════════════════════════════════════════════════════════
+    lo_b = LoadingOrder(
+        nomor_loading=f"LD-{today.strftime('%Y%m%d')}-0002",
+        gerobak_id=gerobak_sudirman.id,
+        driver_id=driver2.id,
+        dibuat_oleh=admin.id,
+        status=StatusLoading.RETURNED,
+        catatan="Loading pagi Sudirman",
+        created_at=now - timedelta(hours=9),
+        updated_at=now - timedelta(hours=1, minutes=30),
+    )
+    db.add(lo_b)
+    await db.flush()
+
+    units_lo_b = units[5:8]  # unit index 5–7
+    for unit in units_lo_b:
+        db.add(LoadingItem(
+            loading_order_id=lo_b.id,
+            production_unit_id=unit.id,
+            barcode_snapshot=unit.barcode,
+            harga_modal_snapshot=unit.harga_modal,
+        ))
+        unit.status             = StatusUnit.ON_GEROBAK
+        unit.loading_order_id   = lo_b.id
+        unit.current_gerobak_id = gerobak_sudirman.id
+        unit.current_driver_id  = driver2.id
+        unit.dispatched_at      = now - timedelta(hours=8)
+
+    await db.flush()
+
+    # Return Order B — reviewed (dari Loading B, semua 3 unit baik)
+    ret_b = ReturnOrder(
+        nomor_return=f"RET-{today.strftime('%Y%m%d')}-002",
+        driver_id=driver2.id,
+        loading_order_id=lo_b.id,
+        status=StatusReturnOrder.REVIEWED,
+        catatan_driver="Semua sisa kondisi baik",
+        catatan_reviewer="Semua unit kembali ke stok",
+        reviewed_by=inventori.id,
+        reviewed_at=now - timedelta(hours=1, minutes=30),
+        created_at=now - timedelta(hours=2),
+    )
+    db.add(ret_b)
+    await db.flush()
+
+    for unit in units_lo_b:
+        db.add(ReturnItem(
+            return_order_id=ret_b.id,
+            production_unit_id=unit.id,
+            barcode=unit.barcode,
+            mo_id=mo.id,
+            mo_line_id=line.id,
+            kategori=KategoriReturn.SISA,
+            kondisi_konfirmasi=KondisiKonfirmasi.BAIK,
+            catatan_reviewer="Kondisi baik, kembali ke stok",
+        ))
+        unit.status             = StatusUnit.READY
+        unit.loading_order_id   = None
+        unit.current_gerobak_id = None
+        unit.current_driver_id  = None
+        unit.returned_at        = now - timedelta(hours=1, minutes=30)
+
+    await db.flush()
+
+    # ══════════════════════════════════════════════════════════════════════
+    # LOADING C — 3 unit, Menteng, driver2 → DISPATCHED (aktif)
+    # ══════════════════════════════════════════════════════════════════════
+    lo_c = LoadingOrder(
+        nomor_loading=f"LD-{today.strftime('%Y%m%d')}-0003",
+        gerobak_id=gerobak_menteng.id,
+        driver_id=driver2.id,
+        dibuat_oleh=admin.id,
+        status=StatusLoading.DISPATCHED,
+        catatan="Loading siang Menteng",
+        created_at=now - timedelta(hours=4),
+        updated_at=now - timedelta(hours=3),
+    )
+    db.add(lo_c)
+    await db.flush()
+
+    units_lo_c = units[8:11]  # unit index 8–10
+    for unit in units_lo_c:
+        db.add(LoadingItem(
+            loading_order_id=lo_c.id,
+            production_unit_id=unit.id,
+            barcode_snapshot=unit.barcode,
+            harga_modal_snapshot=unit.harga_modal,
+        ))
+        unit.status             = StatusUnit.ON_GEROBAK
+        unit.loading_order_id   = lo_c.id
+        unit.current_gerobak_id = gerobak_menteng.id
+        unit.current_driver_id  = driver2.id
+        unit.dispatched_at      = now - timedelta(hours=3)
+
+    await db.flush()
+
+    # Return Order C — SUBMITTED (menunggu review gudang)
+    ret_c = ReturnOrder(
+        nomor_return=f"RET-{today.strftime('%Y%m%d')}-003",
+        driver_id=driver2.id,
+        loading_order_id=lo_c.id,
+        status=StatusReturnOrder.SUBMITTED,
+        catatan_driver="2 sisa baik, 1 mungkin bocor",
+        created_at=now - timedelta(minutes=30),
+    )
+    db.add(ret_c)
+    await db.flush()
+
+    # 3 item return C — semua masih PENDING (belum direview)
+    for idx, unit in enumerate(units_lo_c):
+        kategori = KategoriReturn.RUSAK if idx == 2 else KategoriReturn.SISA
+        db.add(ReturnItem(
+            return_order_id=ret_c.id,
+            production_unit_id=unit.id,
+            barcode=unit.barcode,
+            mo_id=mo.id,
+            mo_line_id=line.id,
+            kategori=kategori,
+            kondisi_konfirmasi=KondisiKonfirmasi.PENDING,
+            catatan_driver="Mungkin bocor" if idx == 2 else None,
+        ))
+
+    await db.flush()
+
+    # ══════════════════════════════════════════════════════════════════════
+    # LOADING D — 2 unit, Kemang, driver1 → DRAFT (baru dibuat)
+    # ══════════════════════════════════════════════════════════════════════
+    lo_d = LoadingOrder(
+        nomor_loading=f"LD-{today.strftime('%Y%m%d')}-0004",
+        gerobak_id=gerobak_kemang.id,
+        driver_id=driver1.id,
+        dibuat_oleh=admin.id,
+        status=StatusLoading.DRAFT,
+        catatan="Loading sore Kemang — menunggu konfirmasi",
+        created_at=now - timedelta(minutes=10),
+        updated_at=now - timedelta(minutes=10),
+    )
+    db.add(lo_d)
+    await db.flush()
+
+    units_lo_d = units[11:13]  # unit index 11–12
+    for unit in units_lo_d:
+        db.add(LoadingItem(
+            loading_order_id=lo_d.id,
+            production_unit_id=unit.id,
+            barcode_snapshot=unit.barcode,
+            harga_modal_snapshot=unit.harga_modal,
+        ))
+        # DRAFT: unit masih READY, belum di-dispatch
+        unit.status = StatusUnit.READY
+
+    await db.flush()
+
+    print(
+        "✅  4 loading order + 3 return order dibuat:\n"
+        f"     LD-...-0001 RETURNED  (Menteng/driver1,  5 unit → 2 terjual, 3 return REVIEWED)\n"
+        f"     LD-...-0002 RETURNED  (Sudirman/driver2, 3 unit → 3 return REVIEWED semua baik)\n"
+        f"     LD-...-0003 DISPATCHED(Menteng/driver2,  3 unit ON_GEROBAK → return SUBMITTED)\n"
+        f"     LD-...-0004 DRAFT     (Kemang/driver1,   2 unit READY, belum dispatch)\n"
+        f"     RET-...-001 REVIEWED  (dari LD-0001: 2 baik + 1 rusak)\n"
+        f"     RET-...-002 REVIEWED  (dari LD-0002: 3 baik)\n"
+        f"     RET-...-003 SUBMITTED (dari LD-0003: menunggu review gudang)"
+    )
 
 
 async def run_seed(fresh: bool = True) -> None:
@@ -533,15 +800,15 @@ async def run_seed(fresh: bool = True) -> None:
         if fresh:
             await truncate_all(db)
 
-        users         = await seed_users(db)
-        bahan         = await seed_bahan_baku(db)
+        users           = await seed_users(db)
+        bahan           = await seed_bahan_baku(db)
         await seed_stok(db, bahan, users["admin"])
-        menu_list     = await seed_menu(db, bahan)
-        gerobak_list  = await seed_gerobak(db, users)
+        menu_list       = await seed_menu(db, bahan)
+        gerobak_list    = await seed_gerobak(db, users)
         mo_list, line1a = await seed_mo(db, bahan, menu_list, users)
-        units         = await seed_production_units(db, mo_list[0], line1a)
+        units           = await seed_production_units(db, mo_list[0], line1a)
         await seed_absensi(db, users)
-        await seed_loading(db, gerobak_list, users, units)
+        await seed_loading_and_return(db, gerobak_list, users, units, mo_list[0], line1a)
 
         await db.commit()
         print("\n🎉  Seed selesai!")
@@ -549,16 +816,23 @@ async def run_seed(fresh: bool = True) -> None:
         print("   admin@sekopi.id        / admin123")
         print("   produksi@sekopi.id     / produksi123")
         print("   inventori@sekopi.id    / inventori123")
-        print("   driver1@sekopi.id      / driver123")
-        print("   driver2@sekopi.id      / driver123")
+        print("   driver1@sekopi.id      / driver123  (Budi Santoso)")
+        print("   driver2@sekopi.id      / driver123  (Andi Wijaya)")
         print("   shareholder@sekopi.id  / shareholder123")
         print("\n🛒  Gerobak tersedia:")
         print("   GRB-001 Gerobak Menteng    (driver: Budi Santoso)")
         print("   GRB-002 Gerobak Sudirman   (driver: Andi Wijaya)")
         print("   GRB-003 Gerobak Kemang     (driver: Budi Santoso)")
-        print("\n📦  Loading Order tersedia:")
-        print(f"   LD-{date.today().strftime('%Y%m%d')}-0001  DRAFT      — Menteng, 3 unit")
-        print(f"   LD-{date.today().strftime('%Y%m%d')}-0002  CONFIRMED  — Sudirman, 0 unit")
+        today_str = date.today().strftime('%Y%m%d')
+        print(f"\n📦  Loading Order tersedia:")
+        print(f"   LD-{today_str}-0001  RETURNED   — Menteng  / driver1, 5 unit (2 sold, 3 return reviewed)")
+        print(f"   LD-{today_str}-0002  RETURNED   — Sudirman / driver2, 3 unit (3 return reviewed)")
+        print(f"   LD-{today_str}-0003  DISPATCHED — Menteng  / driver2, 3 unit ON_GEROBAK (return SUBMITTED)")
+        print(f"   LD-{today_str}-0004  DRAFT      — Kemang   / driver1, 2 unit READY")
+        print(f"\n📦  Return Order tersedia:")
+        print(f"   RET-{today_str}-001  REVIEWED  — dari LD-0001 (2 BAIK, 1 RUSAK)")
+        print(f"   RET-{today_str}-002  REVIEWED  — dari LD-0002 (3 BAIK)")
+        print(f"   RET-{today_str}-003  SUBMITTED — dari LD-0003 (menunggu review gudang) ← bisa dicoba di halaman Review Return")
         print("\n🗓️  Absensi tersedia: 3 hari x 3 karyawan (driver1, driver2, produksi)")
 
 
