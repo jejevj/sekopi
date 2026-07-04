@@ -15,7 +15,6 @@ const btnGhost: React.CSSProperties = { padding: '7px 14px', borderRadius: 8, ba
 const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 };
 const modalBox: React.CSSProperties = { background: '#141414', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, padding: 28, width: 520, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' };
 
-// ── Status config: flat icon + warna tanpa emoji ──────────────────────────
 const UNIT_STATUS: Record<string, {
   label: string; color: string; bg: string; border: string; desc: string;
   Icon: any;
@@ -31,7 +30,6 @@ const UNIT_STATUS: Record<string, {
   void:             { label: 'Void',          color: '#ef4444', bg: 'rgba(239,68,68,0.1)',  border: 'rgba(239,68,68,0.25)',  desc: 'Di-void manual — keluar dari stok',                                        Icon: Ban          },
 };
 
-// Label dropdown — teks saja, tanpa emoji
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'all',              label: 'Semua Status'   },
   { value: 'ready',            label: 'Di Gudang (READY)' },
@@ -86,6 +84,20 @@ function StatCard({ icon, label, value, color, sub }: { icon: React.ReactNode; l
   );
 }
 
+/** Format harga: tampilkan harga_jual jika ada, fallback ke harga_modal, fallback ke '—' */
+function formatHarga(unit: ProductionUnit): string {
+  const harga = unit.harga_jual ?? unit.harga_modal;
+  if (harga == null) return '—';
+  return 'Rp ' + Number(harga).toLocaleString('id-ID');
+}
+
+/** Label harga: beri tahu user sedang lihat harga apa */
+function labelHarga(unit: ProductionUnit): string {
+  if (unit.harga_jual != null) return 'Jual';
+  if (unit.harga_modal != null) return 'Modal';
+  return '';
+}
+
 export default function StokPage() {
   useQueryClient();
   const [search, setSearch] = useState('');
@@ -93,7 +105,6 @@ export default function StokPage() {
   const [expandedMO, setExpandedMO] = useState<Set<number>>(new Set());
   const [detailUnit, setDetailUnit] = useState<ProductionUnit | null>(null);
 
-  // Handle both array and PaginatedUnitResponse { items: [] }
   const { data: rawData, isLoading, refetch } = useQuery({
     queryKey: ['production-units'],
     queryFn: () => api.get('/production-units/?page=1&per_page=500').then(r => r.data),
@@ -143,7 +154,6 @@ export default function StokPage() {
       <Navbar title="Stok Produksi" />
       <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
 
-        {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
           <div>
             <h1 style={{ color: 'white', fontSize: 20, fontWeight: 700, margin: 0 }}>Stok Produksi</h1>
@@ -154,7 +164,6 @@ export default function StokPage() {
           </button>
         </div>
 
-        {/* Stat cards */}
         <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
           <StatCard icon={<Warehouse   size={14} color="#a3e635" />} label="Stok Gudang" value={stokGudang} color="#a3e635" sub="Status: READY" />
           <StatCard icon={<Truck       size={14} color="#f59e0b" />} label="Di Gerobak"  value={onGerobak}  color="#f59e0b" sub="Belum terjual" />
@@ -162,7 +171,6 @@ export default function StokPage() {
           <StatCard icon={<HeartCrack  size={14} color="#f87171" />} label="Rusak/Void"  value={rusak}      color="#f87171" sub="Keluar stok" />
         </div>
 
-        {/* Info banner — ikon flat, tanpa emoji */}
         <div style={{ background: 'rgba(163,230,53,0.05)', border: '1px solid rgba(163,230,53,0.15)', borderRadius: 10, padding: '10px 16px', marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#a3e635', fontSize: 12 }}>
             <Warehouse size={12} color="#a3e635" />
@@ -180,7 +188,6 @@ export default function StokPage() {
           </span>
         </div>
 
-        {/* Filter bar */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
           <div style={{ position: 'relative', flex: 1, maxWidth: 280 }}>
             <Search size={13} color="#555" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)' }} />
@@ -200,7 +207,6 @@ export default function StokPage() {
           )}
         </div>
 
-        {/* List grouped by MO */}
         {isLoading ? (
           <div style={{ textAlign: 'center', padding: 40, color: '#555' }}>Memuat...</div>
         ) : groupedByMO.length === 0 ? (
@@ -257,7 +263,11 @@ export default function StokPage() {
                                 <Truck size={10} color="#f59e0b" /> #{unit.loading_order_id}
                               </span>
                             )}
-                            <span style={{ fontSize: 12, color: '#555' }}>Rp {Number(unit.harga_jual ?? 0).toLocaleString('id')}</span>
+                            {/* Tampilkan harga_jual jika ada, fallback ke harga_modal */}
+                            <span style={{ fontSize: 12, color: '#555' }}>
+                              <span style={{ fontSize: 10, color: '#444', marginRight: 3 }}>{labelHarga(unit)}</span>
+                              {formatHarga(unit)}
+                            </span>
                             <span style={{ fontSize: 11, color: '#444' }}>{new Date(unit.expiry_date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })}</span>
                           </div>
                         </div>
@@ -271,7 +281,7 @@ export default function StokPage() {
         )}
       </div>
 
-      {/* ── Modal: Detail Unit ───────────────────────────────────────────────── */}
+      {/* ── Modal: Detail Unit ── */}
       {detailUnit && (
         <div style={overlay}>
           <div style={modalBox}>
@@ -303,14 +313,14 @@ export default function StokPage() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
               {([
-                ['Produk',     detailUnit.nama_produk],
-                ['MO',         `#${detailUnit.mo_id}`],
-                ['Harga Modal','Rp ' + Number(detailUnit.harga_modal ?? 0).toLocaleString('id')],
-                ['Harga Jual', 'Rp ' + Number(detailUnit.harga_jual  ?? 0).toLocaleString('id')],
-                ['Expired',    new Date(detailUnit.expiry_date).toLocaleDateString('id-ID')],
-                ['Dispatched', detailUnit.dispatched_at ? new Date(detailUnit.dispatched_at).toLocaleDateString('id-ID') : '—'],
-                ['Terjual',    detailUnit.sold_at      ? new Date(detailUnit.sold_at).toLocaleDateString('id-ID')       : '—'],
-                ['Returned',   detailUnit.returned_at  ? new Date(detailUnit.returned_at).toLocaleDateString('id-ID')   : '—'],
+                ['Produk',      detailUnit.nama_produk],
+                ['MO',          `#${detailUnit.mo_id}`],
+                ['Harga Modal', detailUnit.harga_modal != null ? 'Rp ' + Number(detailUnit.harga_modal).toLocaleString('id-ID') : '—'],
+                ['Harga Jual',  detailUnit.harga_jual  != null ? 'Rp ' + Number(detailUnit.harga_jual).toLocaleString('id-ID')  : '—'],
+                ['Expired',     new Date(detailUnit.expiry_date).toLocaleDateString('id-ID')],
+                ['Dispatched',  detailUnit.dispatched_at ? new Date(detailUnit.dispatched_at).toLocaleDateString('id-ID') : '—'],
+                ['Terjual',     detailUnit.sold_at      ? new Date(detailUnit.sold_at).toLocaleDateString('id-ID')       : '—'],
+                ['Returned',    detailUnit.returned_at  ? new Date(detailUnit.returned_at).toLocaleDateString('id-ID')   : '—'],
               ] as [string, string][]).map(([k, v]) => (
                 <div key={k} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, padding: '10px 12px' }}>
                   <p style={{ color: '#555', fontSize: 11, margin: '0 0 3px', textTransform: 'uppercase', letterSpacing: 0.5 }}>{k}</p>
