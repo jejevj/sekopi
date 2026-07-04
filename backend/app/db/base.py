@@ -9,7 +9,7 @@ from app.models.stok import Stok  # noqa: F401
 from app.models.pengiriman import Pengiriman  # noqa: F401
 from app.models.penjualan import Penjualan  # noqa: F401
 from app.models.return_order import ReturnOrder, ReturnItem  # noqa: F401
-from app.models.purchase_order import PurchaseOrder, POItem  # noqa: F401
+from app.models.purchase_order import PurchaseOrder, PurchaseOrderItem  # noqa: F401
 from app.models.pengeluaran import Pengeluaran  # noqa: F401
 from app.models.gerobak import Gerobak, GerobakSaham  # noqa: F401
 from app.models.dividen import Dividen, DividenGerobak  # noqa: F401
