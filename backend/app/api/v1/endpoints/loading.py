@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db, require_roles
@@ -23,7 +23,7 @@ def _svc(db: AsyncSession = Depends(get_db)) -> LoadingService:
 async def create_loading(
     data: LoadingOrderCreate,
     svc: LoadingService = Depends(_svc),
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.INVENTORI])),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.INVENTORI)),
 ):
     return await svc.create(data, current_user.id)
 
@@ -53,9 +53,7 @@ async def update_loading(
     data: LoadingOrderUpdate,
     svc: LoadingService = Depends(_svc),
     current_user: User = Depends(
-        # DRIVER diizinkan untuk mengubah status dispatched & returned.
-        # Validasi lebih lanjut (misal: hanya driver pemilik loading) ada di service layer.
-        require_roles([UserRole.ADMIN, UserRole.INVENTORI, UserRole.DRIVER])
+        require_roles(UserRole.ADMIN, UserRole.INVENTORI, UserRole.DRIVER)
     ),
 ):
     return await svc.update_status(loading_id, data)
@@ -65,7 +63,7 @@ async def update_loading(
 async def delete_loading(
     loading_id: int,
     svc: LoadingService = Depends(_svc),
-    _: User = Depends(require_roles([UserRole.ADMIN])),
+    _: User = Depends(require_roles(UserRole.ADMIN)),
 ):
     await svc.delete(loading_id)
 
@@ -75,7 +73,7 @@ async def scan_item(
     loading_id: int,
     req: ScanItemRequest,
     svc: LoadingService = Depends(_svc),
-    _: User = Depends(require_roles([UserRole.ADMIN, UserRole.INVENTORI, UserRole.DRIVER])),
+    _: User = Depends(require_roles(UserRole.ADMIN, UserRole.INVENTORI, UserRole.DRIVER)),
 ):
     return await svc.scan_item(loading_id, req)
 
@@ -85,6 +83,6 @@ async def remove_item(
     loading_id: int,
     item_id: int,
     svc: LoadingService = Depends(_svc),
-    _: User = Depends(require_roles([UserRole.ADMIN, UserRole.INVENTORI])),
+    _: User = Depends(require_roles(UserRole.ADMIN, UserRole.INVENTORI)),
 ):
     return await svc.remove_item(loading_id, item_id)
