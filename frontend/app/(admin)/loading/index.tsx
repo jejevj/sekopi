@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, ActivityIndicator, Modal } from 'react-native';
 import { PackageCheck, Plus, Search, X, CheckCircle, AlertCircle, Truck } from 'lucide-react-native';
-import api from '../../../lib/api';
+import { api } from '../../../lib/api';
 
 // ── Types sesuai LoadingOrderResponse dari backend ──────────────────────────
 interface GerobakSnap { id: number; nama: string; }
@@ -204,7 +204,6 @@ export default function LoadingPage() {
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                       <Truck size={12} color="rgba(255,255,255,0.25)" />
-                      {/* Gunakan order.gerobak.nama & order.driver.full_name sesuai schema backend */}
                       <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>
                         {order.gerobak.nama} • {order.driver.full_name}
                       </Text>
