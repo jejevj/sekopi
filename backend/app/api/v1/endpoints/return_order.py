@@ -16,21 +16,20 @@ router = APIRouter()
 
 # ──────────────────────────────────────────────────────────────────────────────
 # GET /return/my-loading-today
-# Driver ambil daftar loading order miliknya hari ini yang sudah dispatched.
-# Digunakan frontend untuk mengisi dropdown saat driver buat return order.
-# HARUS di atas route /{return_id} agar tidak di-shadow oleh path param.
+# ADMIN : semua loading dispatched/returned hari ini
+# DRIVER: hanya miliknya sendiri
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get(
     "/my-loading-today",
     response_model=list[LoadingOrderForReturnResponse],
-    summary="Loading order milik driver hari ini (untuk dropdown pilih saat return)",
+    summary="Loading order hari ini yang sudah dispatched (untuk dropdown return)",
 )
 async def my_loading_today(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.DRIVER)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.INVENTORI, UserRole.DRIVER)),
 ):
     service = ReturnOrderService(db)
-    orders = await service.get_my_loading_today(current_user.id)
+    orders = await service.get_my_loading_today(current_user.id, current_user.role)
     return [
         LoadingOrderForReturnResponse(
             id=lo.id,
@@ -50,16 +49,11 @@ async def my_loading_today(
 async def create_return(
     payload: ReturnOrderCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.DRIVER)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.INVENTORI, UserRole.DRIVER)),
 ):
-    """
-    Driver buat return order.
-    - `loading_order_id` wajib diisi, harus milik driver ini dan dibuat hari ini.
-    - Scan barcode per item, tandai SISA atau RUSAK.
-    """
     service = ReturnOrderService(db)
     try:
-        return await service.create_return(payload, current_user.id)
+        return await service.create_return(payload, current_user.id, current_user.role)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -71,9 +65,8 @@ async def create_return(
 async def submit_return(
     return_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.DRIVER)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.INVENTORI, UserRole.DRIVER)),
 ):
-    """Driver submit return order setelah semua item diinput."""
     service = ReturnOrderService(db)
     try:
         return await service.submit_return(return_id, current_user.id)
@@ -91,11 +84,6 @@ async def review_return(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.INVENTORI)),
 ):
-    """
-    Admin/Inventori konfirmasi kondisi tiap item.
-    BAIK → unit kembali READY (bisa dijual lagi).
-    RUSAK_KONFIRMASI → unit VOID (kerugian tercatat).
-    """
     service = ReturnOrderService(db)
     try:
         return await service.review_return(return_id, payload, current_user.id)
@@ -114,7 +102,6 @@ async def return_summary(
         UserRole.ADMIN, UserRole.INVENTORI, UserRole.SHAREHOLDER
     )),
 ):
-    """Summary retur: sisa, rusak, per batch MO. Kini menyertakan info loading order."""
     service = ReturnOrderService(db)
     try:
         return await service.get_return_summary(return_id)
