@@ -254,7 +254,7 @@ async def seed_mo(
     bahan: dict[str, BahanBaku],
     menu_list: list[Menu],
     users: dict[str, User],
-) -> list[ManufacturingOrder]:
+) -> tuple[list[ManufacturingOrder], MOLine]:
     """
     Seed MO dengan struktur baru: 1 MO header bisa punya banyak MOLine.
 
@@ -262,13 +262,14 @@ async def seed_mo(
     MO-2: IN_PROGRESS— 1 line (Kopi Arabika Es 50 unit)
     MO-3: CONFIRMED  — 1 line (Kopi Susu Arabika 75 unit)
     MO-4: DRAFT      — 1 line (Kopi Hitam Robusta 120 unit)
+
+    Returns (mo_list, line1a) — line1a dipakai untuk seed production_units.
     """
     today = date.today()
     admin_id     = users["admin"].id
     produksi_id  = users["produksi"].id
     inventori_id = users["inventori"].id
 
-    # Helper: cari menu by nama
     menu_by_nama = {m.nama: m for m in menu_list}
 
     mo_list = []
@@ -293,7 +294,7 @@ async def seed_mo(
         nama_produk=m_robusta.nama, target_qty=100, satuan="unit"
     )
     db.add(line1a)
-    await db.flush()
+    await db.flush()  # flush agar line1a.id terisi
     for nama, qty_rencana, qty_per_unit, satuan in [
         ("Kopi Robusta",      2.0,   0.02,  "kg"),
         ("Gula Pasir",        5.0,   0.05,  "kg"),
@@ -421,7 +422,8 @@ async def seed_mo(
 
     await db.flush()
     print(f"✅  {len(mo_list)} MO dibuat (MO-1 punya 2 line, total 5 MOLine)")
-    return mo_list
+    # Kembalikan juga line1a agar run_seed bisa pakai tanpa akses .lines relationship
+    return mo_list, line1a
 
 
 async def seed_production_units(
@@ -459,12 +461,10 @@ async def run_seed(fresh: bool = True) -> None:
         bahan     = await seed_bahan_baku(db)
         await seed_stok(db, bahan, users["admin"])
         menu_list = await seed_menu(db, bahan)
-        mo_list   = await seed_mo(db, bahan, menu_list, users)
+        mo_list, line1a = await seed_mo(db, bahan, menu_list, users)
 
-        # Generate unit dari line pertama MO-1
-        mo1    = mo_list[0]
-        line1a = mo1.lines[0]  # Kopi Susu Robusta
-        await seed_production_units(db, mo1, line1a)
+        # Generate unit dari line pertama MO-1 (line1a sudah di-return langsung)
+        await seed_production_units(db, mo_list[0], line1a)
 
         await db.commit()
         print("\n🎉  Seed selesai!")
