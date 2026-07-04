@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
@@ -28,11 +28,6 @@ class ReturnOrderService:
         count = result.scalar() or 0
         return f"{prefix}{str(count + 1).zfill(3)}"
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Ambil loading order hari ini untuk dropdown pilih saat buat return.
-    # - ADMIN/INVENTORI : semua loading dispatched/returned hari ini
-    # - DRIVER          : hanya miliknya sendiri
-    # ──────────────────────────────────────────────────────────────────────────
     async def get_my_loading_today(
         self, driver_id: int, user_role: UserRole
     ) -> list[LoadingOrder]:
@@ -50,7 +45,6 @@ class ReturnOrderService:
             LoadingOrder.created_at <= today_end,
         ]
 
-        # DRIVER hanya lihat miliknya sendiri
         if user_role == UserRole.DRIVER:
             base_filter.append(LoadingOrder.driver_id == driver_id)
 
@@ -61,15 +55,15 @@ class ReturnOrderService:
         )
         return list(result.scalars().all())
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Buat return order
-    # ──────────────────────────────────────────────────────────────────────────
     async def create_return(
         self, payload: ReturnOrderCreate, driver_id: int, user_role: UserRole
     ) -> ReturnOrder:
         loading_order = await self._validate_loading_for_driver(
             payload.loading_order_id, driver_id, user_role
         )
+
+        # Kumpulkan semua barcode yang ada di loading ini
+        loading_barcodes = {item.barcode_snapshot for item in loading_order.items}
 
         validated_items = []
         errors = []
@@ -81,16 +75,16 @@ class ReturnOrderService:
             if not unit:
                 errors.append(f"Barcode {item.barcode} tidak ditemukan")
                 continue
+            if item.barcode not in loading_barcodes:
+                errors.append(
+                    f"Barcode {item.barcode} bukan bagian dari loading {loading_order.nomor_loading}"
+                )
+                continue
             if unit.status == StatusUnit.SOLD:
                 errors.append(f"Barcode {item.barcode} sudah terjual, tidak bisa diretur")
                 continue
             if unit.status in [StatusUnit.VOID, StatusUnit.EXPIRED]:
                 errors.append(f"Barcode {item.barcode} berstatus {unit.status}, tidak bisa diretur")
-                continue
-            if unit.pengiriman_id != payload.pengiriman_id:
-                errors.append(
-                    f"Barcode {item.barcode} bukan dari pengiriman ID {payload.pengiriman_id}"
-                )
                 continue
             validated_items.append((item, unit))
 
@@ -100,7 +94,6 @@ class ReturnOrderService:
         nomor_return = await self._generate_nomor_return()
         return_order = ReturnOrder(
             nomor_return=nomor_return,
-            pengiriman_id=payload.pengiriman_id,
             loading_order_id=loading_order.id,
             driver_id=driver_id,
             catatan_driver=payload.catatan_driver,
@@ -121,7 +114,6 @@ class ReturnOrderService:
                 kondisi_konfirmasi=KondisiKonfirmasi.PENDING,
             )
             self.db.add(return_item)
-
             unit.returned_at = now
             if item_payload.kategori == KategoriReturn.RUSAK:
                 unit.status = StatusUnit.RETURNED_DAMAGED
@@ -132,11 +124,6 @@ class ReturnOrderService:
         await self.db.refresh(return_order)
         return return_order
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Validasi loading order
-    # - ADMIN/INVENTORI : boleh pilih loading milik siapapun hari ini
-    # - DRIVER          : hanya boleh loading miliknya sendiri
-    # ──────────────────────────────────────────────────────────────────────────
     async def _validate_loading_for_driver(
         self, loading_order_id: int, driver_id: int, user_role: UserRole
     ) -> LoadingOrder:
@@ -146,19 +133,15 @@ class ReturnOrderService:
         lo = result.scalar_one_or_none()
         if not lo:
             raise ValueError(f"Loading order ID {loading_order_id} tidak ditemukan")
-
-        # Driver hanya boleh return loading miliknya
         if user_role == UserRole.DRIVER and lo.driver_id != driver_id:
             raise ValueError(
                 "Anda hanya bisa membuat return untuk loading order milik Anda sendiri"
             )
-
         today_start = datetime.now(timezone.utc).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
         if lo.created_at < today_start:
             raise ValueError("Return hanya bisa dibuat untuk loading order hari ini")
-
         if lo.status not in (StatusLoading.DISPATCHED, StatusLoading.RETURNED):
             raise ValueError(
                 f"Loading order harus berstatus dispatched untuk bisa di-return "
@@ -166,9 +149,6 @@ class ReturnOrderService:
             )
         return lo
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Submit
-    # ──────────────────────────────────────────────────────────────────────────
     async def submit_return(self, return_id: int, driver_id: int) -> ReturnOrder:
         ro = await self._get_or_404(return_id)
         if ro.driver_id != driver_id:
@@ -180,9 +160,6 @@ class ReturnOrderService:
         await self.db.refresh(ro)
         return ro
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Review
-    # ──────────────────────────────────────────────────────────────────────────
     async def review_return(
         self, return_id: int, payload: ReviewReturnOrderRequest, reviewer_id: int
     ) -> ReturnOrder:
@@ -191,15 +168,12 @@ class ReturnOrderService:
             raise ValueError("Return order harus berstatus SUBMITTED untuk direview")
 
         item_map = {item.id: item for item in ro.items}
-
         for review in payload.items:
             ret_item = item_map.get(review.return_item_id)
             if not ret_item:
                 raise ValueError(f"Return item ID {review.return_item_id} tidak ditemukan")
-
             ret_item.kondisi_konfirmasi = review.kondisi_konfirmasi
             ret_item.catatan_reviewer = review.catatan_reviewer
-
             result = await self.db.execute(
                 select(ProductionUnit).where(
                     ProductionUnit.id == ret_item.production_unit_id
@@ -208,7 +182,6 @@ class ReturnOrderService:
             unit = result.scalar_one_or_none()
             if not unit:
                 continue
-
             if review.kondisi_konfirmasi == KondisiKonfirmasi.BAIK:
                 unit.status = StatusUnit.READY
                 unit.pengiriman_id = None
@@ -224,14 +197,10 @@ class ReturnOrderService:
         ro.reviewed_by = reviewer_id
         ro.reviewed_at = datetime.now(timezone.utc)
         ro.catatan_reviewer = payload.catatan_reviewer
-
         await self.db.commit()
         await self.db.refresh(ro)
         return ro
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Summary
-    # ──────────────────────────────────────────────────────────────────────────
     async def get_return_summary(self, return_id: int) -> dict:
         ro = await self._get_or_404(return_id)
         total_sisa  = sum(1 for i in ro.items if i.kategori == KategoriReturn.SISA)
@@ -245,7 +214,6 @@ class ReturnOrderService:
         total_pending = sum(
             1 for i in ro.items if i.kondisi_konfirmasi == KondisiKonfirmasi.PENDING
         )
-
         batch_summary: dict[int, dict] = {}
         for item in ro.items:
             if item.mo_id not in batch_summary:
@@ -261,7 +229,6 @@ class ReturnOrderService:
                 "id": ro.loading_order.id,
                 "nomor_loading": ro.loading_order.nomor_loading,
             }
-
         return {
             "nomor_return": ro.nomor_return,
             "status": ro.status,

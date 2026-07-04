@@ -33,18 +33,14 @@ class ReturnOrder(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     nomor_return: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
-    pengiriman_id: Mapped[int] = mapped_column(ForeignKey("pengiriman.id"), nullable=False)
     driver_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-
-    # ── FK ke LoadingOrder (Opsi A) — nullable agar data lama tetap valid ──
-    loading_order_id: Mapped[int | None] = mapped_column(
+    loading_order_id: Mapped[int] = mapped_column(
         Integer,
-        ForeignKey("loading_orders.id", ondelete="SET NULL"),
-        nullable=True,
+        ForeignKey("loading_orders.id", ondelete="RESTRICT"),
+        nullable=False,
         index=True,
         comment="FK ke loading_orders — trip loading yang menjadi sumber retur ini.",
     )
-
     status: Mapped[StatusReturnOrder] = mapped_column(
         Enum(StatusReturnOrder, values_callable=_enum_values),
         default=StatusReturnOrder.DRAFT,
@@ -63,7 +59,6 @@ class ReturnOrder(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    pengiriman    = relationship("Pengiriman", lazy="selectin")
     driver        = relationship("User", foreign_keys=[driver_id], lazy="selectin")
     reviewer      = relationship("User", foreign_keys=[reviewed_by], lazy="selectin")
     items         = relationship("ReturnItem", back_populates="return_order", lazy="selectin")
@@ -77,7 +72,6 @@ class ReturnItem(Base):
     return_order_id: Mapped[int] = mapped_column(ForeignKey("return_orders.id"), nullable=False)
     production_unit_id: Mapped[int] = mapped_column(ForeignKey("production_units.id"), nullable=False)
     barcode: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-
     mo_id: Mapped[int] = mapped_column(
         ForeignKey("manufacturing_orders.id"), nullable=False,
         comment="FK ke MO header — untuk laporan return per-MO."
@@ -86,7 +80,6 @@ class ReturnItem(Base):
         ForeignKey("mo_lines.id"), nullable=True,
         comment="FK ke MOLine — nullable untuk backward compat data lama."
     )
-
     kategori: Mapped[KategoriReturn] = mapped_column(
         Enum(KategoriReturn, values_callable=_enum_values), nullable=False
     )

@@ -22,7 +22,6 @@ class ReturnItemResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# ── Snapshot loading order untuk ditampilkan dalam respons return ──
 class LoadingOrderSnap(BaseModel):
     id: int
     nomor_loading: str
@@ -31,8 +30,7 @@ class LoadingOrderSnap(BaseModel):
 
 
 class ReturnOrderCreate(BaseModel):
-    pengiriman_id: int
-    loading_order_id: int                # wajib — driver harus pilih loading trip miliknya hari ini
+    loading_order_id: int          # wajib — driver pilih loading trip miliknya hari ini
     catatan_driver: str | None = None
     items: list[ReturnItemCreate]
 
@@ -40,9 +38,8 @@ class ReturnOrderCreate(BaseModel):
 class ReturnOrderResponse(BaseModel):
     id: int
     nomor_return: str
-    pengiriman_id: int
     driver_id: int
-    loading_order_id: int | None = None
+    loading_order_id: int
     loading_order: LoadingOrderSnap | None = None
     status: StatusReturnOrder
     catatan_driver: str | None = None
@@ -51,7 +48,6 @@ class ReturnOrderResponse(BaseModel):
     reviewed_at: datetime | None = None
     created_at: datetime
     items: list[ReturnItemResponse] = []
-    # Summary counts
     total_sisa: int = 0
     total_rusak: int = 0
 
@@ -60,7 +56,7 @@ class ReturnOrderResponse(BaseModel):
 
 class ReviewItemRequest(BaseModel):
     return_item_id: int
-    kondisi_konfirmasi: KondisiKonfirmasi  # BAIK atau RUSAK_KONFIRMASI
+    kondisi_konfirmasi: KondisiKonfirmasi
     catatan_reviewer: str | None = None
 
 
@@ -69,9 +65,7 @@ class ReviewReturnOrderRequest(BaseModel):
     items: list[ReviewItemRequest]
 
 
-# ── Response untuk endpoint GET /return/my-loading-today ──
 class LoadingOrderForReturnResponse(BaseModel):
-    """Info loading order yang bisa dipilih driver saat buat return."""
     id: int
     nomor_loading: str
     gerobak_nama: str
