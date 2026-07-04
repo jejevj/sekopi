@@ -80,11 +80,18 @@ class ReturnOrderService:
                     f"Barcode {item.barcode} bukan bagian dari loading {loading_order.nomor_loading}"
                 )
                 continue
-            if unit.status == StatusUnit.SOLD:
-                errors.append(f"Barcode {item.barcode} sudah terjual, tidak bisa diretur")
-                continue
-            if unit.status in [StatusUnit.VOID, StatusUnit.EXPIRED]:
-                errors.append(f"Barcode {item.barcode} berstatus {unit.status}, tidak bisa diretur")
+            # Unit yang boleh di-return: ON_GEROBAK atau DISPATCHED (legacy)
+            if unit.status not in (StatusUnit.ON_GEROBAK, StatusUnit.DISPATCHED):
+                if unit.status == StatusUnit.SOLD:
+                    errors.append(f"Barcode {item.barcode} sudah terjual, tidak bisa diretur")
+                elif unit.status in (StatusUnit.VOID, StatusUnit.EXPIRED):
+                    errors.append(f"Barcode {item.barcode} berstatus {unit.status}, tidak bisa diretur")
+                elif unit.status == StatusUnit.RETURNED_GOOD:
+                    errors.append(f"Barcode {item.barcode} sudah pernah dikembalikan (kondisi baik)")
+                elif unit.status == StatusUnit.RETURNED_DAMAGED:
+                    errors.append(f"Barcode {item.barcode} sudah pernah dikembalikan (rusak)")
+                else:
+                    errors.append(f"Barcode {item.barcode} berstatus {unit.status}, tidak bisa diretur")
                 continue
             validated_items.append((item, unit))
 
@@ -114,11 +121,9 @@ class ReturnOrderService:
                 kondisi_konfirmasi=KondisiKonfirmasi.PENDING,
             )
             self.db.add(return_item)
+            # Tandai sudah dikembalikan secara fisik, tapi belum dikonfirmasi gudang
+            # Status tetap ON_GEROBAK sampai review selesai
             unit.returned_at = now
-            if item_payload.kategori == KategoriReturn.RUSAK:
-                unit.status = StatusUnit.RETURNED_DAMAGED
-            else:
-                unit.status = StatusUnit.RETURNED_GOOD
 
         await self.db.commit()
         await self.db.refresh(return_order)
@@ -163,17 +168,26 @@ class ReturnOrderService:
     async def review_return(
         self, return_id: int, payload: ReviewReturnOrderRequest, reviewer_id: int
     ) -> ReturnOrder:
+        """
+        Review oleh gudang:
+          - BAIK           → unit kembali ke stok (status = READY, clear lokasi)
+          - RUSAK_KONFIRMASI → unit keluar dari stok permanen (status = RETURNED_DAMAGED, clear lokasi)
+        """
         ro = await self._get_or_404(return_id)
         if ro.status != StatusReturnOrder.SUBMITTED:
             raise ValueError("Return order harus berstatus SUBMITTED untuk direview")
 
+        now = datetime.now(timezone.utc)
         item_map = {item.id: item for item in ro.items}
+
         for review in payload.items:
             ret_item = item_map.get(review.return_item_id)
             if not ret_item:
                 raise ValueError(f"Return item ID {review.return_item_id} tidak ditemukan")
+
             ret_item.kondisi_konfirmasi = review.kondisi_konfirmasi
-            ret_item.catatan_reviewer = review.catatan_reviewer
+            ret_item.catatan_reviewer   = review.catatan_reviewer
+
             result = await self.db.execute(
                 select(ProductionUnit).where(
                     ProductionUnit.id == ret_item.production_unit_id
@@ -182,20 +196,29 @@ class ReturnOrderService:
             unit = result.scalar_one_or_none()
             if not unit:
                 continue
+
+            # Selalu clear kolom lokasi — unit tidak lagi di gerobak
+            unit.loading_order_id   = None
+            unit.current_gerobak_id = None
+            unit.current_driver_id  = None
+
             if review.kondisi_konfirmasi == KondisiKonfirmasi.BAIK:
-                unit.status = StatusUnit.READY
-                unit.pengiriman_id = None
+                # ✅ Kembali ke stok gudang
+                unit.status      = StatusUnit.READY
+                unit.returned_at = now
+
             elif review.kondisi_konfirmasi == KondisiKonfirmasi.RUSAK_KONFIRMASI:
-                unit.status = StatusUnit.VOID
+                # ❌ Keluar dari stok — rusak permanen
+                unit.status      = StatusUnit.RETURNED_DAMAGED
+                unit.returned_at = now
                 unit.void_reason = (
                     f"Rusak dikonfirmasi saat retur {ro.nomor_return}. "
                     f"Catatan: {review.catatan_reviewer or '-'}"
                 )
-                unit.voided_at = datetime.now(timezone.utc)
 
-        ro.status = StatusReturnOrder.REVIEWED
-        ro.reviewed_by = reviewer_id
-        ro.reviewed_at = datetime.now(timezone.utc)
+        ro.status         = StatusReturnOrder.REVIEWED
+        ro.reviewed_by    = reviewer_id
+        ro.reviewed_at    = now
         ro.catatan_reviewer = payload.catatan_reviewer
         await self.db.commit()
         await self.db.refresh(ro)
