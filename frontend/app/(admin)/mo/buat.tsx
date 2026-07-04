@@ -3,20 +3,24 @@ import { useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../lib/api';
 import { Navbar } from '../../../components/layout/Navbar';
-import { ArrowLeft, ClipboardList, Package, BookOpen, Info } from 'lucide-react-native';
+import { ArrowLeft, ClipboardList, Package, BookOpen, Info, Plus, Trash2 } from 'lucide-react-native';
 
-/** Format angka: buang trailing zeros, tapi tetap presisi sampai 6 desimal */
 function fmtQty(n: number): string {
-  // toFixed(6) lalu strip trailing zeros dan titik di akhir
   return parseFloat(n.toFixed(6)).toString();
 }
+
+interface MOLine {
+  menuId: string;
+  targetQty: string;
+}
+
+const emptyLine = (): MOLine => ({ menuId: '', targetQty: '' });
 
 export default function BuatMOPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  const [menuId, setMenuId] = useState('');
-  const [targetQty, setTargetQty] = useState('');
+  const [lines, setLines] = useState<MOLine[]>([emptyLine()]);
   const [tanggalRencana, setTanggalRencana] = useState('');
   const [catatan, setCatatan] = useState('');
   const [error, setError] = useState('');
@@ -27,8 +31,14 @@ export default function BuatMOPage() {
   });
   const menuList: any[] = (Array.isArray(menuData) ? menuData : []).filter((m: any) => m.is_active);
 
-  const menuDipilih = menuList.find(m => m.id.toString() === menuId) ?? null;
-  const resepAktif = menuDipilih?.resep_list?.find((r: any) => r.is_active) ?? null;
+  // Helpers
+  const updateLine = (idx: number, patch: Partial<MOLine>) =>
+    setLines(prev => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+  const addLine = () => setLines(prev => [...prev, emptyLine()]);
+  const removeLine = (idx: number) => setLines(prev => prev.filter((_, i) => i !== idx));
+
+  const getMenu = (id: string) => menuList.find(m => m.id.toString() === id) ?? null;
+  const getResep = (menu: any) => menu?.resep_list?.find((r: any) => r.is_active) ?? null;
 
   const mutation = useMutation({
     mutationFn: (payload: any) => api.post('/manufacturing-orders/', payload).then(r => r.data),
@@ -41,26 +51,40 @@ export default function BuatMOPage() {
 
   const handleSubmit = () => {
     setError('');
-    if (!menuId) { setError('Pilih menu terlebih dahulu.'); return; }
-    if (!targetQty || parseFloat(targetQty) <= 0) { setError('Target qty wajib diisi.'); return; }
     if (!tanggalRencana) { setError('Tanggal rencana wajib diisi.'); return; }
-    if (!resepAktif) { setError('Menu yang dipilih belum memiliki resep aktif. Tambahkan resep di halaman Menu dulu.'); return; }
+    if (lines.length === 0) { setError('Tambahkan minimal 1 menu.'); return; }
 
-    const bahanLines = resepAktif.bahan_list.map((b: any) => ({
-      bahan_baku_id: b.bahan_baku_id,
-      qty_rencana: parseFloat((b.qty_per_unit * parseFloat(targetQty)).toFixed(6)),
-      qty_per_unit: b.qty_per_unit,
-      satuan: b.satuan,
-    }));
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      const menu = getMenu(l.menuId);
+      const resep = getResep(menu);
+      if (!l.menuId) { setError(`Line ${i + 1}: Pilih menu terlebih dahulu.`); return; }
+      if (!l.targetQty || parseFloat(l.targetQty) <= 0) { setError(`Line ${i + 1}: Target qty wajib diisi.`); return; }
+      if (!resep) { setError(`Line ${i + 1}: Menu "${menu?.nama}" belum memiliki resep aktif.`); return; }
+    }
+
+    const mo_lines = lines.map(l => {
+      const menu = getMenu(l.menuId)!;
+      const resep = getResep(menu)!;
+      const qty = parseFloat(l.targetQty);
+      return {
+        menu_id: parseInt(l.menuId),
+        nama_produk: menu.nama,
+        target_qty: qty,
+        satuan: 'unit',
+        bahan_baku_lines: resep.bahan_list.map((b: any) => ({
+          bahan_baku_id: b.bahan_baku_id,
+          qty_rencana: parseFloat((b.qty_per_unit * qty).toFixed(6)),
+          qty_per_unit: b.qty_per_unit,
+          satuan: b.satuan,
+        })),
+      };
+    });
 
     mutation.mutate({
-      menu_id: parseInt(menuId),
-      nama_produk: menuDipilih.nama,
-      target_qty: parseFloat(targetQty),
-      satuan: 'unit',
       tanggal_rencana: tanggalRencana,
       catatan: catatan.trim() || undefined,
-      bahan_baku_lines: bahanLines,
+      mo_lines,
     });
   };
 
@@ -83,72 +107,13 @@ export default function BuatMOPage() {
           </div>
         )}
 
-        {/* Pilih Menu */}
-        <div style={card}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-            <BookOpen size={16} color="#f87171" />
-            <span style={{ color: 'white', fontWeight: 700, fontSize: 15 }}>Pilih Menu</span>
-          </div>
-          <div>
-            <label style={lbl}>MENU PRODUK *</label>
-            <select value={menuId} onChange={e => setMenuId((e.target as any).value)} style={{ ...inp, cursor: 'pointer' }}>
-              <option value="">Pilih menu...</option>
-              {menuList.map((m: any) => (
-                <option key={m.id} value={m.id} style={{ background: '#1a1a1a' }}>
-                  {m.nama} — Rp {Number(m.harga_jual).toLocaleString('id-ID')}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {menuDipilih && (
-            <div style={{ marginTop: 14, background: resepAktif ? 'rgba(96,165,250,0.06)' : 'rgba(234,179,8,0.06)', border: `1px solid ${resepAktif ? 'rgba(96,165,250,0.2)' : 'rgba(234,179,8,0.2)'}`, borderRadius: 10, padding: '12px 16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                <Info size={13} color={resepAktif ? '#60a5fa' : '#eab308'} />
-                <span style={{ color: resepAktif ? '#60a5fa' : '#eab308', fontSize: 13, fontWeight: 600 }}>
-                  {resepAktif ? `Resep Aktif: ${resepAktif.nama_versi}` : '⚠️ Belum ada resep aktif!'}
-                </span>
-              </div>
-              {resepAktif && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {resepAktif.bahan_list?.map((b: any) => (
-                    <div key={b.bahan_baku_id} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: '#666', fontSize: 13 }}>{b.nama_bahan ?? `Bahan ID-${b.bahan_baku_id}`}</span>
-                      <span style={{ color: '#555', fontSize: 13 }}>{fmtQty(b.qty_per_unit)} {b.satuan} / unit</span>
-                    </div>
-                  ))}
-                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 6, paddingTop: 6 }}>
-                    <span style={{ color: '#22c55e', fontSize: 13 }}>Harga Jual: Rp {Number(menuDipilih.harga_jual).toLocaleString('id-ID')} / unit</span>
-                  </div>
-                </div>
-              )}
-              {!resepAktif && (
-                <button
-                  onClick={() => router.push(`/(admin)/menu/${menuDipilih.id}` as any)}
-                  style={{ marginTop: 6, background: 'none', border: '1px solid rgba(234,179,8,0.3)', borderRadius: 7, padding: '6px 12px', color: '#eab308', fontSize: 12, cursor: 'pointer' }}
-                >
-                  Tambah Resep di Halaman Menu →
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Detail MO */}
+        {/* Header MO */}
         <div style={card}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
             <ClipboardList size={16} color="#60a5fa" />
-            <span style={{ color: 'white', fontWeight: 700, fontSize: 15 }}>Detail Produksi</span>
+            <span style={{ color: 'white', fontWeight: 700, fontSize: 15 }}>Detail MO</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <div>
-              <label style={lbl}>TARGET QTY *</label>
-              <input type="number" value={targetQty} onChange={e => setTargetQty((e.target as any).value)} placeholder="100" style={inp} />
-            </div>
-            <div>
-              <label style={lbl}>SATUAN</label>
-              <input value="unit" readOnly style={{ ...inp, color: '#555', cursor: 'default', backgroundColor: 'rgba(255,255,255,0.02)' }} />
-            </div>
             <div style={{ gridColumn: '1 / -1' }}>
               <label style={lbl}>TANGGAL RENCANA *</label>
               <input type="date" value={tanggalRencana} onChange={e => setTanggalRencana((e.target as any).value)} style={{ ...inp, colorScheme: 'dark' } as any} />
@@ -160,47 +125,140 @@ export default function BuatMOPage() {
           </div>
         </div>
 
-        {/* Preview BOM */}
-        {resepAktif && targetQty && parseFloat(targetQty) > 0 && (
-          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: 16, marginBottom: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-              <Package size={14} color="#555" />
-              <span style={{ color: '#555', fontSize: 13, fontWeight: 600 }}>Preview BOM untuk {targetQty} unit</span>
+        {/* Lines */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <BookOpen size={16} color="#f87171" />
+            <span style={{ color: 'white', fontWeight: 700, fontSize: 15 }}>Menu yang Diproduksi</span>
+          </div>
+          <button
+            onClick={addLine}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(244,68,68,0.1)', border: '1px solid rgba(244,68,68,0.3)', borderRadius: 8, padding: '7px 14px', color: '#f87171', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}
+          >
+            <Plus size={14} color="#f87171" /> Tambah Menu
+          </button>
+        </div>
+
+        {lines.map((line, idx) => {
+          const menu = getMenu(line.menuId);
+          const resep = getResep(menu);
+          const qty = parseFloat(line.targetQty);
+          return (
+            <div key={idx} style={{ ...card, borderColor: 'rgba(255,255,255,0.1)' }}>
+              {/* Line header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <span style={{ color: '#60a5fa', fontWeight: 700, fontSize: 13 }}>Line {idx + 1}</span>
+                {lines.length > 1 && (
+                  <button
+                    onClick={() => removeLine(idx)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 7, padding: '5px 10px', color: '#f87171', fontSize: 12, cursor: 'pointer' }}
+                  >
+                    <Trash2 size={12} color="#f87171" /> Hapus
+                  </button>
+                )}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'end' }}>
+                <div>
+                  <label style={lbl}>MENU PRODUK *</label>
+                  <select value={line.menuId} onChange={e => updateLine(idx, { menuId: (e.target as any).value })} style={{ ...inp, cursor: 'pointer' }}>
+                    <option value="">Pilih menu...</option>
+                    {menuList.map((m: any) => (
+                      <option key={m.id} value={m.id} style={{ background: '#1a1a1a' }}>
+                        {m.nama} — Rp {Number(m.harga_jual).toLocaleString('id-ID')}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ width: 120 }}>
+                  <label style={lbl}>TARGET QTY *</label>
+                  <input
+                    type="number" value={line.targetQty}
+                    onChange={e => updateLine(idx, { targetQty: (e.target as any).value })}
+                    placeholder="100"
+                    style={inp}
+                  />
+                </div>
+              </div>
+
+              {/* Resep info */}
+              {menu && (
+                <div style={{ marginTop: 12, background: resep ? 'rgba(96,165,250,0.06)' : 'rgba(234,179,8,0.06)', border: `1px solid ${resep ? 'rgba(96,165,250,0.2)' : 'rgba(234,179,8,0.2)'}`, borderRadius: 10, padding: '10px 14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: resep ? 8 : 0 }}>
+                    <Info size={12} color={resep ? '#60a5fa' : '#eab308'} />
+                    <span style={{ color: resep ? '#60a5fa' : '#eab308', fontSize: 12, fontWeight: 600 }}>
+                      {resep ? `Resep Aktif: ${resep.nama_versi}` : '⚠️ Belum ada resep aktif!'}
+                    </span>
+                  </div>
+                  {resep && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      {resep.bahan_list?.map((b: any) => (
+                        <div key={b.bahan_baku_id} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: '#666', fontSize: 12 }}>{b.nama_bahan ?? `Bahan ID-${b.bahan_baku_id}`}</span>
+                          <span style={{ color: '#555', fontSize: 12 }}>{fmtQty(b.qty_per_unit)} {b.satuan} / unit</span>
+                        </div>
+                      ))}
+                      <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 4, paddingTop: 4 }}>
+                        <span style={{ color: '#22c55e', fontSize: 12 }}>Harga Jual: Rp {Number(menu.harga_jual).toLocaleString('id-ID')} / unit</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Preview BOM per line */}
+              {resep && !isNaN(qty) && qty > 0 && (
+                <div style={{ marginTop: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 10, padding: '10px 14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <Package size={12} color="#555" />
+                    <span style={{ color: '#555', fontSize: 12, fontWeight: 600 }}>Preview BOM — {qty} unit</span>
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ textAlign: 'left', color: '#444', fontSize: 10, fontWeight: 600, letterSpacing: 0.5, paddingBottom: 6, textTransform: 'uppercase' }}>Bahan</th>
+                        <th style={{ textAlign: 'right', color: '#444', fontSize: 10, fontWeight: 600, letterSpacing: 0.5, paddingBottom: 6, textTransform: 'uppercase' }}>Per Unit</th>
+                        <th style={{ textAlign: 'right', color: '#444', fontSize: 10, fontWeight: 600, letterSpacing: 0.5, paddingBottom: 6, textTransform: 'uppercase' }}>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {resep.bahan_list?.map((b: any) => (
+                        <tr key={b.bahan_baku_id} style={{ borderTop: '1px solid rgba(255,255,255,0.03)' }}>
+                          <td style={{ color: '#666', fontSize: 12, padding: '4px 0' }}>{b.nama_bahan ?? `Bahan ID-${b.bahan_baku_id}`}</td>
+                          <td style={{ color: '#555', fontSize: 12, textAlign: 'right', padding: '4px 0' }}>{fmtQty(b.qty_per_unit)} {b.satuan}</td>
+                          <td style={{ color: '#aaa', fontSize: 12, textAlign: 'right', padding: '4px 0', fontWeight: 600 }}>
+                            {fmtQty(b.qty_per_unit * qty)} {b.satuan}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  <th style={{ textAlign: 'left', color: '#444', fontSize: 11, fontWeight: 600, letterSpacing: 0.5, paddingBottom: 8, textTransform: 'uppercase' }}>Bahan</th>
-                  <th style={{ textAlign: 'right', color: '#444', fontSize: 11, fontWeight: 600, letterSpacing: 0.5, paddingBottom: 8, textTransform: 'uppercase' }}>Per Unit</th>
-                  <th style={{ textAlign: 'right', color: '#444', fontSize: 11, fontWeight: 600, letterSpacing: 0.5, paddingBottom: 8, textTransform: 'uppercase' }}>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {resepAktif.bahan_list?.map((b: any) => (
-                  <tr key={b.bahan_baku_id} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-                    <td style={{ color: '#666', fontSize: 13, padding: '6px 0' }}>{b.nama_bahan ?? `Bahan ID-${b.bahan_baku_id}`}</td>
-                    <td style={{ color: '#555', fontSize: 13, textAlign: 'right', padding: '6px 0' }}>{fmtQty(b.qty_per_unit)} {b.satuan}</td>
-                    <td style={{ color: '#aaa', fontSize: 13, textAlign: 'right', padding: '6px 0', fontWeight: 600 }}>
-                      {fmtQty(b.qty_per_unit * parseFloat(targetQty))} {b.satuan}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          );
+        })}
+
+        {/* Summary total lines */}
+        {lines.length > 1 && (
+          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: '10px 16px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: '#888', fontSize: 13 }}>Total Line</span>
+            <span style={{ color: 'white', fontWeight: 700, fontSize: 15 }}>{lines.length} menu</span>
           </div>
         )}
 
         <button
           onClick={handleSubmit}
-          disabled={mutation.isPending || !menuId || !resepAktif}
+          disabled={mutation.isPending}
           style={{
             width: '100%', padding: 13,
-            backgroundColor: (mutation.isPending || !menuId || !resepAktif) ? 'rgba(244,68,68,0.3)' : '#f44444',
+            backgroundColor: mutation.isPending ? 'rgba(244,68,68,0.3)' : '#f44444',
             border: 'none', borderRadius: 12, color: 'white', fontWeight: 700, fontSize: 15,
-            cursor: (mutation.isPending || !menuId || !resepAktif) ? 'not-allowed' : 'pointer',
+            cursor: mutation.isPending ? 'not-allowed' : 'pointer',
+            marginBottom: 40,
           }}
         >
-          {mutation.isPending ? 'Menyimpan...' : 'Buat Manufacturing Order'}
+          {mutation.isPending ? 'Menyimpan...' : `Buat MO (${lines.length} Menu)`}
         </button>
 
       </div>
