@@ -1,7 +1,7 @@
 # SekoPi — Frontend TODO
 
 > Dibuat: **2026-07-04 12:49 WIB**
-> Last updated: **2026-07-04 14:47 WIB**
+> Last updated: **2026-07-04 19:31 WIB**
 > Status legend: `[ ]` belum · `[~]` perlu audit/fix · `[x]` selesai
 
 ---
@@ -104,6 +104,9 @@
 - `[x]` Fix `ScanVoidRequest.alasan` — 2026-07-04
 - `[x]` Model + API Absensi (CRUD lengkap) — **2026-07-04**
 - `[x]` Model + API Loading Gerobak (scan stok, status machine) — **2026-07-04**
+- `[x]` Tabel `penjualan` — backfill data dari `production_units` — **2026-07-04**
+- `[x]` Endpoint `GET /penjualan/` — list transaksi + join gerobak, driver, grup saham — **2026-07-04**
+- `[x]` Timezone WIB (Asia/Jakarta) — semua response datetime pakai `+07:00` — **2026-07-04**
 - `[ ]` Cek endpoint `GET /menu/` — pastikan include `resep_list` + `bahan_list`
 - `[ ]` Cek endpoint `GET /manufacturing-orders/{id}` — include `bahan_baku_lines`
 - `[ ]` Cek endpoint `PATCH /manufacturing-orders/{id}/status`
@@ -126,6 +129,13 @@ Sesi 2026-07-04 (2) ✅ SELESAI
 ├── [x] Backend: model + CRUD Loading Gerobak (scan barcode)
 ├── [x] Migration 0003_absensi_loading
 └── [x] Frontend: halaman monitoring absensi
+
+Sesi 2026-07-04 (3) ✅ SELESAI
+├── [x] Backfill tabel penjualan dari production_units (SQL manual)
+├── [x] Endpoint GET /penjualan/ — join gerobak + driver + grup saham
+├── [x] Laporan frontend — filter datetime-local (jam & menit) WIB
+├── [x] Kolom Gerobak, Driver, Grup Saham di tabel laporan
+└── [x] Timezone helper app/core/timezone.py
 
 Sesi Berikutnya 🔜
 ├── [1] Audit + fix mo/[id].tsx          ← MULAI DARI SINI
