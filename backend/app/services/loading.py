@@ -4,7 +4,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.models.loading import LoadingItem, LoadingOrder, StatusLoading
-from app.models.production_unit import ProductionUnit, ProductionUnitStatus
+from app.models.production_unit import ProductionUnit, StatusUnit
 from app.repositories.loading import LoadingRepository
 from app.schemas.loading import (
     LoadingOrderCreate, LoadingOrderResponse, LoadingOrderUpdate, ScanItemRequest,
@@ -53,11 +53,10 @@ class LoadingService:
         if not obj:
             raise HTTPException(status_code=404, detail="Loading order tidak ditemukan")
 
-        # status machine guard
         transitions = {
-            StatusLoading.DRAFT: [StatusLoading.CONFIRMED],
+            StatusLoading.DRAFT:     [StatusLoading.CONFIRMED],
             StatusLoading.CONFIRMED: [StatusLoading.DISPATCHED],
-            StatusLoading.DISPATCHED: [StatusLoading.RETURNED],
+            StatusLoading.DISPATCHED:[StatusLoading.RETURNED],
         }
         if data.status and data.status not in transitions.get(obj.status, []):
             raise HTTPException(
@@ -69,8 +68,8 @@ class LoadingService:
         if data.status == StatusLoading.DISPATCHED:
             for item in obj.items:
                 pu = self.db.get(ProductionUnit, item.production_unit_id)
-                if pu and pu.status == ProductionUnitStatus.READY:
-                    pu.status = ProductionUnitStatus.DISPATCHED
+                if pu and pu.status == StatusUnit.READY:
+                    pu.status = StatusUnit.DISPATCHED
 
         if data.status:
             obj.status = data.status
@@ -89,13 +88,12 @@ class LoadingService:
             raise HTTPException(status_code=400, detail="Hanya loading berstatus DRAFT yang bisa di-scan")
 
         from sqlalchemy import select
-        from app.models.production_unit import ProductionUnit
         pu = self.db.scalar(
             select(ProductionUnit).where(ProductionUnit.barcode == req.barcode)
         )
         if not pu:
             raise HTTPException(status_code=404, detail=f"Barcode '{req.barcode}' tidak ditemukan")
-        if pu.status != ProductionUnitStatus.READY:
+        if pu.status != StatusUnit.READY:
             raise HTTPException(
                 status_code=400,
                 detail=f"Unit {req.barcode} berstatus {pu.status} — hanya READY yang bisa diloading",

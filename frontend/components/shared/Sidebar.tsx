@@ -1,4 +1,4 @@
-import { View, Text, Pressable } from "react-native";
+import { View, Text, Pressable, ScrollView } from "react-native";
 import { Link, usePathname } from "expo-router";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { UserRole } from "@/lib/types/user";
@@ -11,8 +11,10 @@ const menuByRole: Record<UserRole, { label: string; href: string; icon?: string 
     { label: "Pembelian",    href: "/(admin)/pembelian",   icon: "🛒" },
     { label: "Mfg. Order",   href: "/(admin)/mo",          icon: "📋" },
     { label: "Produksi",     href: "/(admin)/produksi",    icon: "⚡" },
-    { label: "Gerobak",      href: "/(admin)/gerobak",     icon: "🛺" },
+    { label: "Loading",      href: "/(admin)/loading",     icon: "📦" },
+    { label: "Gerobak",      href: "/(admin)/gerobak",     icon: "🛵" },
     { label: "Return",       href: "/(admin)/return",      icon: "↩️" },
+    { label: "Absensi",      href: "/(admin)/absensi",     icon: "📅" },
     { label: "Pengguna",     href: "/(admin)/users",       icon: "👥" },
   ],
   produksi:    [{ label: "Dashboard", href: "/(produksi)/dashboard" }],
@@ -21,7 +23,7 @@ const menuByRole: Record<UserRole, { label: string; href: string; icon?: string 
   shareholder: [{ label: "Laporan",   href: "/(shareholder)/laporan" }],
 };
 
-// Petakan href ke segmen path yang real di URL browser
+// Petakan href ke segmen path real di URL browser
 const HREF_TO_PATH: Record<string, string> = {
   "/(admin)/dashboard":  "/dashboard",
   "/(admin)/menu":       "/menu",
@@ -29,8 +31,10 @@ const HREF_TO_PATH: Record<string, string> = {
   "/(admin)/pembelian":  "/pembelian",
   "/(admin)/mo":         "/mo",
   "/(admin)/produksi":   "/produksi",
+  "/(admin)/loading":    "/loading",
   "/(admin)/gerobak":    "/gerobak",
   "/(admin)/return":     "/return",
+  "/(admin)/absensi":    "/absensi",
   "/(admin)/users":      "/users",
 };
 
@@ -43,8 +47,7 @@ export function Sidebar() {
 
   const isActive = (href: string) => {
     const mapped = HREF_TO_PATH[href] ?? href;
-    // exact match untuk dashboard, prefix match untuk yang lain
-    if (mapped === "/dashboard") return pathname === mapped || pathname === "/" ;
+    if (mapped === "/dashboard") return pathname === mapped || pathname === "/";
     return pathname === mapped || pathname.startsWith(mapped + "/");
   };
 
@@ -52,7 +55,7 @@ export function Sidebar() {
     <View style={{ width: 220, height: '100%', backgroundColor: '#111', borderRightWidth: 1, borderRightColor: '#1f1f1f', padding: 16, display: 'flex', flexDirection: 'column' } as any}>
       <Text style={{ color: 'white', fontSize: 18, fontWeight: '700', marginBottom: 24 }}>☕ SekoPi</Text>
 
-      <View style={{ flex: 1 }}>
+      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
         {menus.map((item) => {
           const active = isActive(item.href);
           return (
@@ -82,11 +85,11 @@ export function Sidebar() {
             </Link>
           );
         })}
-      </View>
+      </ScrollView>
 
       <Pressable
         onPress={logout}
-        style={{ paddingVertical: 9, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: '#1f1f1f' }}
+        style={{ paddingVertical: 9, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: '#1f1f1f', marginTop: 8 }}
       >
         <Text style={{ color: '#555', fontSize: 14 }}>🚪 Logout</Text>
       </Pressable>
