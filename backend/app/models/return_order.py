@@ -54,9 +54,9 @@ class ReturnOrder(Base):
     )
 
     pengiriman = relationship("Pengiriman", lazy="selectin")
-    driver = relationship("User", foreign_keys=[driver_id], lazy="selectin")
-    reviewer = relationship("User", foreign_keys=[reviewed_by], lazy="selectin")
-    items = relationship("ReturnItem", back_populates="return_order", lazy="selectin")
+    driver     = relationship("User", foreign_keys=[driver_id], lazy="selectin")
+    reviewer   = relationship("User", foreign_keys=[reviewed_by], lazy="selectin")
+    items      = relationship("ReturnItem", back_populates="return_order", lazy="selectin")
 
 
 class ReturnItem(Base):
@@ -66,7 +66,18 @@ class ReturnItem(Base):
     return_order_id: Mapped[int] = mapped_column(ForeignKey("return_orders.id"), nullable=False)
     production_unit_id: Mapped[int] = mapped_column(ForeignKey("production_units.id"), nullable=False)
     barcode: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-    mo_id: Mapped[int] = mapped_column(ForeignKey("manufacturing_orders.id"), nullable=False)
+
+    # Tetap simpan mo_id (MO header) agar laporan return per-MO tetap bisa dibuat
+    mo_id: Mapped[int] = mapped_column(
+        ForeignKey("manufacturing_orders.id"), nullable=False,
+        comment="FK ke MO header — untuk laporan return per-MO."
+    )
+    # Tambah mo_line_id agar return bisa ditelusuri sampai produk spesifik
+    mo_line_id: Mapped[int | None] = mapped_column(
+        ForeignKey("mo_lines.id"), nullable=True,
+        comment="FK ke MOLine — nullable untuk backward compat data lama."
+    )
+
     kategori: Mapped[KategoriReturn] = mapped_column(
         Enum(KategoriReturn, values_callable=_enum_values), nullable=False
     )
@@ -81,6 +92,7 @@ class ReturnItem(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
-    return_order = relationship("ReturnOrder", back_populates="items")
-    production_unit = relationship("ProductionUnit", lazy="selectin")
+    return_order        = relationship("ReturnOrder", back_populates="items")
+    production_unit     = relationship("ProductionUnit", lazy="selectin")
     manufacturing_order = relationship("ManufacturingOrder", lazy="selectin")
+    mo_line             = relationship("MOLine", lazy="selectin")

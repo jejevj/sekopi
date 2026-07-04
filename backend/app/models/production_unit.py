@@ -28,7 +28,18 @@ class ProductionUnit(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     barcode: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
-    mo_id: Mapped[int] = mapped_column(ForeignKey("manufacturing_orders.id"), nullable=False)
+
+    # Referensi ke MO header (untuk traceability level MO)
+    mo_id: Mapped[int] = mapped_column(
+        ForeignKey("manufacturing_orders.id"), nullable=False,
+        comment="FK ke MO header — untuk traceability & grouping."
+    )
+    # Referensi ke MOLine (untuk tahu unit ini produk/menu yang mana)
+    mo_line_id: Mapped[int] = mapped_column(
+        ForeignKey("mo_lines.id"), nullable=False,
+        comment="FK ke MOLine — menentukan menu & target_qty spesifik."
+    )
+
     nama_produk: Mapped[str] = mapped_column(String(255), nullable=False)
     expiry_date: Mapped[date] = mapped_column(Date, nullable=False)
     harga_modal: Mapped[float | None] = mapped_column(
@@ -56,23 +67,33 @@ class ProductionUnit(Base):
     )
 
     manufacturing_order = relationship("ManufacturingOrder", lazy="selectin")
-    pengiriman = relationship("Pengiriman", lazy="selectin")
+    mo_line             = relationship("MOLine", lazy="selectin")
+    pengiriman          = relationship("Pengiriman", lazy="selectin")
 
 
 class GenerateBatch(Base):
     """
-    Merekam satu sesi generate unit dari sebuah MO.
-    Menyimpan jumlah target, aktual, dan alasan selisih.
+    Merekam satu sesi generate unit dari sebuah MOLine.
     """
     __tablename__ = "generate_batch"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    mo_id: Mapped[int] = mapped_column(ForeignKey("manufacturing_orders.id"), nullable=False, index=True)
+
+    # Tetap simpan mo_id untuk grouping / laporan per MO
+    mo_id: Mapped[int] = mapped_column(
+        ForeignKey("manufacturing_orders.id"), nullable=False, index=True,
+        comment="FK ke MO header."
+    )
+    # mo_line_id menentukan produk mana yang di-generate dalam batch ini
+    mo_line_id: Mapped[int] = mapped_column(
+        ForeignKey("mo_lines.id"), nullable=False, index=True,
+        comment="FK ke MOLine — produk spesifik yang di-generate."
+    )
     generated_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
 
     jumlah_target: Mapped[int] = mapped_column(
         Integer, nullable=False,
-        comment="target_qty dari MO saat generate dilakukan"
+        comment="target_qty dari MOLine saat generate dilakukan"
     )
     jumlah_aktual: Mapped[int] = mapped_column(
         Integer, nullable=False,
@@ -99,4 +120,5 @@ class GenerateBatch(Base):
     )
 
     manufacturing_order = relationship("ManufacturingOrder", lazy="selectin")
-    generated_by_user = relationship("User", lazy="selectin")
+    mo_line             = relationship("MOLine", lazy="selectin")
+    generated_by_user   = relationship("User", lazy="selectin")

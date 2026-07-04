@@ -10,7 +10,7 @@ import app.db.base  # noqa: F401
 
 from app.db.session import AsyncSessionLocal
 from app.models.bahan_baku import BahanBaku
-from app.models.manufacturing_order import ManufacturingOrder, MOBahanBaku, StatusMO
+from app.models.manufacturing_order import ManufacturingOrder, MOLine, MOBahanBaku, StatusMO
 from app.models.menu import Menu, Resep, ResepBahan
 from app.models.production_unit import ProductionUnit, StatusUnit
 from app.models.stok import Stok, TipeTransaksiStok
@@ -25,13 +25,17 @@ def hash_pw(pw: str) -> str:
 
 async def truncate_all(db: AsyncSession) -> None:
     tables = [
+        "return_items",
+        "return_orders",
+        "generate_batch",
+        "production_units",
+        "mo_bahan_baku",
+        "mo_lines",
+        "manufacturing_orders",
+        "stok",
         "resep_bahan",
         "resep",
         "menu",
-        "production_units",
-        "mo_bahan_baku",
-        "manufacturing_orders",
-        "stok",
         "bahan_baku",
         "users",
     ]
@@ -67,16 +71,15 @@ async def seed_users(db: AsyncSession) -> dict[str, User]:
 
 
 async def seed_bahan_baku(db: AsyncSession) -> dict[str, BahanBaku]:
-    # harga_beli_per_satuan = harga per 1 satuan referensi (kg/liter/pcs/kaleng)
     items = [
-        {"nama": "Kopi Robusta",      "satuan": "kg",     "satuan_display": "gram", "konversi_factor": 1000, "stok_minimum": 5,   "harga_beli": 80_000},   # Rp 80.000/kg
-        {"nama": "Kopi Arabika",      "satuan": "kg",     "satuan_display": "gram", "konversi_factor": 1000, "stok_minimum": 3,   "harga_beli": 120_000},  # Rp 120.000/kg
-        {"nama": "Gula Pasir",        "satuan": "kg",     "satuan_display": "gram", "konversi_factor": 1000, "stok_minimum": 10,  "harga_beli": 14_000},   # Rp 14.000/kg
-        {"nama": "Susu Kental Manis", "satuan": "kaleng", "satuan_display": None,   "konversi_factor": None, "stok_minimum": 20,  "harga_beli": 12_000},   # Rp 12.000/kaleng
-        {"nama": "Air Mineral",       "satuan": "liter",  "satuan_display": "ml",   "konversi_factor": 1000, "stok_minimum": 50,  "harga_beli": 500},      # Rp 500/liter
-        {"nama": "Cup Plastik 250ml", "satuan": "pcs",    "satuan_display": None,   "konversi_factor": None, "stok_minimum": 500, "harga_beli": 350},      # Rp 350/pcs
-        {"nama": "Sedotan",           "satuan": "pcs",    "satuan_display": None,   "konversi_factor": None, "stok_minimum": 500, "harga_beli": 50},       # Rp 50/pcs
-        {"nama": "Stiker Label",      "satuan": "pcs",    "satuan_display": None,   "konversi_factor": None, "stok_minimum": 500, "harga_beli": 150},      # Rp 150/pcs
+        {"nama": "Kopi Robusta",      "satuan": "kg",     "satuan_display": "gram", "konversi_factor": 1000, "stok_minimum": 5,   "harga_beli": 80_000},
+        {"nama": "Kopi Arabika",      "satuan": "kg",     "satuan_display": "gram", "konversi_factor": 1000, "stok_minimum": 3,   "harga_beli": 120_000},
+        {"nama": "Gula Pasir",        "satuan": "kg",     "satuan_display": "gram", "konversi_factor": 1000, "stok_minimum": 10,  "harga_beli": 14_000},
+        {"nama": "Susu Kental Manis", "satuan": "kaleng", "satuan_display": None,   "konversi_factor": None, "stok_minimum": 20,  "harga_beli": 12_000},
+        {"nama": "Air Mineral",       "satuan": "liter",  "satuan_display": "ml",   "konversi_factor": 1000, "stok_minimum": 50,  "harga_beli": 500},
+        {"nama": "Cup Plastik 250ml", "satuan": "pcs",    "satuan_display": None,   "konversi_factor": None, "stok_minimum": 500, "harga_beli": 350},
+        {"nama": "Sedotan",           "satuan": "pcs",    "satuan_display": None,   "konversi_factor": None, "stok_minimum": 500, "harga_beli": 50},
+        {"nama": "Stiker Label",      "satuan": "pcs",    "satuan_display": None,   "konversi_factor": None, "stok_minimum": 500, "harga_beli": 150},
     ]
     result: dict[str, BahanBaku] = {}
     for it in items:
@@ -91,7 +94,7 @@ async def seed_bahan_baku(db: AsyncSession) -> dict[str, BahanBaku]:
         db.add(b)
         result[it["nama"]] = b
     await db.flush()
-    print(f"✅  {len(items)} bahan baku dibuat (dengan harga beli)")
+    print(f"✅  {len(items)} bahan baku dibuat")
     return result
 
 
@@ -121,12 +124,6 @@ async def seed_stok(db: AsyncSession, bahan: dict[str, BahanBaku], admin: User) 
 async def seed_menu(db: AsyncSession, bahan: dict[str, BahanBaku]) -> list[Menu]:
     """
     Seed 4 menu kopi beserta resep aktif (v1) dan bahan bakunya.
-
-    Estimasi harga modal per cup (acuan resep v1):
-      Kopi Susu Robusta  : Rp 4.150  (0.02kg×80k + 0.05kg×14k + 0.1klg×12k + 0.2L×500 + cup+sedotan+stiker)
-      Kopi Susu Arabika  : Rp 5.350  (0.02kg×120k + 0.05kg×14k + 0.1klg×12k + 0.2L×500 + cup+sedotan+stiker)
-      Kopi Hitam Robusta : Rp 2.850  (0.025kg×80k + 0.05kg×14k + 0.2L×500 + cup+sedotan+stiker)
-      Kopi Arabika Es    : Rp 4.750  (0.03kg×120k + 0.06kg×14k + 0.3L×500 + cup+sedotan+stiker)
     """
     menus_data = [
         {
@@ -248,66 +245,92 @@ async def seed_menu(db: AsyncSession, bahan: dict[str, BahanBaku]) -> list[Menu]
 
     await db.flush()
     total_resep = sum(len(md["resep"]) for md in menus_data)
-    print(f"✅  {len(menu_list)} menu dibuat ({total_resep} resep, dengan bahan baku)")
+    print(f"✅  {len(menu_list)} menu dibuat ({total_resep} resep)")
     return menu_list
 
 
 async def seed_mo(
     db: AsyncSession,
     bahan: dict[str, BahanBaku],
+    menu_list: list[Menu],
     users: dict[str, User],
 ) -> list[ManufacturingOrder]:
     """
-    qty_per_unit = berapa banyak bahan per 1 cup.
-    Contoh MO-1 (100 cup Kopi Susu Robusta):
-      - Kopi Robusta  : 2 kg / 100 cup = 0.02 kg/cup
-      - Gula Pasir    : 5 kg / 100 cup = 0.05 kg/cup
-      - Susu          : 10 kaleng / 100 cup = 0.1 kaleng/cup
-      - Air Mineral   : 20 liter / 100 cup = 0.2 liter/cup
-      - Cup/Sedotan/Stiker: 1 pcs/cup
+    Seed MO dengan struktur baru: 1 MO header bisa punya banyak MOLine.
 
-    Estimasi harga modal per cup MO-1:
-      = (0.02×80000) + (0.05×14000) + (0.1×12000) + (0.2×500) + (1×350) + (1×50) + (1×150)
-      = 1600 + 700 + 1200 + 100 + 350 + 50 + 150
-      = Rp 4.150/cup
+    MO-1: DONE       — 2 line (Kopi Susu Robusta 100 unit + Kopi Hitam Robusta 80 unit)
+    MO-2: IN_PROGRESS— 1 line (Kopi Arabika Es 50 unit)
+    MO-3: CONFIRMED  — 1 line (Kopi Susu Arabika 75 unit)
+    MO-4: DRAFT      — 1 line (Kopi Hitam Robusta 120 unit)
     """
     today = date.today()
     admin_id     = users["admin"].id
     produksi_id  = users["produksi"].id
     inventori_id = users["inventori"].id
 
+    # Helper: cari menu by nama
+    menu_by_nama = {m.nama: m for m in menu_list}
+
     mo_list = []
 
-    # --- MO-1: DONE (100 cup Kopi Susu Robusta 250ml)
+    # ----------------------------------------------------------------
+    # MO-1: DONE — 2 produk dalam satu MO
+    # ----------------------------------------------------------------
     mo1 = ManufacturingOrder(
         nomor_mo=f"MO-{today.strftime('%Y%m%d')}-001",
-        nama_produk="Kopi Susu Robusta 250ml",
-        target_qty=100, satuan="cup",
         tanggal_rencana=today,
         status=StatusMO.DONE,
-        catatan="Batch pertama hari ini",
+        catatan="Batch produksi pertama — 2 produk sekaligus",
         created_by=produksi_id, approved_by=admin_id, inventori_by=inventori_id,
     )
     db.add(mo1)
     await db.flush()
+
+    # Line 1: Kopi Susu Robusta 100 unit
+    m_robusta = menu_by_nama["Kopi Susu Robusta 250ml"]
+    line1a = MOLine(
+        mo_id=mo1.id, menu_id=m_robusta.id,
+        nama_produk=m_robusta.nama, target_qty=100, satuan="unit"
+    )
+    db.add(line1a)
+    await db.flush()
     for nama, qty_rencana, qty_per_unit, satuan in [
-        ("Kopi Robusta",       2.0,   0.02,  "kg"),
-        ("Gula Pasir",         5.0,   0.05,  "kg"),
-        ("Susu Kental Manis", 10.0,   0.1,   "kaleng"),
-        ("Air Mineral",        20.0,  0.2,   "liter"),
-        ("Cup Plastik 250ml", 100.0,  1.0,   "pcs"),
-        ("Sedotan",           100.0,  1.0,   "pcs"),
-        ("Stiker Label",      100.0,  1.0,   "pcs"),
+        ("Kopi Robusta",      2.0,   0.02,  "kg"),
+        ("Gula Pasir",        5.0,   0.05,  "kg"),
+        ("Susu Kental Manis", 10.0,  0.1,   "kaleng"),
+        ("Air Mineral",       20.0,  0.2,   "liter"),
+        ("Cup Plastik 250ml", 100.0, 1.0,   "pcs"),
+        ("Sedotan",           100.0, 1.0,   "pcs"),
+        ("Stiker Label",      100.0, 1.0,   "pcs"),
     ]:
-        db.add(MOBahanBaku(mo_id=mo1.id, bahan_baku_id=bahan[nama].id,
+        db.add(MOBahanBaku(mo_line_id=line1a.id, bahan_baku_id=bahan[nama].id,
+                           qty_rencana=qty_rencana, qty_per_unit=qty_per_unit, satuan=satuan))
+
+    # Line 2: Kopi Hitam Robusta 80 unit
+    m_hitam = menu_by_nama["Kopi Hitam Robusta 250ml"]
+    line1b = MOLine(
+        mo_id=mo1.id, menu_id=m_hitam.id,
+        nama_produk=m_hitam.nama, target_qty=80, satuan="unit"
+    )
+    db.add(line1b)
+    await db.flush()
+    for nama, qty_rencana, qty_per_unit, satuan in [
+        ("Kopi Robusta",      2.0,   0.025, "kg"),
+        ("Gula Pasir",        4.0,   0.05,  "kg"),
+        ("Air Mineral",       16.0,  0.2,   "liter"),
+        ("Cup Plastik 250ml", 80.0,  1.0,   "pcs"),
+        ("Sedotan",           80.0,  1.0,   "pcs"),
+        ("Stiker Label",      80.0,  1.0,   "pcs"),
+    ]:
+        db.add(MOBahanBaku(mo_line_id=line1b.id, bahan_baku_id=bahan[nama].id,
                            qty_rencana=qty_rencana, qty_per_unit=qty_per_unit, satuan=satuan))
     mo_list.append(mo1)
 
-    # --- MO-2: IN_PROGRESS (50 cup Kopi Arabika Es 250ml)
+    # ----------------------------------------------------------------
+    # MO-2: IN_PROGRESS — 1 produk
+    # ----------------------------------------------------------------
     mo2 = ManufacturingOrder(
         nomor_mo=f"MO-{today.strftime('%Y%m%d')}-002",
-        nama_produk="Kopi Arabika Es 250ml",
-        target_qty=50, satuan="cup",
         tanggal_rencana=today,
         status=StatusMO.IN_PROGRESS,
         catatan="Sedang diproduksi",
@@ -315,23 +338,30 @@ async def seed_mo(
     )
     db.add(mo2)
     await db.flush()
+    m_es = menu_by_nama["Kopi Arabika Es 250ml"]
+    line2 = MOLine(
+        mo_id=mo2.id, menu_id=m_es.id,
+        nama_produk=m_es.nama, target_qty=50, satuan="unit"
+    )
+    db.add(line2)
+    await db.flush()
     for nama, qty_rencana, qty_per_unit, satuan in [
-        ("Kopi Arabika",       1.5,  0.03,  "kg"),
-        ("Gula Pasir",         3.0,  0.06,  "kg"),
-        ("Air Mineral",        15.0, 0.3,   "liter"),
-        ("Cup Plastik 250ml",  50.0, 1.0,   "pcs"),
-        ("Sedotan",            50.0, 1.0,   "pcs"),
-        ("Stiker Label",       50.0, 1.0,   "pcs"),
+        ("Kopi Arabika",      1.5,  0.03,  "kg"),
+        ("Gula Pasir",        3.0,  0.06,  "kg"),
+        ("Air Mineral",       15.0, 0.3,   "liter"),
+        ("Cup Plastik 250ml", 50.0, 1.0,   "pcs"),
+        ("Sedotan",           50.0, 1.0,   "pcs"),
+        ("Stiker Label",      50.0, 1.0,   "pcs"),
     ]:
-        db.add(MOBahanBaku(mo_id=mo2.id, bahan_baku_id=bahan[nama].id,
+        db.add(MOBahanBaku(mo_line_id=line2.id, bahan_baku_id=bahan[nama].id,
                            qty_rencana=qty_rencana, qty_per_unit=qty_per_unit, satuan=satuan))
     mo_list.append(mo2)
 
-    # --- MO-3: CONFIRMED (75 cup Kopi Susu Arabika 250ml)
+    # ----------------------------------------------------------------
+    # MO-3: CONFIRMED — 1 produk
+    # ----------------------------------------------------------------
     mo3 = ManufacturingOrder(
         nomor_mo=f"MO-{today.strftime('%Y%m%d')}-003",
-        nama_produk="Kopi Susu Arabika 250ml",
-        target_qty=75, satuan="cup",
         tanggal_rencana=today + timedelta(days=1),
         status=StatusMO.CONFIRMED,
         catatan="Disetujui, tunggu inventori keluarkan bahan",
@@ -339,24 +369,31 @@ async def seed_mo(
     )
     db.add(mo3)
     await db.flush()
+    m_arabika = menu_by_nama["Kopi Susu Arabika 250ml"]
+    line3 = MOLine(
+        mo_id=mo3.id, menu_id=m_arabika.id,
+        nama_produk=m_arabika.nama, target_qty=75, satuan="unit"
+    )
+    db.add(line3)
+    await db.flush()
     for nama, qty_rencana, qty_per_unit, satuan in [
-        ("Kopi Arabika",       1.8,  0.024, "kg"),
-        ("Gula Pasir",         4.0,  0.053, "kg"),
-        ("Susu Kental Manis",  8.0,  0.107, "kaleng"),
-        ("Air Mineral",        18.0, 0.24,  "liter"),
-        ("Cup Plastik 250ml",  75.0, 1.0,   "pcs"),
-        ("Sedotan",            75.0, 1.0,   "pcs"),
-        ("Stiker Label",       75.0, 1.0,   "pcs"),
+        ("Kopi Arabika",      1.8,  0.024, "kg"),
+        ("Gula Pasir",        4.0,  0.053, "kg"),
+        ("Susu Kental Manis", 8.0,  0.107, "kaleng"),
+        ("Air Mineral",       18.0, 0.24,  "liter"),
+        ("Cup Plastik 250ml", 75.0, 1.0,   "pcs"),
+        ("Sedotan",           75.0, 1.0,   "pcs"),
+        ("Stiker Label",      75.0, 1.0,   "pcs"),
     ]:
-        db.add(MOBahanBaku(mo_id=mo3.id, bahan_baku_id=bahan[nama].id,
+        db.add(MOBahanBaku(mo_line_id=line3.id, bahan_baku_id=bahan[nama].id,
                            qty_rencana=qty_rencana, qty_per_unit=qty_per_unit, satuan=satuan))
     mo_list.append(mo3)
 
-    # --- MO-4: DRAFT (120 cup Kopi Hitam Robusta 250ml)
+    # ----------------------------------------------------------------
+    # MO-4: DRAFT — 1 produk
+    # ----------------------------------------------------------------
     mo4 = ManufacturingOrder(
         nomor_mo=f"MO-{today.strftime('%Y%m%d')}-004",
-        nama_produk="Kopi Hitam Robusta 250ml",
-        target_qty=120, satuan="cup",
         tanggal_rencana=today + timedelta(days=2),
         status=StatusMO.DRAFT,
         catatan="Menunggu persetujuan admin",
@@ -364,24 +401,35 @@ async def seed_mo(
     )
     db.add(mo4)
     await db.flush()
+    line4 = MOLine(
+        mo_id=mo4.id, menu_id=m_hitam.id,
+        nama_produk=m_hitam.nama, target_qty=120, satuan="unit"
+    )
+    db.add(line4)
+    await db.flush()
     for nama, qty_rencana, qty_per_unit, satuan in [
-        ("Kopi Robusta",       3.0,   0.025, "kg"),
-        ("Gula Pasir",         6.0,   0.05,  "kg"),
-        ("Air Mineral",        24.0,  0.2,   "liter"),
-        ("Cup Plastik 250ml", 120.0,  1.0,   "pcs"),
-        ("Sedotan",           120.0,  1.0,   "pcs"),
-        ("Stiker Label",      120.0,  1.0,   "pcs"),
+        ("Kopi Robusta",      3.0,   0.025, "kg"),
+        ("Gula Pasir",        6.0,   0.05,  "kg"),
+        ("Air Mineral",       24.0,  0.2,   "liter"),
+        ("Cup Plastik 250ml", 120.0, 1.0,   "pcs"),
+        ("Sedotan",           120.0, 1.0,   "pcs"),
+        ("Stiker Label",      120.0, 1.0,   "pcs"),
     ]:
-        db.add(MOBahanBaku(mo_id=mo4.id, bahan_baku_id=bahan[nama].id,
+        db.add(MOBahanBaku(mo_line_id=line4.id, bahan_baku_id=bahan[nama].id,
                            qty_rencana=qty_rencana, qty_per_unit=qty_per_unit, satuan=satuan))
     mo_list.append(mo4)
 
     await db.flush()
-    print(f"✅  {len(mo_list)} Manufacturing Orders dibuat")
+    print(f"✅  {len(mo_list)} MO dibuat (MO-1 punya 2 line, total 5 MOLine)")
     return mo_list
 
 
-async def seed_production_units(db: AsyncSession, mo_done: ManufacturingOrder) -> None:
+async def seed_production_units(
+    db: AsyncSession,
+    mo: ManufacturingOrder,
+    line: MOLine,
+) -> None:
+    """Generate 10 unit dari MO-1 Line-1 (Kopi Susu Robusta)."""
     today  = date.today()
     expiry = today + timedelta(days=2)
     units  = []
@@ -389,16 +437,17 @@ async def seed_production_units(db: AsyncSession, mo_done: ManufacturingOrder) -
         barcode = f"SKP-{today.strftime('%Y%m%d')}-{i:04d}"
         unit = ProductionUnit(
             barcode=barcode,
-            mo_id=mo_done.id,
-            nama_produk=mo_done.nama_produk,
+            mo_id=mo.id,
+            mo_line_id=line.id,
+            nama_produk=line.nama_produk,
             expiry_date=expiry,
-            harga_modal=4150.0,   # sesuai kalkulasi BOM MO-1
+            harga_modal=4150.0,
             status=StatusUnit.READY,
         )
         db.add(unit)
         units.append(unit)
     await db.flush()
-    print(f"✅  {len(units)} production units dibuat (harga_modal Rp 4.150)")
+    print(f"✅  {len(units)} production units dibuat (mo_line_id={line.id}, harga_modal Rp 4.150)")
 
 
 async def run_seed(fresh: bool = True) -> None:
@@ -406,12 +455,16 @@ async def run_seed(fresh: bool = True) -> None:
         if fresh:
             await truncate_all(db)
 
-        users   = await seed_users(db)
-        bahan   = await seed_bahan_baku(db)
+        users     = await seed_users(db)
+        bahan     = await seed_bahan_baku(db)
         await seed_stok(db, bahan, users["admin"])
-        await seed_menu(db, bahan)
-        mo_list = await seed_mo(db, bahan, users)
-        await seed_production_units(db, mo_list[0])
+        menu_list = await seed_menu(db, bahan)
+        mo_list   = await seed_mo(db, bahan, menu_list, users)
+
+        # Generate unit dari line pertama MO-1
+        mo1    = mo_list[0]
+        line1a = mo1.lines[0]  # Kopi Susu Robusta
+        await seed_production_units(db, mo1, line1a)
 
         await db.commit()
         print("\n🎉  Seed selesai!")
@@ -423,10 +476,15 @@ async def run_seed(fresh: bool = True) -> None:
         print("   driver2@sekopi.id      / driver123")
         print("   shareholder@sekopi.id  / shareholder123")
         print("\n🍵  Menu tersedia:")
-        print("   - Kopi Susu Robusta 250ml   Rp 8.000   (1 resep aktif)")
-        print("   - Kopi Susu Arabika 250ml   Rp 12.000  (2 resep: v1 aktif, v2-less-sugar nonaktif)")
-        print("   - Kopi Hitam Robusta 250ml  Rp 6.000   (1 resep aktif)")
-        print("   - Kopi Arabika Es 250ml     Rp 10.000  (1 resep aktif)")
+        print("   - Kopi Susu Robusta 250ml   Rp 8.000")
+        print("   - Kopi Susu Arabika 250ml   Rp 12.000")
+        print("   - Kopi Hitam Robusta 250ml  Rp 6.000")
+        print("   - Kopi Arabika Es 250ml     Rp 10.000")
+        print("\n📦  MO tersedia:")
+        print("   MO-001 DONE        — 2 line: Robusta 100 unit + Hitam 80 unit")
+        print("   MO-002 IN_PROGRESS — 1 line: Arabika Es 50 unit")
+        print("   MO-003 CONFIRMED   — 1 line: Susu Arabika 75 unit")
+        print("   MO-004 DRAFT       — 1 line: Hitam Robusta 120 unit")
 
 
 if __name__ == "__main__":
