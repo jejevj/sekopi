@@ -9,6 +9,7 @@ import {
   Package, FlaskConical, TriangleAlert, Truck, Coffee,
   TrendingUp, LogOut, ChevronLeft, ChevronRight,
   ShoppingCart, ShoppingBag, PieChart, Banknote, Wallet,
+  BookOpen,
   type LucideIcon,
 } from 'lucide-react-native';
 
@@ -24,6 +25,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   // Operasional
   { label: 'Dashboard',    href: '/(admin)/dashboard',                Icon: LayoutDashboard, roles: ['ADMIN', 'PRODUKSI'],    group: 'Operasional' },
+  { label: 'Menu & Resep', href: '/(admin)/menu',                    Icon: BookOpen,        roles: ['ADMIN'],                group: 'Operasional' },
   { label: 'Mfg. Order',  href: '/(admin)/mo',                       Icon: ClipboardList,   roles: ['ADMIN', 'PRODUKSI'],    group: 'Operasional' },
   { label: 'Produksi',    href: '/(admin)/produksi',                 Icon: Factory,         roles: ['ADMIN', 'PRODUKSI'],    group: 'Operasional' },
   { label: 'Return',      href: '/(admin)/return',                   Icon: Undo2,           roles: ['ADMIN', 'INVENTORI'],   group: 'Operasional' },
