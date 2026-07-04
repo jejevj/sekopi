@@ -1,14 +1,14 @@
 """0003 — tambah tabel absensi, loading_orders, loading_items
 
 Revision ID: 0003_absensi_loading
-Revises: 0002_selisih_produksi
+Revises: 0002_menu_resep_selisih
 Create Date: 2026-07-04
 """
 from alembic import op
 import sqlalchemy as sa
 
 revision = "0003_absensi_loading"
-down_revision = "0002_selisih_produksi"
+down_revision = "0002_menu_resep_selisih"
 branch_labels = None
 depends_on = None
 
