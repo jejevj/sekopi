@@ -2,52 +2,50 @@ from datetime import date
 from typing import Optional
 
 from sqlalchemy import and_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.absensi import Absensi
 from app.schemas.absensi import AbsensiCreate, AbsensiUpdate
 
 
 class AbsensiRepository:
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.db = db
 
-    def get_by_id(self, absensi_id: int) -> Optional[Absensi]:
-        return self.db.get(Absensi, absensi_id)
+    async def get_by_id(self, absensi_id: int) -> Optional[Absensi]:
+        return await self.db.get(Absensi, absensi_id)
 
-    def get_by_user_tanggal(self, user_id: int, tanggal: date) -> Optional[Absensi]:
-        return self.db.execute(
+    async def get_by_user_tanggal(self, user_id: int, tanggal: date) -> Optional[Absensi]:
+        result = await self.db.execute(
             select(Absensi).where(and_(Absensi.user_id == user_id, Absensi.tanggal == tanggal))
-        ).scalar_one_or_none()
-
-    def list_by_tanggal(self, tanggal: date) -> list[Absensi]:
-        return list(
-            self.db.execute(
-                select(Absensi).where(Absensi.tanggal == tanggal).order_by(Absensi.user_id)
-            ).scalars().all()
         )
+        return result.scalar_one_or_none()
 
-    def list_by_user(self, user_id: int, dari: date, sampai: date) -> list[Absensi]:
-        return list(
-            self.db.execute(
-                select(Absensi).where(
-                    and_(Absensi.user_id == user_id, Absensi.tanggal >= dari, Absensi.tanggal <= sampai)
-                ).order_by(Absensi.tanggal.desc())
-            ).scalars().all()
+    async def list_by_tanggal(self, tanggal: date) -> list[Absensi]:
+        result = await self.db.execute(
+            select(Absensi).where(Absensi.tanggal == tanggal).order_by(Absensi.user_id)
         )
+        return list(result.scalars().all())
 
-    def list_range(self, dari: date, sampai: date) -> list[Absensi]:
-        return list(
-            self.db.execute(
-                select(Absensi).where(
-                    and_(Absensi.tanggal >= dari, Absensi.tanggal <= sampai)
-                ).order_by(Absensi.tanggal.desc(), Absensi.user_id)
-            ).scalars().all()
+    async def list_by_user(self, user_id: int, dari: date, sampai: date) -> list[Absensi]:
+        result = await self.db.execute(
+            select(Absensi).where(
+                and_(Absensi.user_id == user_id, Absensi.tanggal >= dari, Absensi.tanggal <= sampai)
+            ).order_by(Absensi.tanggal.desc())
         )
+        return list(result.scalars().all())
 
-    def create(self, data: AbsensiCreate, dicatat_oleh: int,
-               jarak_meter: Optional[float] = None,
-               dalam_radius: Optional[bool] = None) -> Absensi:
+    async def list_range(self, dari: date, sampai: date) -> list[Absensi]:
+        result = await self.db.execute(
+            select(Absensi).where(
+                and_(Absensi.tanggal >= dari, Absensi.tanggal <= sampai)
+            ).order_by(Absensi.tanggal.desc(), Absensi.user_id)
+        )
+        return list(result.scalars().all())
+
+    async def create(self, data: AbsensiCreate, dicatat_oleh: int,
+                     jarak_meter: Optional[float] = None,
+                     dalam_radius: Optional[bool] = None) -> Absensi:
         obj = Absensi(
             user_id=data.user_id,
             tanggal=data.tanggal,
@@ -63,17 +61,17 @@ class AbsensiRepository:
             dicatat_oleh=dicatat_oleh,
         )
         self.db.add(obj)
-        self.db.commit()
-        self.db.refresh(obj)
+        await self.db.commit()
+        await self.db.refresh(obj)
         return obj
 
-    def update(self, obj: Absensi, data: AbsensiUpdate) -> Absensi:
+    async def update(self, obj: Absensi, data: AbsensiUpdate) -> Absensi:
         for field, val in data.model_dump(exclude_unset=True).items():
             setattr(obj, field, val)
-        self.db.commit()
-        self.db.refresh(obj)
+        await self.db.commit()
+        await self.db.refresh(obj)
         return obj
 
-    def delete(self, obj: Absensi) -> None:
-        self.db.delete(obj)
-        self.db.commit()
+    async def delete(self, obj: Absensi) -> None:
+        await self.db.delete(obj)
+        await self.db.commit()

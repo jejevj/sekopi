@@ -16,31 +16,32 @@ class AbsensiSettingService:
     def __init__(self, repo: AbsensiSettingRepository):
         self.repo = repo
 
-    def list_all(self) -> list[AbsensiSettingResponse]:
-        return [AbsensiSettingResponse.from_orm_obj(o) for o in self.repo.list_all()]
+    async def list_all(self) -> list[AbsensiSettingResponse]:
+        rows = await self.repo.list_all()
+        return [AbsensiSettingResponse.from_orm_obj(o) for o in rows]
 
-    def get(self, setting_id: int) -> AbsensiSettingResponse:
-        obj = self.repo.get_by_id(setting_id)
+    async def get(self, setting_id: int) -> AbsensiSettingResponse:
+        obj = await self.repo.get_by_id(setting_id)
         if not obj:
             raise HTTPException(404, "Setting tidak ditemukan")
         return AbsensiSettingResponse.from_orm_obj(obj)
 
-    def create(self, data: AbsensiSettingCreate) -> AbsensiSettingResponse:
-        obj = self.repo.create(data)
+    async def create(self, data: AbsensiSettingCreate) -> AbsensiSettingResponse:
+        obj = await self.repo.create(data)
         return AbsensiSettingResponse.from_orm_obj(obj)
 
-    def update(self, setting_id: int, data: AbsensiSettingUpdate) -> AbsensiSettingResponse:
-        obj = self.repo.get_by_id(setting_id)
+    async def update(self, setting_id: int, data: AbsensiSettingUpdate) -> AbsensiSettingResponse:
+        obj = await self.repo.get_by_id(setting_id)
         if not obj:
             raise HTTPException(404, "Setting tidak ditemukan")
-        obj = self.repo.update(obj, data)
+        obj = await self.repo.update(obj, data)
         return AbsensiSettingResponse.from_orm_obj(obj)
 
-    def delete(self, setting_id: int) -> None:
-        obj = self.repo.get_by_id(setting_id)
+    async def delete(self, setting_id: int) -> None:
+        obj = await self.repo.get_by_id(setting_id)
         if not obj:
             raise HTTPException(404, "Setting tidak ditemukan")
-        self.repo.delete(obj)
+        await self.repo.delete(obj)
 
 
 class AbsensiService:
@@ -48,13 +49,8 @@ class AbsensiService:
         self.repo = repo
         self.setting_repo = setting_repo
 
-    def _hitung_jarak(self, lat: float, lon: float):
-        """
-        Hitung jarak ke semua lokasi aktif.
-        Return (jarak_terdekat_meter, dalam_radius).
-        Jika tidak ada setting aktif, return (None, None).
-        """
-        settings = self.setting_repo.list_active()
+    async def _hitung_jarak(self, lat: float, lon: float):
+        settings = await self.setting_repo.list_active()
         if not settings:
             return None, None
         jarak_min = min(
@@ -67,48 +63,46 @@ class AbsensiService:
         )
         return round(jarak_min, 2), dalam_radius
 
-    def catat(self, data: AbsensiCreate, dicatat_oleh: int,
-              enforce_radius: bool = False) -> AbsensiResponse:
-        existing = self.repo.get_by_user_tanggal(data.user_id, data.tanggal)
+    async def catat(self, data: AbsensiCreate, dicatat_oleh: int,
+                    enforce_radius: bool = False) -> AbsensiResponse:
+        existing = await self.repo.get_by_user_tanggal(data.user_id, data.tanggal)
         if existing:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
                 detail=f"Absensi user {data.user_id} pada {data.tanggal} sudah ada.",
             )
-
         jarak = dalam_radius = None
         if data.latitude is not None and data.longitude is not None:
-            jarak, dalam_radius = self._hitung_jarak(data.latitude, data.longitude)
+            jarak, dalam_radius = await self._hitung_jarak(data.latitude, data.longitude)
             if enforce_radius and dalam_radius is False:
                 raise HTTPException(
                     status.HTTP_400_BAD_REQUEST,
-                    detail=f"Lokasi terlalu jauh dari titik absensi ({jarak:.0f} m). Harap absen di lokasi yang ditentukan.",
+                    detail=f"Lokasi terlalu jauh dari titik absensi ({jarak:.0f} m).",
                 )
-
-        obj = self.repo.create(data, dicatat_oleh, jarak_meter=jarak, dalam_radius=dalam_radius)
+        obj = await self.repo.create(data, dicatat_oleh, jarak_meter=jarak, dalam_radius=dalam_radius)
         return AbsensiResponse.from_orm_obj(obj)
 
-    def get(self, absensi_id: int) -> AbsensiResponse:
-        obj = self.repo.get_by_id(absensi_id)
+    async def get(self, absensi_id: int) -> AbsensiResponse:
+        obj = await self.repo.get_by_id(absensi_id)
         if not obj:
             raise HTTPException(404, "Absensi tidak ditemukan")
         return AbsensiResponse.from_orm_obj(obj)
 
-    def update(self, absensi_id: int, data: AbsensiUpdate) -> AbsensiResponse:
-        obj = self.repo.get_by_id(absensi_id)
+    async def update(self, absensi_id: int, data: AbsensiUpdate) -> AbsensiResponse:
+        obj = await self.repo.get_by_id(absensi_id)
         if not obj:
             raise HTTPException(404, "Absensi tidak ditemukan")
-        obj = self.repo.update(obj, data)
+        obj = await self.repo.update(obj, data)
         return AbsensiResponse.from_orm_obj(obj)
 
-    def delete(self, absensi_id: int) -> None:
-        obj = self.repo.get_by_id(absensi_id)
+    async def delete(self, absensi_id: int) -> None:
+        obj = await self.repo.get_by_id(absensi_id)
         if not obj:
             raise HTTPException(404, "Absensi tidak ditemukan")
-        self.repo.delete(obj)
+        await self.repo.delete(obj)
 
-    def rekap_harian(self, tanggal: date) -> AbsensiRekapHarian:
-        records = self.repo.list_by_tanggal(tanggal)
+    async def rekap_harian(self, tanggal: date) -> AbsensiRekapHarian:
+        records = await self.repo.list_by_tanggal(tanggal)
         resp = [AbsensiResponse.from_orm_obj(r) for r in records]
         return AbsensiRekapHarian(
             tanggal=tanggal,
@@ -121,8 +115,10 @@ class AbsensiService:
             records=resp,
         )
 
-    def list_by_user(self, user_id: int, dari: date, sampai: date) -> list[AbsensiResponse]:
-        return [AbsensiResponse.from_orm_obj(r) for r in self.repo.list_by_user(user_id, dari, sampai)]
+    async def list_by_user(self, user_id: int, dari: date, sampai: date) -> list[AbsensiResponse]:
+        rows = await self.repo.list_by_user(user_id, dari, sampai)
+        return [AbsensiResponse.from_orm_obj(r) for r in rows]
 
-    def list_range(self, dari: date, sampai: date) -> list[AbsensiResponse]:
-        return [AbsensiResponse.from_orm_obj(r) for r in self.repo.list_range(dari, sampai)]
+    async def list_range(self, dari: date, sampai: date) -> list[AbsensiResponse]:
+        rows = await self.repo.list_range(dari, sampai)
+        return [AbsensiResponse.from_orm_obj(r) for r in rows]
