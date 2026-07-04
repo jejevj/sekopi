@@ -126,6 +126,31 @@ export default function PembelianPage() {
     po.status !== 'lunas' && po.tanggal_jatuh_tempo && new Date(po.tanggal_jatuh_tempo) < new Date()
   ).length;
 
+  // ── Shortcut helpers ───────────────────────────────────────────────────────
+  const applyBulanIni = () => {
+    const dari = firstOfMonth();
+    const sampai = todayStr();
+    setLDari(dari);
+    setLSampai(sampai);
+    setFetchLaporan(true);
+    // refetch dipicu oleh perubahan queryKey (dari/sampai), tapi kalau queryKey
+    // tidak berubah (sudah sama) kita tetap force refetch
+    setTimeout(() => refetchLaporan(), 0);
+  };
+
+  const applyBulanLalu = () => {
+    const d = new Date();
+    const firstThisMonth = new Date(d.getFullYear(), d.getMonth(), 1);
+    const lastPrev = new Date(firstThisMonth.getTime() - 86400000);
+    const firstPrev = new Date(lastPrev.getFullYear(), lastPrev.getMonth(), 1);
+    const dari = firstPrev.toISOString().split('T')[0];
+    const sampai = lastPrev.toISOString().split('T')[0];
+    setLDari(dari);
+    setLSampai(sampai);
+    setFetchLaporan(true);
+    setTimeout(() => refetchLaporan(), 0);
+  };
+
   // ── Mutations ──────────────────────────────────────────────────────────────
   const createPO = useMutation({
     mutationFn: (p: any) => api.post('/pembelian/', p).then(r => r.data),
@@ -407,15 +432,20 @@ export default function PembelianPage() {
                   <FileText size={14} color="white" /> Tampilkan
                 </button>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => { setLDari(firstOfMonth()); setLSampai(todayStr()); setFetchLaporan(false); }} style={btnGhost}>Bulan Ini</button>
-                  <button onClick={() => {
-                    const d = new Date(); const first = new Date(d.getFullYear(), d.getMonth(), 1);
-                    const lastPrev = new Date(first.getTime() - 86400000);
-                    const firstPrev = new Date(lastPrev.getFullYear(), lastPrev.getMonth(), 1);
-                    setLDari(firstPrev.toISOString().split('T')[0]);
-                    setLSampai(lastPrev.toISOString().split('T')[0]);
-                    setFetchLaporan(false);
-                  }} style={btnGhost}>Bulan Lalu</button>
+                  {/* Bulan Ini & Bulan Lalu langsung fetch tanpa klik Tampilkan */}
+                  <button
+                    onClick={applyBulanIni}
+                    style={{
+                      ...btnGhost,
+                      ...(lDari === firstOfMonth() && lSampai === todayStr() && fetchLaporan
+                        ? { borderColor: 'rgba(244,68,68,0.4)', color: '#f87171' }
+                        : {}),
+                    }}
+                  >Bulan Ini</button>
+                  <button
+                    onClick={applyBulanLalu}
+                    style={btnGhost}
+                  >Bulan Lalu</button>
                 </div>
               </div>
               <div style={{ color: '#444', fontSize: 11, marginTop: 10 }}>⚡ Laporan dihitung berdasarkan <strong style={{ color: '#666' }}>tanggal invoice</strong> — tagihan tempo tetap masuk bulan invoice, bukan bulan bayar.</div>
