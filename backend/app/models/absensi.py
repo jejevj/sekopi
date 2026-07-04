@@ -41,9 +41,7 @@ class Absensi(Base):
     # ── Lokasi saat absen (dikirim dari mobile)
     latitude: Mapped[float | None]  = mapped_column(Numeric(10, 7), nullable=True)
     longitude: Mapped[float | None] = mapped_column(Numeric(10, 7), nullable=True)
-    # Jarak hasil kalkulasi backend (meter) — disimpan agar bisa diaudit
     jarak_meter: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)
-    # True jika berada dalam radius saat absen
     dalam_radius: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     # ── Foto selfie saat absen
@@ -63,5 +61,6 @@ class Absensi(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    user: Mapped["User"] = relationship("User", foreign_keys=[user_id], lazy="joined")          # type: ignore
-    pencatat: Mapped["User | None"] = relationship("User", foreign_keys=[dicatat_oleh], lazy="joined")  # type: ignore
+    # fix: gunakan selectin agar kompatibel dengan AsyncSession
+    user: Mapped["User"] = relationship("User", foreign_keys=[user_id], lazy="selectin")          # type: ignore
+    pencatat: Mapped["User | None"] = relationship("User", foreign_keys=[dicatat_oleh], lazy="selectin")  # type: ignore
