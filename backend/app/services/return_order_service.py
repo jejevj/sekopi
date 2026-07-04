@@ -1,5 +1,5 @@
-from datetime import datetime, timezone, date
-from sqlalchemy import select, func
+from datetime import datetime, timezone
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
@@ -9,6 +9,7 @@ from app.models.return_order import (
 )
 from app.models.loading import LoadingOrder, StatusLoading
 from app.models.production_unit import ProductionUnit, StatusUnit
+from app.models.user import UserRole
 from app.schemas.return_order import ReturnOrderCreate, ReviewReturnOrderRequest
 
 
@@ -28,42 +29,48 @@ class ReturnOrderService:
         return f"{prefix}{str(count + 1).zfill(3)}"
 
     # ──────────────────────────────────────────────────────────────────────────
-    # Ambil loading order hari ini milik driver (untuk dipilih saat buat return)
+    # Ambil loading order hari ini untuk dropdown pilih saat buat return.
+    # - ADMIN/INVENTORI : semua loading dispatched/returned hari ini
+    # - DRIVER          : hanya miliknya sendiri
     # ──────────────────────────────────────────────────────────────────────────
-    async def get_my_loading_today(self, driver_id: int) -> list[LoadingOrder]:
-        """
-        Kembalikan semua loading order milik driver ini yang dibuat HARI INI
-        dan statusnya dispatched (sudah keluar) atau returned (sudah balik).
-        Hanya status yang sudah dispatched yang relevan untuk return.
-        """
+    async def get_my_loading_today(
+        self, driver_id: int, user_role: UserRole
+    ) -> list[LoadingOrder]:
         today_start = datetime.now(timezone.utc).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
         today_end = today_start.replace(hour=23, minute=59, second=59, microsecond=999999)
 
+        base_filter = [
+            LoadingOrder.status.in_([
+                StatusLoading.DISPATCHED,
+                StatusLoading.RETURNED,
+            ]),
+            LoadingOrder.created_at >= today_start,
+            LoadingOrder.created_at <= today_end,
+        ]
+
+        # DRIVER hanya lihat miliknya sendiri
+        if user_role == UserRole.DRIVER:
+            base_filter.append(LoadingOrder.driver_id == driver_id)
+
         result = await self.db.execute(
-            select(LoadingOrder).where(
-                LoadingOrder.driver_id == driver_id,
-                LoadingOrder.status.in_([
-                    StatusLoading.DISPATCHED,
-                    StatusLoading.RETURNED,
-                ]),
-                LoadingOrder.created_at >= today_start,
-                LoadingOrder.created_at <= today_end,
-            ).order_by(LoadingOrder.created_at.desc())
+            select(LoadingOrder)
+            .where(*base_filter)
+            .order_by(LoadingOrder.created_at.desc())
         )
         return list(result.scalars().all())
 
     # ──────────────────────────────────────────────────────────────────────────
     # Buat return order
     # ──────────────────────────────────────────────────────────────────────────
-    async def create_return(self, payload: ReturnOrderCreate, driver_id: int) -> ReturnOrder:
-        # ── Validasi loading_order_id: harus milik driver ini, dibuat hari ini ──
+    async def create_return(
+        self, payload: ReturnOrderCreate, driver_id: int, user_role: UserRole
+    ) -> ReturnOrder:
         loading_order = await self._validate_loading_for_driver(
-            payload.loading_order_id, driver_id
+            payload.loading_order_id, driver_id, user_role
         )
 
-        # ── Validasi setiap barcode ──
         validated_items = []
         errors = []
         for item in payload.items:
@@ -126,10 +133,12 @@ class ReturnOrderService:
         return return_order
 
     # ──────────────────────────────────────────────────────────────────────────
-    # Validasi loading order: harus milik driver, dibuat hari ini, sudah dispatch
+    # Validasi loading order
+    # - ADMIN/INVENTORI : boleh pilih loading milik siapapun hari ini
+    # - DRIVER          : hanya boleh loading miliknya sendiri
     # ──────────────────────────────────────────────────────────────────────────
     async def _validate_loading_for_driver(
-        self, loading_order_id: int, driver_id: int
+        self, loading_order_id: int, driver_id: int, user_role: UserRole
     ) -> LoadingOrder:
         result = await self.db.execute(
             select(LoadingOrder).where(LoadingOrder.id == loading_order_id)
@@ -137,18 +146,19 @@ class ReturnOrderService:
         lo = result.scalar_one_or_none()
         if not lo:
             raise ValueError(f"Loading order ID {loading_order_id} tidak ditemukan")
-        if lo.driver_id != driver_id:
+
+        # Driver hanya boleh return loading miliknya
+        if user_role == UserRole.DRIVER and lo.driver_id != driver_id:
             raise ValueError(
                 "Anda hanya bisa membuat return untuk loading order milik Anda sendiri"
             )
-        # Pastikan dibuat hari ini (timezone UTC)
+
         today_start = datetime.now(timezone.utc).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
         if lo.created_at < today_start:
-            raise ValueError(
-                "Return hanya bisa dibuat untuk loading order hari ini"
-            )
+            raise ValueError("Return hanya bisa dibuat untuk loading order hari ini")
+
         if lo.status not in (StatusLoading.DISPATCHED, StatusLoading.RETURNED):
             raise ValueError(
                 f"Loading order harus berstatus dispatched untuk bisa di-return "
@@ -157,7 +167,7 @@ class ReturnOrderService:
         return lo
 
     # ──────────────────────────────────────────────────────────────────────────
-    # Submit, review, summary — tidak berubah
+    # Submit
     # ──────────────────────────────────────────────────────────────────────────
     async def submit_return(self, return_id: int, driver_id: int) -> ReturnOrder:
         ro = await self._get_or_404(return_id)
@@ -170,6 +180,9 @@ class ReturnOrderService:
         await self.db.refresh(ro)
         return ro
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # Review
+    # ──────────────────────────────────────────────────────────────────────────
     async def review_return(
         self, return_id: int, payload: ReviewReturnOrderRequest, reviewer_id: int
     ) -> ReturnOrder:
@@ -216,9 +229,12 @@ class ReturnOrderService:
         await self.db.refresh(ro)
         return ro
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # Summary
+    # ──────────────────────────────────────────────────────────────────────────
     async def get_return_summary(self, return_id: int) -> dict:
         ro = await self._get_or_404(return_id)
-        total_sisa = sum(1 for i in ro.items if i.kategori == KategoriReturn.SISA)
+        total_sisa  = sum(1 for i in ro.items if i.kategori == KategoriReturn.SISA)
         total_rusak = sum(1 for i in ro.items if i.kategori == KategoriReturn.RUSAK)
         total_rusak_konfirmasi = sum(
             1 for i in ro.items if i.kondisi_konfirmasi == KondisiKonfirmasi.RUSAK_KONFIRMASI
