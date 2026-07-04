@@ -1,6 +1,6 @@
 import {
-  Undo2, Package, Scan, Search, X, Plus,
-  RefreshCw, Info, CheckCircle, AlertTriangle, Truck, ChevronRight,
+  Undo2, Search, X, Plus,
+  RefreshCw, CheckCircle, AlertTriangle, Truck, AlertCircle,
 } from 'lucide-react-native';
 import React, { useState, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -19,6 +19,8 @@ interface ReturnItemInput {
   barcode: string;
   kategori: 'sisa' | 'rusak';
   catatan_driver?: string;
+  // error message dari backend setelah submit gagal
+  error?: string;
 }
 interface ReturnItemResp {
   id: number;
@@ -92,9 +94,9 @@ type Tab = 'buat' | 'log';
 function Toast({ message, type, onClose }: { message: string; type: 'success' | 'error' | 'info'; onClose: () => void }) {
   const colors: Record<string, string> = { success: '#22c55e', error: '#ef4444', info: '#3b82f6' };
   const color = colors[type] ?? '#3b82f6';
-  React.useEffect(() => { const t = setTimeout(onClose, 4000); return () => clearTimeout(t); }, [onClose]);
+  React.useEffect(() => { const t = setTimeout(onClose, 6000); return () => clearTimeout(t); }, [onClose]);
   return (
-    <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, backgroundColor: '#1a1a1a', border: `1px solid ${color}50`, borderRadius: 10, padding: '12px 18px', minWidth: 260, maxWidth: 380, display: 'flex', alignItems: 'flex-start', gap: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
+    <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, backgroundColor: '#1a1a1a', border: `1px solid ${color}50`, borderRadius: 10, padding: '12px 18px', minWidth: 260, maxWidth: 420, display: 'flex', alignItems: 'flex-start', gap: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
       <div style={{ width: 3, borderRadius: 99, backgroundColor: color, alignSelf: 'stretch', flexShrink: 0 }} />
       <p style={{ color: 'white', fontSize: 13, margin: 0, flex: 1, lineHeight: 1.5 }}>{message}</p>
       <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#555', fontSize: 16, padding: 0 }}>×</button>
@@ -111,7 +113,25 @@ function StatCard({ label, value, color }: { label: string; value: number | stri
   );
 }
 
-// ── Main Component ─────────────────────────────────────────────────────────────
+// Parse error string dari backend: "Validasi gagal: msg1 | msg2 | msg3"
+// Return: map barcode → pesan error
+function parseBarcode(msg: string): string | null {
+  // Coba ekstrak barcode dari pola umum: "Barcode XXXXX ..."
+  const m = msg.match(/Barcode\s+(\S+)/);
+  return m ? m[1] : null;
+}
+function parseValidationErrors(detail: string): Record<string, string> {
+  const map: Record<string, string> = {};
+  if (!detail) return map;
+  const raw = detail.replace(/^Validasi gagal:\s*/i, '');
+  const parts = raw.split(' | ');
+  for (const part of parts) {
+    const bc = parseBarcode(part);
+    if (bc) map[bc] = part;
+  }
+  return map;
+}
+
 const TABS: { key: Tab; label: string }[] = [
   { key: 'buat', label: 'Buat Return' },
   { key: 'log',  label: 'Riwayat Return' },
@@ -135,7 +155,9 @@ export default function ReturnPage() {
   const [searchLog, setSearchLog] = useState('');
   const [detailModal, setDetailModal] = useState<ReturnOrder | null>(null);
 
-  // ── Query: loading order hari ini milik driver ini ──
+  const hasItemErrors = items.some(i => !!i.error);
+
+  // ── Query: loading order hari ini ──
   const { data: loadingToday = [], isLoading: loadingTodayLoad } = useQuery<LoadingForReturn[]>({
     queryKey: ['my-loading-today'],
     queryFn: () => api.get('/return/my-loading-today').then(r => r.data),
@@ -162,7 +184,20 @@ export default function ReturnPage() {
       qc.invalidateQueries({ queryKey: ['return-log'] });
       qc.invalidateQueries({ queryKey: ['my-loading-today'] });
     },
-    onError: (e: any) => showToast(e?.response?.data?.detail ?? 'Gagal membuat return', 'error'),
+    onError: (e: any) => {
+      const detail: string = e?.response?.data?.detail ?? 'Gagal membuat return';
+      // Parse error per-barcode dan tandai item yang bermasalah
+      const errorMap = parseValidationErrors(detail);
+      if (Object.keys(errorMap).length > 0) {
+        setItems(prev => prev.map(item => ({
+          ...item,
+          error: errorMap[item.barcode] ?? undefined,
+        })));
+        showToast(`${Object.keys(errorMap).length} barcode gagal validasi. Hapus item yang bermasalah lalu coba lagi.`, 'error');
+      } else {
+        showToast(detail, 'error');
+      }
+    },
   });
 
   // ── Mutation: submit return order ──
@@ -185,6 +220,11 @@ export default function ReturnPage() {
     setItems(prev => [...prev, { barcode: b, kategori: kategoriInput, catatan_driver: catatanItemInput.trim() || undefined }]);
     setBarcodeInput(''); setCatatanItemInput('');
   };
+
+  const removeItem = (barcode: string) => setItems(prev => prev.filter(i => i.barcode !== barcode));
+
+  // Hapus semua item yang punya error
+  const removeErrorItems = () => setItems(prev => prev.filter(i => !i.error));
 
   const filteredLog = useMemo(() => {
     const q = searchLog.trim().toLowerCase();
@@ -251,7 +291,7 @@ export default function ReturnPage() {
                   {loadingToday.map(lo => {
                     const selected = selectedLoading?.id === lo.id;
                     return (
-                      <button key={lo.id} onClick={() => setSelectedLoading(selected ? null : lo)} style={{
+                      <button key={lo.id} onClick={() => { setSelectedLoading(selected ? null : lo); setItems(prev => prev.map(i => ({ ...i, error: undefined }))); }} style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                         padding: '12px 14px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
                         background: selected ? 'rgba(248,113,113,0.08)' : 'rgba(255,255,255,0.03)',
@@ -278,21 +318,41 @@ export default function ReturnPage() {
                 <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(248,113,113,0.15)', border: '1px solid #f87171', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#f87171' }}>2</div>
                 <span style={{ color: 'white', fontWeight: 600, fontSize: 14 }}>Catatan Pengiriman</span>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div>
-                  <label style={lbl}>CATATAN DRIVER (OPSIONAL)</label>
-                  <textarea value={catatan} onChange={e => setCatatan(e.target.value)} placeholder="Catatan umum return..." rows={2} style={{ ...inp, resize: 'vertical' }} />
-                </div>
+              <div>
+                <label style={lbl}>CATATAN DRIVER (OPSIONAL)</label>
+                <textarea value={catatan} onChange={e => setCatatan(e.target.value)} placeholder="Catatan umum return..." rows={2} style={{ ...inp, resize: 'vertical' }} />
               </div>
             </div>
 
             {/* Step 3: Scan Item */}
             <div style={{ ...glassCard, marginBottom: 16, opacity: selectedLoading ? 1 : 0.4, pointerEvents: selectedLoading ? 'auto' : 'none' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-                <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(248,113,113,0.15)', border: '1px solid #f87171', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#f87171' }}>3</div>
+                <div style={{ width: 22, height: 22, borderRadius: '50%', background: hasItemErrors ? 'rgba(239,68,68,0.2)' : 'rgba(248,113,113,0.15)', border: `1px solid ${hasItemErrors ? '#ef4444' : '#f87171'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: hasItemErrors ? '#ef4444' : '#f87171' }}>3</div>
                 <span style={{ color: 'white', fontWeight: 600, fontSize: 14 }}>Scan Barcode Cup Sisa</span>
-                {items.length > 0 && <span style={{ background: 'rgba(248,113,113,0.15)', color: '#f87171', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 20, padding: '1px 8px', fontSize: 11, fontWeight: 700 }}>{items.length} item</span>}
+                {items.length > 0 && !hasItemErrors && (
+                  <span style={{ background: 'rgba(248,113,113,0.15)', color: '#f87171', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 20, padding: '1px 8px', fontSize: 11, fontWeight: 700 }}>{items.length} item</span>
+                )}
+                {hasItemErrors && (
+                  <span style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 20, padding: '1px 8px', fontSize: 11, fontWeight: 700 }}>
+                    {items.filter(i => i.error).length} error
+                  </span>
+                )}
               </div>
+
+              {/* Banner error summary */}
+              {hasItemErrors && (
+                <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <AlertCircle size={14} color="#ef4444" />
+                    <span style={{ color: '#ef4444', fontSize: 12, fontWeight: 600 }}>
+                      {items.filter(i => i.error).length} barcode tidak valid — hapus item bermasalah sebelum submit
+                    </span>
+                  </div>
+                  <button onClick={removeErrorItems} style={{ ...btnGhost, color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)', fontSize: 11, padding: '4px 10px', flexShrink: 0 }}>
+                    Hapus Semua Error
+                  </button>
+                </div>
+              )}
 
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                 <input
@@ -315,19 +375,44 @@ export default function ReturnPage() {
               {items.length > 0 ? (
                 <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, overflow: 'hidden' }}>
                   {items.map(item => (
-                    <div key={item.barcode} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span style={{ fontSize: 12, color: '#aaa', fontFamily: 'monospace' }}>{item.barcode}</span>
-                        <span style={{
-                          fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 20,
-                          background: item.kategori === 'sisa' ? 'rgba(59,130,246,0.12)' : 'rgba(239,68,68,0.12)',
-                          color: item.kategori === 'sisa' ? '#60a5fa' : '#f87171',
-                          border: `1px solid ${item.kategori === 'sisa' ? 'rgba(59,130,246,0.3)' : 'rgba(239,68,68,0.3)'}`,
-                        }}>{item.kategori.toUpperCase()}</span>
+                    <div key={item.barcode}>
+                      <div style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '9px 12px',
+                        borderBottom: item.error ? 'none' : '1px solid rgba(255,255,255,0.04)',
+                        background: item.error ? 'rgba(239,68,68,0.06)' : 'transparent',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+                          {item.error
+                            ? <AlertTriangle size={13} color="#ef4444" style={{ flexShrink: 0 }} />
+                            : <span style={{ width: 13, flexShrink: 0 }} />
+                          }
+                          <span style={{
+                            fontSize: 12, fontFamily: 'monospace',
+                            color: item.error ? '#f87171' : '#aaa',
+                            textDecoration: item.error ? 'line-through' : 'none',
+                          }}>{item.barcode}</span>
+                          <span style={{
+                            fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 20, flexShrink: 0,
+                            background: item.kategori === 'sisa' ? 'rgba(59,130,246,0.12)' : 'rgba(239,68,68,0.12)',
+                            color: item.kategori === 'sisa' ? '#60a5fa' : '#f87171',
+                            border: `1px solid ${item.kategori === 'sisa' ? 'rgba(59,130,246,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                          }}>{item.kategori.toUpperCase()}</span>
+                        </div>
+                        <button onClick={() => removeItem(item.barcode)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 0, flexShrink: 0, marginLeft: 8 }}>
+                          <X size={13} color={item.error ? '#ef4444' : '#f87171'} />
+                        </button>
                       </div>
-                      <button onClick={() => removeItem(item.barcode)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 0 }}>
-                        <X size={13} color="#f87171" />
-                      </button>
+                      {/* Error message inline di bawah row */}
+                      {item.error && (
+                        <div style={{
+                          padding: '4px 12px 8px 35px',
+                          background: 'rgba(239,68,68,0.06)',
+                          borderBottom: '1px solid rgba(255,255,255,0.04)',
+                        }}>
+                          <span style={{ color: '#f87171', fontSize: 11 }}>{item.error}</span>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -339,9 +424,18 @@ export default function ReturnPage() {
             {/* Submit */}
             <button
               onClick={() => createReturn.mutate()}
-              disabled={createReturn.isPending || !selectedLoading || items.length === 0}
-              style={{ ...btnPrimary, width: '100%', justifyContent: 'center', padding: '12px 0', fontSize: 14, opacity: (!selectedLoading || items.length === 0) ? 0.35 : 1 }}>
-              {createReturn.isPending ? 'Menyimpan...' : `Buat Return Order (${items.length} item)`}
+              disabled={createReturn.isPending || !selectedLoading || items.length === 0 || hasItemErrors}
+              style={{
+                ...btnPrimary, width: '100%', justifyContent: 'center', padding: '12px 0', fontSize: 14,
+                opacity: (!selectedLoading || items.length === 0 || hasItemErrors) ? 0.35 : 1,
+                cursor: hasItemErrors ? 'not-allowed' : 'pointer',
+              }}>
+              {createReturn.isPending
+                ? 'Menyimpan...'
+                : hasItemErrors
+                  ? `⚠ Perbaiki ${items.filter(i => i.error).length} item bermasalah dulu`
+                  : `Buat Return Order (${items.length} item)`
+              }
             </button>
           </div>
         )}
