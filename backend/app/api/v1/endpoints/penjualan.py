@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,14 +9,15 @@ from app.models.penjualan import Penjualan
 from app.models.gerobak import Gerobak, ShareholderGroup
 from app.models.user import User as UserModel
 from app.schemas.penjualan import PenjualanListItem, PenjualanListResponse
+from app.core.timezone import parse_datetime_wib, WIB
 
 router = APIRouter()
 
 
 @router.get("/", response_model=PenjualanListResponse)
 async def list_penjualan(
-    dari: date | None = Query(None),
-    sampai: date | None = Query(None),
+    dari: str | None = Query(None, description="Datetime awal WIB, format: 2026-07-04T00:00 atau 2026-07-04"),
+    sampai: str | None = Query(None, description="Datetime akhir WIB, format: 2026-07-04T23:59 atau 2026-07-04"),
     gerobak_id: int | None = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(100, ge=1, le=500),
@@ -25,14 +26,24 @@ async def list_penjualan(
 ):
     """
     List semua transaksi penjualan, join gerobak + driver + grup saham.
+    Filter dari/sampai mendukung datetime lengkap (jam & menit) dalam timezone WIB.
     ADMIN: lihat semua. SHAREHOLDER: otomatis filter ke gerobak di grupnya.
     """
-    # Build base conditions
     conds = []
+
     if dari:
-        conds.append(func.date(Penjualan.sold_at) >= dari)
+        dt_dari = parse_datetime_wib(dari)
+        # Kalau hanya tanggal (jam=00:00), defaultkan ke awal hari
+        conds.append(Penjualan.sold_at >= dt_dari)
+
     if sampai:
-        conds.append(func.date(Penjualan.sold_at) <= sampai)
+        dt_sampai = parse_datetime_wib(sampai)
+        # Kalau hanya tanggal, defaultkan ke akhir hari
+        if len(sampai.strip()) == 10:  # format YYYY-MM-DD
+            from datetime import timedelta
+            dt_sampai = dt_sampai.replace(hour=23, minute=59, second=59)
+        conds.append(Penjualan.sold_at <= dt_sampai)
+
     if gerobak_id:
         conds.append(Penjualan.gerobak_id == gerobak_id)
 
@@ -63,10 +74,9 @@ async def list_penjualan(
     )
     rows = (await db.execute(q)).scalars().all()
 
-    # Build response dengan enrich gerobak + grup info
     items = []
     for p in rows:
-        g: Gerobak | None = p.gerobak  # sudah lazy selectin
+        g: Gerobak | None = p.gerobak
         kasir: UserModel | None = p.kasir
         grup: ShareholderGroup | None = g.shareholder_group if g else None
 
@@ -92,6 +102,6 @@ async def list_penjualan(
         total=total,
         page=page,
         per_page=per_page,
-        total_pages=-(-total // per_page),
+        total_pages=max(1, -(-total // per_page)),
         items=items,
     )

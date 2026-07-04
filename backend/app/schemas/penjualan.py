@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
+
+from app.core.timezone import to_wib
 
 
 class PenjualanListItem(BaseModel):
@@ -25,6 +27,12 @@ class PenjualanListItem(BaseModel):
     # Grup Saham
     grup_id: Optional[int] = None
     grup_nama: Optional[str] = None
+
+    @field_serializer("sold_at")
+    def serialize_sold_at(self, dt: datetime) -> str:
+        """Selalu return ISO string dengan offset +07:00."""
+        wib = to_wib(dt)
+        return wib.isoformat() if wib else ""
 
     model_config = {"from_attributes": True}
 
