@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db, require_roles
@@ -52,7 +52,11 @@ async def update_loading(
     loading_id: int,
     data: LoadingOrderUpdate,
     svc: LoadingService = Depends(_svc),
-    _: User = Depends(require_roles([UserRole.ADMIN, UserRole.INVENTORI])),
+    current_user: User = Depends(
+        # DRIVER diizinkan untuk mengubah status dispatched & returned.
+        # Validasi lebih lanjut (misal: hanya driver pemilik loading) ada di service layer.
+        require_roles([UserRole.ADMIN, UserRole.INVENTORI, UserRole.DRIVER])
+    ),
 ):
     return await svc.update_status(loading_id, data)
 
