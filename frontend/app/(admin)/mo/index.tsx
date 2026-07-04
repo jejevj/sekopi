@@ -6,10 +6,8 @@ import { Navbar } from '../../../components/layout/Navbar';
 import { StatusBadge } from '../../../components/shared/StatusBadge';
 import { formatDate } from '../../../lib/utils';
 import {
-  ClipboardList, Plus, Clock, CheckCircle, XCircle, PlayCircle, Search,
+  ClipboardList, Plus, CheckCircle, Search,
 } from 'lucide-react-native';
-
-const STATUS_ORDER = ['draft', 'confirmed', 'in_progress', 'done', 'cancelled'];
 
 export default function MOListPage() {
   const router = useRouter();
@@ -23,13 +21,28 @@ export default function MOListPage() {
 
   const moList: any[] = Array.isArray(data) ? data : (data?.items ?? []);
 
+  // Nama produk gabungan dari lines
+  const getNamaProduk = (mo: any): string => {
+    const lines: any[] = mo.lines ?? [];
+    if (lines.length === 0) return '-';
+    if (lines.length === 1) return lines[0].nama_produk;
+    return `${lines[0].nama_produk} +${lines.length - 1} lainnya`;
+  };
+
+  // Total target qty gabungan semua lines
+  const getTotalQty = (mo: any): number =>
+    (mo.lines ?? []).reduce((s: number, l: any) => s + (l.target_qty ?? 0), 0);
+
   const filtered = moList
     .filter(mo => filter === 'all' || mo.status === filter)
-    .filter(mo =>
-      !search ||
-      mo.nomor_mo.toLowerCase().includes(search.toLowerCase()) ||
-      mo.nama_produk.toLowerCase().includes(search.toLowerCase())
-    );
+    .filter(mo => {
+      if (!search) return true;
+      const nama = getNamaProduk(mo).toLowerCase();
+      return (
+        mo.nomor_mo.toLowerCase().includes(search.toLowerCase()) ||
+        nama.includes(search.toLowerCase())
+      );
+    });
 
   const counts = moList.reduce((acc: any, mo: any) => {
     acc[mo.status] = (acc[mo.status] || 0) + 1;
@@ -37,11 +50,11 @@ export default function MOListPage() {
   }, {});
 
   const tabs = [
-    { key: 'all', label: 'Semua', count: moList.length },
-    { key: 'draft', label: 'Draft', count: counts.draft || 0 },
-    { key: 'confirmed', label: 'Confirmed', count: counts.confirmed || 0 },
+    { key: 'all',         label: 'Semua',       count: moList.length },
+    { key: 'draft',       label: 'Draft',       count: counts.draft || 0 },
+    { key: 'confirmed',   label: 'Confirmed',   count: counts.confirmed || 0 },
     { key: 'in_progress', label: 'In Progress', count: counts.in_progress || 0 },
-    { key: 'done', label: 'Done', count: counts.done || 0 },
+    { key: 'done',        label: 'Done',        count: counts.done || 0 },
   ];
 
   return (
@@ -49,7 +62,6 @@ export default function MOListPage() {
       <Navbar title="Manufacturing Order" />
       <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
 
-        {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <div>
             <h1 style={{ color: 'white', fontSize: 22, fontWeight: 700, margin: 0 }}>Manufacturing Order</h1>
@@ -69,7 +81,6 @@ export default function MOListPage() {
           </button>
         </div>
 
-        {/* Search */}
         <div style={{ position: 'relative', marginBottom: 16 }}>
           <Search size={16} color="#666" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
           <input
@@ -84,7 +95,6 @@ export default function MOListPage() {
           />
         </div>
 
-        {/* Tabs filter */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
           {tabs.map(tab => (
             <button
@@ -109,7 +119,6 @@ export default function MOListPage() {
           ))}
         </div>
 
-        {/* List */}
         {isLoading ? (
           <div style={{ color: '#666', textAlign: 'center', padding: 40 }}>Memuat...</div>
         ) : filtered.length === 0 ? (
@@ -122,46 +131,50 @@ export default function MOListPage() {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {filtered.map((mo: any) => (
-              <div
-                key={mo.id}
-                onClick={() => router.push(`/(admin)/mo/${mo.id}` as any)}
-                style={{
-                  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: 12, padding: '16px 20px', cursor: 'pointer',
-                  transition: 'border-color 0.2s, background 0.2s',
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(244,68,68,0.3)')}
-                onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)')}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                  <div style={{
-                    width: 40, height: 40, borderRadius: 10,
-                    background: 'rgba(244,68,68,0.1)', border: '1px solid rgba(244,68,68,0.2)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                  }}>
-                    <ClipboardList size={18} color="#f87171" />
-                  </div>
-                  <div>
-                    <div style={{ color: 'white', fontWeight: 600, fontSize: 15 }}>{mo.nomor_mo}</div>
-                    <div style={{ color: '#888', fontSize: 13 }}>{mo.nama_produk}</div>
-                    <div style={{ color: '#555', fontSize: 12, marginTop: 2 }}>
-                      Target: {mo.target_qty} {mo.satuan} · {formatDate(mo.created_at)}
+            {filtered.map((mo: any) => {
+              const namaProduk = getNamaProduk(mo);
+              const totalQty   = getTotalQty(mo);
+              return (
+                <div
+                  key={mo.id}
+                  onClick={() => router.push(`/(admin)/mo/${mo.id}` as any)}
+                  style={{
+                    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: 12, padding: '16px 20px', cursor: 'pointer',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(244,68,68,0.3)')}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)')}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                    <div style={{
+                      width: 40, height: 40, borderRadius: 10,
+                      background: 'rgba(244,68,68,0.1)', border: '1px solid rgba(244,68,68,0.2)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    }}>
+                      <ClipboardList size={18} color="#f87171" />
+                    </div>
+                    <div>
+                      <div style={{ color: 'white', fontWeight: 600, fontSize: 15 }}>{mo.nomor_mo}</div>
+                      <div style={{ color: '#888', fontSize: 13 }}>{namaProduk}</div>
+                      <div style={{ color: '#555', fontSize: 12, marginTop: 2 }}>
+                        {/* Tanggal rencana (bukan created_at) */}
+                        Target: {totalQty} unit · Rencana: {formatDate(mo.tanggal_rencana)}
+                      </div>
                     </div>
                   </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+                    <StatusBadge status={mo.status} />
+                    {mo.approved_by && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#22c55e', fontSize: 11 }}>
+                        <CheckCircle size={11} color="#22c55e" />
+                        Disetujui
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-                  <StatusBadge status={mo.status} />
-                  {mo.approved_by && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#22c55e', fontSize: 11 }}>
-                      <CheckCircle size={11} color="#22c55e" />
-                      Disetujui
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
