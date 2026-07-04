@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../lib/api';
 import { Navbar } from '../../../components/layout/Navbar';
-import { Plus, X, Pencil, Trash2, KeyRound, UserCheck, UserX, ShieldCheck } from 'lucide-react-native';
+import { Plus, X, Pencil, Trash2, KeyRound, UserCheck, UserX, ShieldCheck, CheckCircle, AlertCircle } from 'lucide-react-native';
 
 const inp: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: 'white', fontSize: 13, outline: 'none' };
 const lbl: React.CSSProperties = { color: '#888', fontSize: 11, fontWeight: 600, marginBottom: 4, display: 'block', letterSpacing: 0.5 };
@@ -10,29 +10,59 @@ const card: React.CSSProperties = { background: 'rgba(255,255,255,0.04)', border
 const btnPrimary: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, backgroundColor: '#f44444', border: 'none', borderRadius: 10, padding: '9px 18px', color: 'white', fontWeight: 600, fontSize: 13, cursor: 'pointer' };
 const btnGhost: React.CSSProperties = { padding: '8px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#aaa', cursor: 'pointer', fontSize: 13 };
 
-// Role sesuai UserRole enum di backend (tidak ada KASIR)
 const ROLES = ['admin', 'produksi', 'inventori', 'driver', 'shareholder'];
-
-const ROLE_LABEL: Record<string, string> = {
-  admin:       'Admin',
-  produksi:    'Produksi',
-  inventori:   'Inventori',
-  driver:      'Driver',
-  shareholder: 'Shareholder',
-};
-
-const ROLE_COLOR: Record<string, string> = {
-  admin:       '#f87171',
-  produksi:    '#60a5fa',
-  inventori:   '#a78bfa',
-  driver:      '#fbbf24',
-  shareholder: '#fb923c',
-};
-
+const ROLE_LABEL: Record<string, string> = { admin: 'Admin', produksi: 'Produksi', inventori: 'Inventori', driver: 'Driver', shareholder: 'Shareholder' };
+const ROLE_COLOR: Record<string, string> = { admin: '#f87171', produksi: '#60a5fa', inventori: '#a78bfa', driver: '#fbbf24', shareholder: '#fb923c' };
 const emptyForm = { email: '', full_name: '', role: 'driver', password: '' };
 
+// ── Toast ──────────────────────────────────────────────────────────────────
+type ToastType = 'success' | 'error';
+interface Toast { id: number; type: ToastType; message: string; }
+
+function ToastContainer({ toasts, onRemove }: { toasts: Toast[]; onRemove: (id: number) => void }) {
+  return (
+    <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 200, display: 'flex', flexDirection: 'column', gap: 8, pointerEvents: 'none' }}>
+      {toasts.map(t => (
+        <div key={t.id} style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          background: t.type === 'success' ? 'rgba(22,163,74,0.95)' : 'rgba(220,38,38,0.95)',
+          border: `1px solid ${t.type === 'success' ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)'}`,
+          borderRadius: 10, padding: '11px 16px',
+          color: 'white', fontSize: 13, fontWeight: 500,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+          pointerEvents: 'auto',
+          minWidth: 260, maxWidth: 360,
+          animation: 'slideIn 0.2s ease',
+        }}>
+          {t.type === 'success'
+            ? <CheckCircle size={15} color="white" />
+            : <AlertCircle size={15} color="white" />}
+          <span style={{ flex: 1 }}>{t.message}</span>
+          <button onClick={() => onRemove(t.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', opacity: 0.7 }}>
+            <X size={13} color="white" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function useToast() {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  let _id = Date.now();
+  const show = (type: ToastType, message: string, duration = 3500) => {
+    const id = _id++;
+    setToasts(prev => [...prev, { id, type, message }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), duration);
+  };
+  const remove = (id: number) => setToasts(prev => prev.filter(t => t.id !== id));
+  return { toasts, show, remove };
+}
+
+// ── Component ──────────────────────────────────────────────────────────────
 export default function UsersAdminPage() {
   const qc = useQueryClient();
+  const { toasts, show: showToast, remove: removeToast } = useToast();
 
   const [showForm, setShowForm]       = useState(false);
   const [editId, setEditId]           = useState<number | null>(null);
@@ -46,6 +76,9 @@ export default function UsersAdminPage() {
 
   const [search, setSearch]           = useState('');
   const [filterRole, setFilterRole]   = useState('semua');
+
+  // ── Modal konfirmasi hapus
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null);
 
   const { data: rawList = [], isLoading } = useQuery({
     queryKey: ['users'],
@@ -61,27 +94,27 @@ export default function UsersAdminPage() {
 
   const createM = useMutation({
     mutationFn: (p: any) => api.post('/users/', p).then(r => r.data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); resetForm(); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); resetForm(); showToast('success', 'Pengguna berhasil ditambahkan'); },
     onError: (e: any) => setFormError(e.response?.data?.detail ?? 'Gagal menyimpan'),
   });
   const updateM = useMutation({
     mutationFn: ({ id, p }: any) => api.patch(`/users/${id}`, p).then(r => r.data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); resetForm(); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); resetForm(); showToast('success', 'Pengguna berhasil diperbarui'); },
     onError: (e: any) => setFormError(e.response?.data?.detail ?? 'Gagal menyimpan'),
   });
   const deleteM = useMutation({
     mutationFn: (id: number) => api.delete(`/users/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
-    onError: (e: any) => alert(e.response?.data?.detail ?? 'Gagal menghapus'),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); setDeleteTarget(null); showToast('success', 'Pengguna berhasil dihapus'); },
+    onError: (e: any) => { setDeleteTarget(null); showToast('error', e.response?.data?.detail ?? 'Gagal menghapus pengguna'); },
   });
   const toggleActiveM = useMutation({
     mutationFn: ({ id, is_active }: any) => api.patch(`/users/${id}`, { is_active }).then(r => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
-    onError: (e: any) => alert(e.response?.data?.detail ?? 'Gagal mengubah status'),
+    onSuccess: (data: any) => { qc.invalidateQueries({ queryKey: ['users'] }); showToast('success', `Pengguna ${data.is_active ? 'diaktifkan' : 'dinonaktifkan'}`); },
+    onError: (e: any) => showToast('error', e.response?.data?.detail ?? 'Gagal mengubah status'),
   });
   const resetPassM = useMutation({
     mutationFn: ({ id, pwd }: any) => api.post(`/users/${id}/reset-password`, { new_password: pwd }).then(r => r.data),
-    onSuccess: () => { setResetUserId(null); setNewPassword(''); setResetError(''); },
+    onSuccess: () => { setResetUserId(null); setNewPassword(''); setResetError(''); showToast('success', 'Password berhasil direset'); },
     onError: (e: any) => setResetError(e.response?.data?.detail ?? 'Gagal reset password'),
   });
 
@@ -106,6 +139,7 @@ export default function UsersAdminPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: '#0a0a0a' }}>
       <Navbar title="Users" />
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
       <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
@@ -193,7 +227,11 @@ export default function UsersAdminPage() {
                             <button onClick={() => toggleActiveM.mutate({ id: u.id, is_active: !u.is_active })} title={u.is_active ? 'Nonaktifkan' : 'Aktifkan'} style={{ padding: '5px 8px', borderRadius: 7, background: u.is_active ? 'rgba(251,191,36,0.06)' : 'rgba(34,197,94,0.06)', border: `1px solid ${u.is_active ? 'rgba(251,191,36,0.2)' : 'rgba(34,197,94,0.2)'}`, cursor: 'pointer' }}>
                               {u.is_active ? <UserX size={12} color="#fbbf24" /> : <UserCheck size={12} color="#22c55e" />}
                             </button>
-                            <button onClick={() => { if (confirm(`Hapus pengguna "${u.full_name}"? Tindakan ini tidak bisa dibatalkan.`)) deleteM.mutate(u.id); }} title="Hapus" style={{ padding: '5px 8px', borderRadius: 7, background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)', cursor: 'pointer' }}>
+                            <button
+                              onClick={() => setDeleteTarget({ id: u.id, name: u.full_name })}
+                              title="Hapus"
+                              style={{ padding: '5px 8px', borderRadius: 7, background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)', cursor: 'pointer' }}
+                            >
                               <Trash2 size={12} color="#f87171" />
                             </button>
                           </div>
@@ -206,6 +244,37 @@ export default function UsersAdminPage() {
         </div>
       </div>
 
+      {/* ══ Modal: Konfirmasi Hapus ══════════════════════════════════════════ */}
+      {deleteTarget && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }}>
+          <div style={{ background: '#141414', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 14, padding: 28, width: 400, maxWidth: '92vw' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+              <div style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Trash2 size={17} color="#f87171" />
+              </div>
+              <span style={{ color: 'white', fontWeight: 700, fontSize: 16 }}>Hapus Pengguna</span>
+            </div>
+            <p style={{ color: '#aaa', fontSize: 13, lineHeight: 1.6, marginBottom: 8 }}>
+              Hapus pengguna{' '}
+              <strong style={{ color: 'white' }}>&quot;{deleteTarget.name}&quot;</strong>?
+            </p>
+            <p style={{ color: '#666', fontSize: 12, marginBottom: 22 }}>Tindakan ini tidak bisa dibatalkan.</p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setDeleteTarget(null)} style={btnGhost} disabled={deleteM.isPending}>Batal</button>
+              <button
+                onClick={() => deleteM.mutate(deleteTarget.id)}
+                disabled={deleteM.isPending}
+                style={{ ...btnPrimary, backgroundColor: '#dc2626', minWidth: 100, justifyContent: 'center' }}
+              >
+                <Trash2 size={13} color="white" />
+                {deleteM.isPending ? 'Menghapus...' : 'Ya, Hapus'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ Modal: Form Tambah / Edit ════════════════════════════════════════ */}
       {showForm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
           <div style={{ background: '#141414', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, padding: 28, width: 460, maxWidth: '94vw' }}>
@@ -236,6 +305,7 @@ export default function UsersAdminPage() {
         </div>
       )}
 
+      {/* ══ Modal: Reset Password ════════════════════════════════════════════ */}
       {resetUserId !== null && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
           <div style={{ background: '#141414', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, padding: 28, width: 400, maxWidth: '94vw' }}>
