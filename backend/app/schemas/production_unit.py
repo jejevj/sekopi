@@ -41,6 +41,10 @@ class ProductionUnitResponse(BaseModel):
     created_at: datetime
     # Kalkulasi margin — dihitung di service layer
     margin: Optional[float] = None
+    # Field kalkulasi expiry — diset manual oleh _enrich_unit
+    hari_tersisa: Optional[int] = None
+    is_expired: Optional[bool] = None
+    is_expiring_soon: Optional[bool] = None
 
     model_config = {"from_attributes": True}
 
@@ -79,14 +83,18 @@ class ExpiryAlertItem(BaseModel):
 
 
 class ExpiryAlertResponse(BaseModel):
-    total: int
-    items: list[ExpiryAlertItem]
+    # Field cocok dengan yang dikembalikan service get_expiry_alerts
+    total_akan_expired: int
+    total_sudah_expired: int
+    units_expiring_soon: list[ProductionUnitResponse]
+    units_expired: list[ProductionUnitResponse]
 
 
 class PaginatedUnitResponse(BaseModel):
     total: int
     page: int
     per_page: int
+    total_pages: int = 1
     items: list[ProductionUnitResponse]
 
 
@@ -106,7 +114,7 @@ class ScanSellRequest(BaseModel):
 
 class ScanVoidRequest(BaseModel):
     barcode: str
-    reason: Optional[str] = None
+    alasan: Optional[str] = None
 
 
 class ScanResultResponse(BaseModel):
