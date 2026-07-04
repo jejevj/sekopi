@@ -4,7 +4,7 @@ from typing import Optional
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
-from app.models.absensi import Absensi, StatusAbsensi
+from app.models.absensi import Absensi
 from app.schemas.absensi import AbsensiCreate, AbsensiUpdate
 
 
@@ -16,31 +16,33 @@ class AbsensiRepository:
         return self.db.get(Absensi, absensi_id)
 
     def get_by_user_tanggal(self, user_id: int, tanggal: date) -> Optional[Absensi]:
-        return self.db.scalar(
+        return self.db.execute(
             select(Absensi).where(and_(Absensi.user_id == user_id, Absensi.tanggal == tanggal))
-        )
+        ).scalar_one_or_none()
 
     def list_by_tanggal(self, tanggal: date) -> list[Absensi]:
         return list(
-            self.db.scalars(select(Absensi).where(Absensi.tanggal == tanggal).order_by(Absensi.user_id))
+            self.db.execute(
+                select(Absensi).where(Absensi.tanggal == tanggal).order_by(Absensi.user_id)
+            ).scalars().all()
         )
 
     def list_by_user(self, user_id: int, dari: date, sampai: date) -> list[Absensi]:
         return list(
-            self.db.scalars(
+            self.db.execute(
                 select(Absensi).where(
                     and_(Absensi.user_id == user_id, Absensi.tanggal >= dari, Absensi.tanggal <= sampai)
                 ).order_by(Absensi.tanggal.desc())
-            )
+            ).scalars().all()
         )
 
     def list_range(self, dari: date, sampai: date) -> list[Absensi]:
         return list(
-            self.db.scalars(
+            self.db.execute(
                 select(Absensi).where(
                     and_(Absensi.tanggal >= dari, Absensi.tanggal <= sampai)
                 ).order_by(Absensi.tanggal.desc(), Absensi.user_id)
-            )
+            ).scalars().all()
         )
 
     def create(self, data: AbsensiCreate, dicatat_oleh: int,

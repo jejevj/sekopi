@@ -12,13 +12,15 @@ class AbsensiSettingRepository:
         self.db = db
 
     def list_all(self) -> list[AbsensiSetting]:
-        return list(self.db.scalars(select(AbsensiSetting).order_by(AbsensiSetting.id)))
+        return list(
+            self.db.execute(select(AbsensiSetting).order_by(AbsensiSetting.id)).scalars().all()
+        )
 
     def list_active(self) -> list[AbsensiSetting]:
         return list(
-            self.db.scalars(
+            self.db.execute(
                 select(AbsensiSetting).where(AbsensiSetting.is_active == True).order_by(AbsensiSetting.id)
-            )
+            ).scalars().all()
         )
 
     def get_by_id(self, setting_id: int) -> Optional[AbsensiSetting]:
