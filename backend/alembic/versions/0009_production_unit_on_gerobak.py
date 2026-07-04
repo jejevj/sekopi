@@ -4,22 +4,13 @@ Revision ID: 0009
 Revises: 0008
 Create Date: 2026-07-04
 
-Perubahan:
-  1. Tambah nilai 'on_gerobak' ke enum statusunit
-  2. Tambah kolom loading_order_id, current_gerobak_id, current_driver_id
-     ke tabel production_units
-
-Logika stok setelah migrasi ini:
-  READY         = ada di gudang, terhitung sebagai stok
-  ON_GEROBAK    = sedang dibawa driver, TIDAK mengurangi stok gudang secara
-                  akuntansi — hanya berpindah lokasi, belum terjual
-  SOLD          = terjual, keluar dari stok permanen
-  RETURNED_GOOD = dikembalikan baik → kembali ke READY (masuk stok lagi)
-  RETURNED_DAMAGED = dikembalikan rusak → keluar stok permanen
+PostgreSQL mengharuskan ALTER TYPE ADD VALUE di-commit dalam transaksi
+terpisah sebelum nilai baru bisa dipakai di statement lain.
+Solusi: jalankan ALTER TYPE di dalam autocommit_block(), lalu
+ADD COLUMN dan backfill UPDATE dijalankan setelah blok itu selesai.
 """
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 revision = '0009'
 down_revision = '0008'
@@ -28,11 +19,14 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # 1. Tambah nilai baru ke enum statusunit
-    #    Gunakan raw SQL karena ALTER TYPE hanya didukung PostgreSQL
-    op.execute("ALTER TYPE statusunit ADD VALUE IF NOT EXISTS 'on_gerobak'")
+    # ── Step 1: ALTER TYPE di transaksi AUTOCOMMIT tersendiri ──────────────
+    # PostgreSQL tidak mengizinkan pemakaian nilai enum baru dalam transaksi
+    # yang sama dengan ALTER TYPE ADD VALUE.
+    # autocommit_block() commit transaksi aktif lalu jalankan DDL di luar tx.
+    with op.get_context().autocommit_block():
+        op.execute("ALTER TYPE statusunit ADD VALUE IF NOT EXISTS 'on_gerobak'")
 
-    # 2. Tambah kolom lokasi ke production_units
+    # ── Step 2: Tambah kolom lokasi (transaksi normal) ─────────────────────
     op.add_column(
         'production_units',
         sa.Column(
@@ -64,11 +58,12 @@ def upgrade() -> None:
         ),
     )
 
-    op.create_index('ix_production_units_loading_order_id',  'production_units', ['loading_order_id'])
+    op.create_index('ix_production_units_loading_order_id',   'production_units', ['loading_order_id'])
     op.create_index('ix_production_units_current_gerobak_id', 'production_units', ['current_gerobak_id'])
     op.create_index('ix_production_units_current_driver_id',  'production_units', ['current_driver_id'])
 
-    # 3. Backfill: unit yang masih DISPATCHED (legacy) → ON_GEROBAK
+    # ── Step 3: Backfill legacy DISPATCHED → ON_GEROBAK ───────────────────
+    # Nilai 'on_gerobak' sudah di-commit pada step 1, aman dipakai di sini.
     op.execute("""
         UPDATE production_units
         SET status = 'on_gerobak'
@@ -83,11 +78,11 @@ def downgrade() -> None:
     op.drop_column('production_units', 'current_driver_id')
     op.drop_column('production_units', 'current_gerobak_id')
     op.drop_column('production_units', 'loading_order_id')
-    # Rollback backfill
+    # Rollback backfill — kembalikan on_gerobak ke dispatched
     op.execute("""
         UPDATE production_units
         SET status = 'dispatched'
         WHERE status = 'on_gerobak'
     """)
-    # Catatan: PostgreSQL tidak support DROP VALUE dari enum,
-    # perlu recreate enum jika benar-benar perlu remove 'on_gerobak'
+    # Catatan: PostgreSQL tidak support DROP VALUE dari enum secara langsung.
+    # Jika perlu benar-benar menghapus 'on_gerobak', harus recreate enum manual.
