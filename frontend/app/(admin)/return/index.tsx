@@ -36,9 +36,8 @@ interface LoadingOrderSnap {
 interface ReturnOrder {
   id: number;
   nomor_return: string;
-  pengiriman_id: number;
   driver_id: number;
-  loading_order_id: number | null;
+  loading_order_id: number;
   loading_order: LoadingOrderSnap | null;
   status: string;
   catatan_driver?: string;
@@ -126,7 +125,6 @@ export default function ReturnPage() {
 
   // ── BUAT RETURN state ──
   const [selectedLoading, setSelectedLoading] = useState<LoadingForReturn | null>(null);
-  const [pengirimanId, setPengirimanId] = useState('');
   const [catatan, setCatatan] = useState('');
   const [items, setItems] = useState<ReturnItemInput[]>([]);
   const [barcodeInput, setBarcodeInput] = useState('');
@@ -154,7 +152,6 @@ export default function ReturnPage() {
   // ── Mutation: buat return order ──
   const createReturn = useMutation({
     mutationFn: () => api.post('/return/', {
-      pengiriman_id: parseInt(pengirimanId),
       loading_order_id: selectedLoading!.id,
       catatan_driver: catatan || null,
       items,
@@ -176,7 +173,7 @@ export default function ReturnPage() {
   });
 
   const resetForm = () => {
-    setSelectedLoading(null); setPengirimanId('');
+    setSelectedLoading(null);
     setCatatan(''); setItems([]);
     setBarcodeInput(''); setKategoriInput('sisa'); setCatatanItemInput('');
   };
@@ -188,8 +185,6 @@ export default function ReturnPage() {
     setItems(prev => [...prev, { barcode: b, kategori: kategoriInput, catatan_driver: catatanItemInput.trim() || undefined }]);
     setBarcodeInput(''); setCatatanItemInput('');
   };
-
-  const removeItem = (barcode: string) => setItems(prev => prev.filter(i => i.barcode !== barcode));
 
   const filteredLog = useMemo(() => {
     const q = searchLog.trim().toLowerCase();
@@ -277,18 +272,13 @@ export default function ReturnPage() {
               )}
             </div>
 
-            {/* Step 2: Info Pengiriman + Catatan */}
+            {/* Step 2: Catatan Driver */}
             <div style={{ ...glassCard, marginBottom: 16, opacity: selectedLoading ? 1 : 0.4, pointerEvents: selectedLoading ? 'auto' : 'none' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
                 <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(248,113,113,0.15)', border: '1px solid #f87171', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#f87171' }}>2</div>
-                <span style={{ color: 'white', fontWeight: 600, fontSize: 14 }}>Info Pengiriman</span>
+                <span style={{ color: 'white', fontWeight: 600, fontSize: 14 }}>Catatan Pengiriman</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div>
-                  <label style={lbl}>ID PENGIRIMAN *</label>
-                  <input value={pengirimanId} onChange={e => setPengirimanId(e.target.value)} placeholder="ID pengiriman terkait" type="number" style={inp} />
-                  <p style={{ color: '#444', fontSize: 11, margin: '3px 0 0' }}>Isi dengan pengiriman_id yang terkait loading trip ini</p>
-                </div>
                 <div>
                   <label style={lbl}>CATATAN DRIVER (OPSIONAL)</label>
                   <textarea value={catatan} onChange={e => setCatatan(e.target.value)} placeholder="Catatan umum return..." rows={2} style={{ ...inp, resize: 'vertical' }} />
@@ -297,7 +287,7 @@ export default function ReturnPage() {
             </div>
 
             {/* Step 3: Scan Item */}
-            <div style={{ ...glassCard, marginBottom: 16, opacity: selectedLoading && pengirimanId ? 1 : 0.4, pointerEvents: selectedLoading && pengirimanId ? 'auto' : 'none' }}>
+            <div style={{ ...glassCard, marginBottom: 16, opacity: selectedLoading ? 1 : 0.4, pointerEvents: selectedLoading ? 'auto' : 'none' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
                 <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(248,113,113,0.15)', border: '1px solid #f87171', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#f87171' }}>3</div>
                 <span style={{ color: 'white', fontWeight: 600, fontSize: 14 }}>Scan Barcode Cup Sisa</span>
@@ -349,8 +339,8 @@ export default function ReturnPage() {
             {/* Submit */}
             <button
               onClick={() => createReturn.mutate()}
-              disabled={createReturn.isPending || !selectedLoading || !pengirimanId || items.length === 0}
-              style={{ ...btnPrimary, width: '100%', justifyContent: 'center', padding: '12px 0', fontSize: 14, opacity: (!selectedLoading || !pengirimanId || items.length === 0) ? 0.35 : 1 }}>
+              disabled={createReturn.isPending || !selectedLoading || items.length === 0}
+              style={{ ...btnPrimary, width: '100%', justifyContent: 'center', padding: '12px 0', fontSize: 14, opacity: (!selectedLoading || items.length === 0) ? 0.35 : 1 }}>
               {createReturn.isPending ? 'Menyimpan...' : `Buat Return Order (${items.length} item)`}
             </button>
           </div>
