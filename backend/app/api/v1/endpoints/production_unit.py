@@ -7,6 +7,7 @@ from app.repositories.production_unit_repo import ProductionUnitRepository
 from app.schemas.production_unit import (
     ExpiryAlertResponse,
     GenerateUnitsRequest,
+    GenerateUnitsResponse,
     PaginatedUnitResponse,
     ProductionUnitResponse,
     ScanDeliverRequest,
@@ -22,20 +23,66 @@ router = APIRouter()
 VIEW_ROLES = (UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI, UserRole.SHAREHOLDER)
 
 
-@router.post("/generate", response_model=list[ProductionUnitResponse], status_code=status.HTTP_201_CREATED)
+@router.post("/generate", response_model=GenerateUnitsResponse, status_code=status.HTTP_201_CREATED)
 async def generate_units(
     payload: GenerateUnitsRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PRODUKSI)),
 ):
+    """
+    Generate unit produksi dari sebuah MO.
+    - Jika jumlah aktual berbeda dari target_qty MO, wajib sertakan alasan_selisih.
+    - Respon mencakup batch info (dengan selisih) + list unit yang di-generate.
+    """
     service = ProductionUnitService(db)
     try:
-        return await service.generate_units(
-            payload.mo_id, payload.jumlah, payload.expiry_date,
-            payload.harga_modal, current_user.id
+        return await service.generate_units_with_batch(
+            mo_id=payload.mo_id,
+            jumlah=payload.jumlah,
+            expiry_date=payload.expiry_date,
+            harga_modal=payload.harga_modal,
+            user_id=current_user.id,
+            alasan_selisih=payload.alasan_selisih,
+            kategori_selisih=payload.kategori_selisih,
         )
-    except (ValueError, Exception) as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/generate/batch/{mo_id}", response_model=list[dict])
+async def list_generate_batches(
+    mo_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(*VIEW_ROLES)),
+):
+    """Lihat riwayat semua sesi generate dari satu MO, termasuk catatan selisih."""
+    from sqlalchemy import select
+    from app.models.production_unit import GenerateBatch
+    result = await db.execute(
+        select(GenerateBatch)
+        .where(GenerateBatch.mo_id == mo_id)
+        .order_by(GenerateBatch.created_at)
+    )
+    batches = result.scalars().all()
+    return [
+        {
+            "id": b.id,
+            "mo_id": b.mo_id,
+            "jumlah_target": b.jumlah_target,
+            "jumlah_aktual": b.jumlah_aktual,
+            "selisih_qty": b.selisih_qty,
+            "alasan_selisih": b.alasan_selisih,
+            "kategori_selisih": b.kategori_selisih,
+            "expiry_date": str(b.expiry_date),
+            "harga_modal": float(b.harga_modal) if b.harga_modal else None,
+            "harga_jual": float(b.harga_jual) if b.harga_jual else None,
+            "generated_by": b.generated_by_user.nama if b.generated_by_user else None,
+            "created_at": b.created_at.isoformat(),
+        }
+        for b in batches
+    ]
 
 
 @router.get("/expiry-alerts", response_model=ExpiryAlertResponse)

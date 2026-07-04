@@ -4,7 +4,7 @@ from app.api.v1.endpoints import (
     auth, users, inventori, produksi, driver,
     admin, manufacturing_order, production_unit,
     penjualan, return_order, laporan, gerobak,
-    purchase_order, dividen, pengeluaran,
+    purchase_order, dividen, pengeluaran, menu,
 )
 
 api_router = APIRouter()
@@ -17,6 +17,7 @@ api_router.include_router(produksi.router,            prefix="/produksi",       
 api_router.include_router(driver.router,              prefix="/driver",               tags=["Driver"])
 api_router.include_router(manufacturing_order.router, prefix="/manufacturing-orders", tags=["Manufacturing Orders"])
 api_router.include_router(production_unit.router,     prefix="/production-units",     tags=["Production Units"])
+api_router.include_router(menu.router,                prefix="/menu",                 tags=["Menu & Resep"])
 api_router.include_router(penjualan.router,           prefix="/penjualan",            tags=["Penjualan"])
 api_router.include_router(return_order.router,        prefix="/returns",              tags=["Return Orders"])
 api_router.include_router(laporan.router,             prefix="/laporan",              tags=["Laporan"])
