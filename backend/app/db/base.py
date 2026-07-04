@@ -11,7 +11,7 @@ from app.models.penjualan import Penjualan  # noqa: F401
 from app.models.return_order import ReturnOrder, ReturnItem  # noqa: F401
 from app.models.purchase_order import PurchaseOrder, PurchaseOrderItem  # noqa: F401
 from app.models.pengeluaran import Pengeluaran  # noqa: F401
-from app.models.gerobak import Gerobak, GerobakSaham  # noqa: F401
-from app.models.dividen import Dividen, DividenGerobak  # noqa: F401
+from app.models.gerobak import Gerobak, ShareholderGroup, GroupMembership  # noqa: F401
+from app.models.dividen import GajiKaryawan, DividenDistribusi  # noqa: F401
 from app.models.produksi import Produksi  # noqa: F401
 from app.models.supplier import Supplier  # noqa: F401
