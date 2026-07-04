@@ -6,7 +6,7 @@ import { logout } from '../../lib/auth';
 import { cn } from '../../lib/utils';
 import {
   LayoutDashboard, ClipboardList, Factory, Undo2, Users,
-  Package, FlaskConical, TriangleAlert, Truck, Coffee,
+  Package, FlaskConical, Truck, Coffee,
   TrendingUp, LogOut, ChevronLeft, ChevronRight,
   ShoppingCart, ShoppingBag, PieChart, Banknote, Wallet,
   BookOpen,
@@ -33,7 +33,6 @@ const NAV_ITEMS: NavItem[] = [
   // Inventori
   { label: 'Bahan Baku',  href: '/(admin)/bahan-baku',               Icon: FlaskConical,    roles: ['ADMIN', 'INVENTORI'],   group: 'Inventori' },
   { label: 'Stok',        href: '/(inventori)/stok',                 Icon: Package,         roles: ['INVENTORI', 'ADMIN'],   group: 'Inventori' },
-  { label: 'Expiry Alert',href: '/(inventori)/expiry',               Icon: TriangleAlert,   roles: ['INVENTORI', 'ADMIN'],   group: 'Inventori' },
   // Pembelian
   { label: 'Pembelian',   href: '/(admin)/pembelian',                Icon: ShoppingBag,     roles: ['ADMIN', 'INVENTORI'],   group: 'Pembelian' },
   { label: 'Pengeluaran', href: '/(admin)/gerobak/pengeluaran',      Icon: Wallet,          roles: ['ADMIN'],                group: 'Pembelian' },
