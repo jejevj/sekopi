@@ -74,6 +74,9 @@ class ProductionUnitService:
                 "Wajib isi alasan_selisih."
             )
 
+        # Ambil harga_jual dari menu yang terkait MOLine
+        harga_jual_menu = line.menu.harga_jual if line.menu else None
+
         batch = GenerateBatch(
             mo_id=mo_id,
             mo_line_id=mo_line_id,
@@ -85,7 +88,7 @@ class ProductionUnitService:
             kategori_selisih=kategori_selisih,
             expiry_date=expiry_date,
             harga_modal=harga_modal,
-            harga_jual=line.menu.harga_jual if line.menu else None,
+            harga_jual=harga_jual_menu,
         )
         self.db.add(batch)
         await self.db.flush()
@@ -100,6 +103,8 @@ class ProductionUnitService:
                 nama_produk=line.nama_produk,
                 expiry_date=expiry_date,
                 harga_modal=harga_modal,
+                # FIX: copy harga_jual dari menu ke setiap unit saat generate
+                harga_jual=float(harga_jual_menu) if harga_jual_menu is not None else None,
                 status=StatusUnit.READY,
             )
             self.db.add(unit)
@@ -222,6 +227,7 @@ class ProductionUnitService:
         unit = await self.repo.get_by_barcode(payload.barcode)
         if not unit:
             return ScanResultResponse(barcode=payload.barcode, status="error", message="Barcode tidak ditemukan")
+
         today = date.today()
         if unit.expiry_date < today:
             return ScanResultResponse(
@@ -229,28 +235,57 @@ class ProductionUnitService:
                 message=f"Produk sudah EXPIRED sejak {unit.expiry_date}, tidak bisa dijual!",
                 unit=_enrich_unit(unit),
             )
-        if unit.status != StatusUnit.DELIVERED:
+        if unit.status not in (StatusUnit.DELIVERED, StatusUnit.ON_GEROBAK):
             return ScanResultResponse(
                 barcode=payload.barcode, status="error",
-                message=f"Unit tidak bisa dijual (status: {unit.status})",
+                message=f"Unit tidak bisa dijual (status: {unit.status}). Harus DELIVERED atau ON_GEROBAK.",
                 unit=_enrich_unit(unit),
             )
+
+        # Tentukan harga: payload.harga_override > unit.harga_jual > 0
+        harga_final: float = (
+            payload.harga_override
+            if payload.harga_override is not None
+            else (float(unit.harga_jual) if unit.harga_jual is not None else 0.0)
+        )
+
+        # Tentukan gerobak: payload.gerobak_id > unit.current_gerobak_id
+        gerobak_id_final: int | None = (
+            payload.gerobak_id
+            if payload.gerobak_id is not None
+            else unit.current_gerobak_id
+        )
+
         now = datetime.now(timezone.utc)
+
+        # Update unit
         unit.status = StatusUnit.SOLD
         unit.sold_at = now
+        # Bersihkan lokasi — unit sudah tidak di gerobak mana pun
+        unit.current_gerobak_id = None
+        unit.current_driver_id = None
+
+        # Insert record Penjualan
         penjualan = Penjualan(
             production_unit_id=unit.id,
             barcode=unit.barcode,
             nama_produk=unit.nama_produk,
-            harga=payload.harga if hasattr(payload, 'harga') else None,
-            catatan=payload.catatan if hasattr(payload, 'catatan') else None,
+            harga=harga_final,
+            catatan=payload.catatan,
             kasir_id=kasir_id,
+            gerobak_id=gerobak_id_final,
             sold_at=now,
         )
         self.db.add(penjualan)
         await self.db.commit()
         await self.db.refresh(unit)
-        return ScanResultResponse(barcode=payload.barcode, status="ok", message="Terjual! \u2615", unit=_enrich_unit(unit))
+
+        return ScanResultResponse(
+            barcode=payload.barcode,
+            status="ok",
+            message=f"Terjual! \u2615 Harga: Rp {harga_final:,.0f}",
+            unit=_enrich_unit(unit),
+        )
 
     async def scan_void(
         self, payload: ScanVoidRequest, user_id: int

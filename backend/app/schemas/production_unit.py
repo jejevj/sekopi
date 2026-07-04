@@ -33,6 +33,9 @@ class ProductionUnitResponse(BaseModel):
     harga_jual: Optional[float] = None
     status: StatusUnit
     pengiriman_id: Optional[int] = None
+    loading_order_id: Optional[int] = None
+    current_gerobak_id: Optional[int] = None
+    current_driver_id: Optional[int] = None
     dispatched_at: Optional[datetime] = None
     delivered_at: Optional[datetime] = None
     sold_at: Optional[datetime] = None
@@ -107,7 +110,9 @@ class ScanDeliverRequest(BaseModel):
 
 class ScanSellRequest(BaseModel):
     barcode: str
-    gerobak_id: Optional[int] = None
+    gerobak_id: Optional[int] = Field(None, description="ID gerobak tempat penjualan. Jika tidak diisi, diambil dari current_gerobak_id unit.")
+    harga_override: Optional[float] = Field(None, gt=0, description="Override harga jual. Jika tidak diisi, pakai harga_jual dari unit.")
+    catatan: Optional[str] = Field(None, max_length=500)
 
 
 class ScanVoidRequest(BaseModel):
