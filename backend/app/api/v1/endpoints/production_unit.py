@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, require_roles
-from app.models.production_unit import GenerateBatch
+from app.models.production_unit import GenerateBatch, StatusUnit
 from app.models.user import User, UserRole
 from app.repositories.production_unit_repo import ProductionUnitRepository
 from app.schemas.production_unit import (
@@ -25,17 +25,25 @@ router = APIRouter()
 VIEW_ROLES = (UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI, UserRole.SHAREHOLDER)
 
 
+@router.get("/", response_model=PaginatedUnitResponse)
+async def list_all_units(
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=100, ge=1, le=500),
+    status: StatusUnit | None = Query(default=None, description="Filter by status unit"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(*VIEW_ROLES)),
+):
+    """List semua production unit. Opsional filter ?status=ready|on_gerobak|sold|... """
+    service = ProductionUnitService(db)
+    return await service.get_all_paginated(page, per_page, status)
+
+
 @router.post("/generate", response_model=GenerateUnitsResponse, status_code=status.HTTP_201_CREATED)
 async def generate_units(
     payload: GenerateUnitsRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PRODUKSI)),
 ):
-    """
-    Generate unit produksi dari satu MOLine.
-    Wajib sertakan mo_line_id agar unit tahu berasal dari produk mana.
-    Jika jumlah aktual berbeda dari target_qty MOLine, wajib sertakan alasan_selisih.
-    """
     service = ProductionUnitService(db)
     try:
         return await service.generate_units_with_batch(
@@ -60,7 +68,6 @@ async def list_generate_batches(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*VIEW_ROLES)),
 ):
-    """Lihat riwayat semua sesi generate dari satu MO, grouped by mo_line_id."""
     result = await db.execute(
         select(GenerateBatch)
         .where(GenerateBatch.mo_id == mo_id)

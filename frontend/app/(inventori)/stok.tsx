@@ -15,11 +15,11 @@ const TABS: { key: Tab; label: string; Icon: any; activeColor: string }[] = [
   { key: 'unit',  label: 'Unit Produksi', Icon: Package,      activeColor: '#a855f7' },
 ];
 
-// ── Definisi lengkap semua status unit termasuk on_gerobak ──────────────────
 const UNIT_STATUS_META: Record<string, { color: string; label: string; desc: string }> = {
   ready:            { color: '#a3e635', label: '📦 Di Gudang',     desc: 'Tersedia di gudang — terhitung sebagai stok' },
   on_gerobak:       { color: '#f59e0b', label: '🛒 Di Gerobak',    desc: 'Sedang dibawa driver — belum terjual, tidak mengurangi stok gudang' },
   dispatched:       { color: '#f59e0b', label: '🚚 Dispatched',    desc: 'Legacy — setara On Gerobak' },
+  delivered:        { color: '#818cf8', label: '📬 Delivered',     desc: 'Sudah diterima driver, siap dijual' },
   sold:             { color: '#22c55e', label: '✅ Terjual',        desc: 'Sudah terjual — keluar dari stok permanen' },
   returned_good:    { color: '#0d9488', label: '↩ Kembali Baik',   desc: 'Dikembalikan kondisi baik — kembali ke stok (READY)' },
   returned_damaged: { color: '#ef4444', label: '💔 Kembali Rusak', desc: 'Dikembalikan rusak — keluar dari stok permanen' },
@@ -87,7 +87,7 @@ export default function StokPage() {
     enabled: expandedBahan !== null,
   });
 
-  // Semua unit (semua status) — untuk stat card lengkap
+  // GET /production-units/?page=1&per_page=500 → PaginatedUnitResponse { total, items }
   const { data: allUnitData, isLoading: loadingUnit, refetch: refetchUnit } = useQuery({
     queryKey: ['stok-unit-all'],
     queryFn: async () => (await api.get('/production-units/?page=1&per_page=500')).data,
@@ -108,7 +108,6 @@ export default function StokPage() {
     return bahanItems.filter((b: any) => b.nama?.toLowerCase().includes(q));
   }, [bahanItems, searchBahan]);
 
-  // Ambil items dari berbagai kemungkinan shape API
   const unitItems: any[] = useMemo(() => {
     if (!allUnitData) return [];
     if (Array.isArray(allUnitData)) return allUnitData;
@@ -119,7 +118,6 @@ export default function StokPage() {
   const expiringSoon: any[] = expiryData?.units_expiring_soon ?? [];
   const expiredItems: any[] = expiryData?.units_expired ?? [];
 
-  // ── Hitung stat per status ─────────────────────────────────────────────────
   const unitStats = useMemo(() =>
     UNIT_STATUSES.reduce((acc, s) => {
       acc[s] = unitItems.filter((u: any) => u.status === s).length;
@@ -127,10 +125,10 @@ export default function StokPage() {
     }, {} as Record<string, number>)
   , [unitItems]);
 
-  const stokGudang   = unitStats['ready'] ?? 0;
-  const diGerobak    = (unitStats['on_gerobak'] ?? 0) + (unitStats['dispatched'] ?? 0);
-  const terjual      = unitStats['sold'] ?? 0;
-  const rusakVoid    = (unitStats['returned_damaged'] ?? 0) + (unitStats['void'] ?? 0);
+  const stokGudang = unitStats['ready'] ?? 0;
+  const diGerobak  = (unitStats['on_gerobak'] ?? 0) + (unitStats['dispatched'] ?? 0) + (unitStats['delivered'] ?? 0);
+  const terjual    = unitStats['sold'] ?? 0;
+  const rusakVoid  = (unitStats['returned_damaged'] ?? 0) + (unitStats['void'] ?? 0);
 
   const filteredUnit = useMemo(() => {
     const q = searchUnit.trim().toLowerCase();
@@ -166,8 +164,7 @@ export default function StokPage() {
               {unit.hari_tersisa != null ? `${unit.hari_tersisa}h lagi` : 'Segera expired'}
             </span>
           )}
-          {/* Tampilkan loading order jika on_gerobak */}
-          {(unit.status === 'on_gerobak' || unit.status === 'dispatched') && unit.loading_order_id && (
+          {(unit.status === 'on_gerobak' || unit.status === 'dispatched' || unit.status === 'delivered') && unit.loading_order_id && (
             <span style={{ color: '#f59e0b', fontSize: 11, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 20, padding: '1px 7px' }}>
               Loading #{unit.loading_order_id}
             </span>
@@ -214,7 +211,7 @@ export default function StokPage() {
           })}
         </div>
 
-        {/* ── TAB BAHAN BAKU ──────────────────────────────────────────────── */}
+        {/* ── TAB BAHAN BAKU ────────────────────────────────────── */}
         {tab === 'bahan' && (
           <div>
             <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
@@ -311,11 +308,9 @@ export default function StokPage() {
           </div>
         )}
 
-        {/* ── TAB UNIT PRODUKSI ───────────────────────────────────────────── */}
+        {/* ── TAB UNIT PRODUKSI ─────────────────────────────────── */}
         {tab === 'unit' && (
           <div>
-
-            {/* Stat cards: 4 kartu utama */}
             <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
               <StatCard
                 Icon={<Warehouse size={14} color="#a3e635" />}
@@ -329,7 +324,7 @@ export default function StokPage() {
                 label="Di Gerobak"
                 value={diGerobak}
                 color="#f59e0b"
-                sub="Belum terjual"
+                sub="Dispatched / On Gerobak"
               />
               <StatCard
                 Icon={<ShoppingBag size={14} color="#22c55e" />}
@@ -347,7 +342,6 @@ export default function StokPage() {
               />
             </div>
 
-            {/* Info banner stok */}
             <div style={{ background: 'rgba(163,230,53,0.05)', border: '1px solid rgba(163,230,53,0.15)', borderRadius: 10, padding: '9px 16px', marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ color: '#a3e635', fontSize: 12 }}>📦 <strong>Stok Gudang</strong> = hanya unit READY</span>
               <span style={{ color: '#444' }}>·</span>
@@ -363,7 +357,6 @@ export default function StokPage() {
             {loadingUnit ? <LoadingSpinner color="#a855f7" /> : (
               <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
 
-                {/* Kolom kiri: semua unit dengan filter */}
                 <div style={{ flex: '1 1 380px', minWidth: 0 }}>
                   <div style={glassCard}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
@@ -376,7 +369,6 @@ export default function StokPage() {
 
                     <SearchBar value={searchUnit} onChange={setSearchUnit} placeholder="Cari barcode atau produk..." />
 
-                    {/* Filter chips per status */}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
                       <button
                         onClick={() => setFilterStatus('all')}
@@ -418,11 +410,9 @@ export default function StokPage() {
                   </div>
                 </div>
 
-                {/* Kolom kanan: Expiry Alert */}
                 <div style={{ flex: '1 1 340px', minWidth: 0 }}>
                   {loadingExpiry ? <LoadingSpinner color="#eab308" /> : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
                       <div style={{ ...glassCard, borderColor: 'rgba(234,179,8,0.25)', backgroundColor: 'rgba(234,179,8,0.04)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
                           <Clock size={15} color="#eab308" />
@@ -452,7 +442,6 @@ export default function StokPage() {
                           {expiredItems.map((u: any) => unitTableRow(u))}
                         </div>
                       )}
-
                     </div>
                   )}
                 </div>

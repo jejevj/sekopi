@@ -11,14 +11,7 @@ class ProductionUnitRepository(BaseRepository[ProductionUnit]):
         super().__init__(ProductionUnit, db)
 
     async def generate_barcode(self) -> str:
-        """
-        Race-condition-safe barcode generation menggunakan PostgreSQL sequence.
-        Format: SKP-YYYYMMDD-XXXX
-        Sequence di-reset setiap hari, tapi tetap aman karena UNIQUE constraint
-        di kolom barcode akan catch jika ada tabrakan.
-        """
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
-        # Gunakan SELECT ... FOR UPDATE dengan subquery untuk atomic increment
         result = await self.db.execute(
             text("""
                 SELECT COALESCE(MAX(CAST(SPLIT_PART(barcode, '-', 3) AS INTEGER)), 0) + 1
@@ -39,12 +32,10 @@ class ProductionUnitRepository(BaseRepository[ProductionUnit]):
     async def get_by_mo(
         self, mo_id: int, page: int = 1, per_page: int = 50
     ) -> tuple[list[ProductionUnit], int]:
-        """FEFO: expiry terdekat duluan. Returns (items, total_count)."""
         count_result = await self.db.execute(
             select(func.count(ProductionUnit.id)).where(ProductionUnit.mo_id == mo_id)
         )
         total = count_result.scalar() or 0
-
         result = await self.db.execute(
             select(ProductionUnit)
             .where(ProductionUnit.mo_id == mo_id)
@@ -57,14 +48,11 @@ class ProductionUnitRepository(BaseRepository[ProductionUnit]):
     async def get_ready_fefo(
         self, page: int = 1, per_page: int = 50
     ) -> tuple[list[ProductionUnit], int]:
-        """Semua unit READY/DELIVERED diurutkan FEFO."""
         base_where = ProductionUnit.status.in_([StatusUnit.READY, StatusUnit.DELIVERED])
-
         count_result = await self.db.execute(
             select(func.count(ProductionUnit.id)).where(base_where)
         )
         total = count_result.scalar() or 0
-
         result = await self.db.execute(
             select(ProductionUnit)
             .where(base_where)
@@ -73,6 +61,35 @@ class ProductionUnitRepository(BaseRepository[ProductionUnit]):
             .limit(per_page)
         )
         return list(result.scalars().all()), total
+
+    async def get_all_paginated(
+        self, page: int = 1, per_page: int = 100,
+        status: StatusUnit | None = None,
+    ) -> tuple[list[ProductionUnit], int]:
+        """Semua unit, opsional filter by status, FEFO order."""
+        where = ProductionUnit.status == status if status else None
+        count_q = select(func.count(ProductionUnit.id))
+        list_q  = select(ProductionUnit)
+        if where is not None:
+            count_q = count_q.where(where)
+            list_q  = list_q.where(where)
+        count_result = await self.db.execute(count_q)
+        total = count_result.scalar() or 0
+        result = await self.db.execute(
+            list_q
+            .order_by(ProductionUnit.expiry_date.asc(), ProductionUnit.id.asc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+        )
+        return list(result.scalars().all()), total
+
+    # Status yang masih "aktif" (belum keluar dari siklus)
+    _ACTIVE_STATUSES = [
+        StatusUnit.READY,
+        StatusUnit.DISPATCHED,
+        StatusUnit.DELIVERED,
+        StatusUnit.ON_GEROBAK,
+    ]
 
     async def get_expiring_soon(self, days: int = 2) -> list[ProductionUnit]:
         today = date.today()
@@ -83,11 +100,7 @@ class ProductionUnitRepository(BaseRepository[ProductionUnit]):
                 and_(
                     ProductionUnit.expiry_date <= threshold,
                     ProductionUnit.expiry_date >= today,
-                    ProductionUnit.status.in_([
-                        StatusUnit.READY,
-                        StatusUnit.DISPATCHED,
-                        StatusUnit.DELIVERED,
-                    ])
+                    ProductionUnit.status.in_(self._ACTIVE_STATUSES)
                 )
             )
             .order_by(ProductionUnit.expiry_date.asc())
@@ -101,11 +114,7 @@ class ProductionUnitRepository(BaseRepository[ProductionUnit]):
             .where(
                 and_(
                     ProductionUnit.expiry_date < today,
-                    ProductionUnit.status.in_([
-                        StatusUnit.READY,
-                        StatusUnit.DISPATCHED,
-                        StatusUnit.DELIVERED,
-                    ])
+                    ProductionUnit.status.in_(self._ACTIVE_STATUSES)
                 )
             )
             .order_by(ProductionUnit.expiry_date.asc())
@@ -118,11 +127,7 @@ class ProductionUnitRepository(BaseRepository[ProductionUnit]):
             select(ProductionUnit).where(
                 and_(
                     ProductionUnit.expiry_date < today,
-                    ProductionUnit.status.in_([
-                        StatusUnit.READY,
-                        StatusUnit.DISPATCHED,
-                        StatusUnit.DELIVERED,
-                    ])
+                    ProductionUnit.status.in_(self._ACTIVE_STATUSES)
                 )
             )
         )

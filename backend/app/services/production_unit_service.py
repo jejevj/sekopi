@@ -49,7 +49,6 @@ class ProductionUnitService:
         alasan_selisih: str | None = None,
         kategori_selisih=None,
     ) -> GenerateUnitsResponse:
-        # Validasi MO
         mo_result = await self.db.execute(
             select(ManufacturingOrder).where(ManufacturingOrder.id == mo_id)
         )
@@ -59,7 +58,6 @@ class ProductionUnitService:
         if mo.status != StatusMO.DONE:
             raise ValueError("Unit hanya bisa di-generate jika MO sudah berstatus DONE")
 
-        # Validasi MOLine
         line_result = await self.db.execute(
             select(MOLine).where(MOLine.id == mo_line_id, MOLine.mo_id == mo_id)
         )
@@ -76,7 +74,6 @@ class ProductionUnitService:
                 "Wajib isi alasan_selisih."
             )
 
-        # Buat GenerateBatch
         batch = GenerateBatch(
             mo_id=mo_id,
             mo_line_id=mo_line_id,
@@ -93,7 +90,6 @@ class ProductionUnitService:
         self.db.add(batch)
         await self.db.flush()
 
-        # Generate ProductionUnit
         units = []
         for _ in range(jumlah):
             barcode = await self.repo.generate_barcode()
@@ -127,6 +123,18 @@ class ProductionUnitService:
             batch=GenerateBatchResponse.model_validate(batch),
             units=[_enrich_unit(u) for u in units],
             peringatan_selisih=peringatan,
+        )
+
+    async def get_all_paginated(
+        self, page: int = 1, per_page: int = 100, status: StatusUnit | None = None
+    ) -> PaginatedUnitResponse:
+        items, total = await self.repo.get_all_paginated(page, per_page, status)
+        return PaginatedUnitResponse(
+            total=total,
+            page=page,
+            per_page=per_page,
+            total_pages=-(-total // per_page),
+            items=[_enrich_unit(u) for u in items],
         )
 
     async def get_by_mo_paginated(
@@ -176,7 +184,7 @@ class ProductionUnitService:
             hari = (unit.expiry_date - today).days
             msg = "Berhasil di-dispatch"
             if hari <= EXPIRY_WARNING_DAYS:
-                msg += f" ⚠️ Expiry {hari} hari lagi ({unit.expiry_date}), prioritaskan penjualan!"
+                msg += f" \u26a0\ufe0f Expiry {hari} hari lagi ({unit.expiry_date}), prioritaskan penjualan!"
             results.append(ScanResultResponse(barcode=barcode, status="ok", message=msg, unit=_enrich_unit(unit)))
         await self.db.commit()
         return results
@@ -203,7 +211,7 @@ class ProductionUnitService:
             hari = (unit.expiry_date - today).days
             msg = "Berhasil dikonfirmasi terima"
             if hari <= EXPIRY_WARNING_DAYS:
-                msg += f" ⚠️ Expiry {hari} hari lagi, jual segera!"
+                msg += f" \u26a0\ufe0f Expiry {hari} hari lagi, jual segera!"
             results.append(ScanResultResponse(barcode=barcode, status="ok", message=msg, unit=_enrich_unit(unit)))
         await self.db.commit()
         return results
@@ -242,7 +250,7 @@ class ProductionUnitService:
         self.db.add(penjualan)
         await self.db.commit()
         await self.db.refresh(unit)
-        return ScanResultResponse(barcode=payload.barcode, status="ok", message="Terjual! ☕", unit=_enrich_unit(unit))
+        return ScanResultResponse(barcode=payload.barcode, status="ok", message="Terjual! \u2615", unit=_enrich_unit(unit))
 
     async def scan_void(
         self, payload: ScanVoidRequest, user_id: int
