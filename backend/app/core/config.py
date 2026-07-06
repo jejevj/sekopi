@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Union
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
 
@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite+aiosqlite:///./sekopi.db"
     ENVIRONMENT: str = "development"
 
-    BACKEND_CORS_ORIGINS: List[str] = [
+    BACKEND_CORS_ORIGINS: Union[List[str], str] = [
         "http://localhost:8081",
         "http://localhost:19006",
         "http://localhost:3000",
@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     @classmethod
     def assemble_cors_origins(cls, v):
         if isinstance(v, str):
+            if v.strip() == "*":
+                return ["*"]
             return [i.strip() for i in v.split(",")]
         return v
 
