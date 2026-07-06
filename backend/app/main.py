@@ -16,7 +16,6 @@ from app.core.tasks import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # === STARTUP ===
-    # Daftarkan semua cron jobs
     scheduler.add_job(
         task_mark_expired_units,
         trigger="cron",
@@ -55,12 +54,13 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
