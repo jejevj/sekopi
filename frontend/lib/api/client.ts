@@ -8,6 +8,14 @@ export const apiClient = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+// Auto append trailing slash to prevent 307 redirect from FastAPI
+apiClient.interceptors.request.use((config) => {
+  if (config.url && !config.url.endsWith("/") && !config.url.includes("?")) {
+    config.url = config.url + "/";
+  }
+  return config;
+});
+
 apiClient.interceptors.request.use((config) => {
   const token = useAuthStore.getState().token;
   if (token) {
