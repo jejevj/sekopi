@@ -8,7 +8,7 @@
     "userInterfaceStyle": "dark",
     "web": {
       "bundler": "metro",
-      "output": "static"
+      "output": "single"
     },
     "platforms": ["ios", "android", "web"],
     "plugins": [
