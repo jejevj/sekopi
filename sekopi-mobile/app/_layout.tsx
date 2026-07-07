@@ -11,9 +11,7 @@ export default function RootLayout() {
   const [loaded] = useFonts({});
 
   useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
-    }
+    if (loaded) SplashScreen.hideAsync();
   }, [loaded]);
 
   if (!loaded) return null;
@@ -24,6 +22,7 @@ export default function RootLayout() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="(auth)/login" />
+        <Stack.Screen name="(main)/dashboard" />
       </Stack>
     </>
   );
