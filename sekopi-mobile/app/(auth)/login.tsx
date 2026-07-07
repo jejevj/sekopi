@@ -13,10 +13,8 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { router } from 'expo-router';
-import axios from 'axios';
+import api from '../../lib/api';
 import { useAuthStore } from '../../stores/authStore';
-
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://192.168.1.1:8000';
 
 type InputFieldProps = {
   label: string;
@@ -103,37 +101,27 @@ export default function LoginScreen() {
     setError('');
     setLoading(true);
     try {
-      // Backend pakai OAuth2PasswordRequestForm → kirim sebagai form-data
+      // OAuth2PasswordRequestForm → wajib form-data, field: username + password
       const formData = new FormData();
       formData.append('username', email.trim());
       formData.append('password', password);
 
-      const res = await axios.post(
-        `${BASE_URL}/api/v1/auth/login/`,
-        formData,
-        { headers: { 'Content-Type': 'multipart/form-data' } }
-      );
+      const res = await api.post('/auth/login/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
 
       const { access_token, refresh_token, user } = res.data;
       setAuth(user, access_token, refresh_token);
 
-      // Arahkan berdasarkan role
-      switch (user.role) {
-        case 'admin':       router.replace('/(main)/dashboard'); break;
-        case 'produksi':    router.replace('/(main)/dashboard'); break;
-        case 'inventori':   router.replace('/(main)/dashboard'); break;
-        case 'driver':      router.replace('/(main)/dashboard'); break;
-        case 'shareholder': router.replace('/(main)/dashboard'); break;
-        default:            router.replace('/(main)/dashboard');
-      }
+      router.replace('/(main)/dashboard');
     } catch (e: any) {
-      const msg = e?.response?.data?.detail;
-      if (msg === 'Akun tidak aktif') {
+      const detail = e?.response?.data?.detail;
+      if (detail === 'Akun tidak aktif') {
         setError('Akun kamu tidak aktif. Hubungi admin.');
-      } else if (e?.response?.status === 401) {
+      } else if (e?.response?.status === 401 || e?.response?.status === 422) {
         setError('Email atau password salah.');
-      } else if (e?.code === 'ECONNREFUSED' || e?.code === 'ERR_NETWORK') {
-        setError('Tidak bisa terhubung ke server. Cek koneksi jaringan.');
+      } else if (e?.code === 'ERR_NETWORK' || e?.code === 'ECONNREFUSED') {
+        setError('Tidak bisa terhubung ke server.');
       } else {
         setError('Login gagal. Coba lagi.');
       }
