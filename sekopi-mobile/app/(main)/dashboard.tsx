@@ -11,49 +11,57 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../stores/authStore';
 import type { UserRole } from '../../stores/authStore';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_GAP    = 12;
-const PADDING_H   = 20;
-const CARD_WIDTH  = (SCREEN_WIDTH - PADDING_H * 2 - CARD_GAP) / 2;
+const { width: SW } = Dimensions.get('window');
+const PAD  = 20;
+const GAP  = 12;
+const CW   = (SW - PAD * 2 - GAP) / 2;
 
-// ── Menu per role ───────────────────────────────────────────────────────────
-type MenuItem = { icon: string; label: string; route: string; color: string };
+type MenuItem = {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  route: string;
+  color: string;
+};
+
+// Hanya 2 menu utama yang relevan untuk semua role
+const MENU_COMMON: MenuItem[] = [
+  { icon: 'calendar-outline',  label: 'Absensi',   route: '/(main)/absensi',   color: '#f44444' },
+  { icon: 'person-outline',    label: 'Profil',    route: '/(main)/profile',   color: '#3b82f6' },
+];
 
 const MENU_BY_ROLE: Record<UserRole, MenuItem[]> = {
   admin: [
-    { icon: '📊', label: 'Dashboard',     route: '/(main)/dashboard',       color: '#f44444' },
-    { icon: '👥', label: 'Pengguna',      route: '/(admin)/users',          color: '#3b82f6' },
-    { icon: '🛒', label: 'Menu Produk',   route: '/(admin)/menu',           color: '#22c55e' },
-    { icon: '🚛', label: 'Gerobak',       route: '/(admin)/gerobak',        color: '#eab308' },
-    { icon: '📦', label: 'Inventori',     route: '/(inventori)/dashboard',  color: '#f97316' },
-    { icon: '🏭', label: 'Produksi',      route: '/(produksi)/dashboard',   color: '#a855f7' },
-    { icon: '💰', label: 'Laporan',       route: '/(admin)/laporan',        color: '#14b8a6' },
-    { icon: '📄', label: 'Dividen',       route: '/(admin)/dividen',        color: '#f44444' },
+    { icon: 'people-outline',        label: 'Pengguna',      route: '/(admin)/users',         color: '#3b82f6' },
+    { icon: 'fast-food-outline',     label: 'Menu Produk',   route: '/(admin)/menu',          color: '#22c55e' },
+    { icon: 'car-outline',           label: 'Gerobak',       route: '/(admin)/gerobak',       color: '#eab308' },
+    { icon: 'cube-outline',          label: 'Inventori',     route: '/(inventori)/dashboard', color: '#f97316' },
+    { icon: 'hammer-outline',        label: 'Produksi',      route: '/(produksi)/dashboard',  color: '#a855f7' },
+    { icon: 'bar-chart-outline',     label: 'Laporan',       route: '/(admin)/laporan',       color: '#14b8a6' },
+    { icon: 'cash-outline',          label: 'Dividen',       route: '/(admin)/dividen',       color: '#f44444' },
   ],
   produksi: [
-    { icon: '🏭', label: 'Produksi',      route: '/(produksi)/dashboard',   color: '#a855f7' },
-    { icon: '🛒', label: 'Menu Produk',   route: '/(produksi)/menu',        color: '#22c55e' },
-    { icon: '📋', label: 'Mfg Order',     route: '/(produksi)/mo',          color: '#f97316' },
-    { icon: '✅',       label: 'Absensi',       route: '/(produksi)/absensi',     color: '#14b8a6' },
+    { icon: 'hammer-outline',        label: 'Produksi',      route: '/(produksi)/dashboard',  color: '#a855f7' },
+    { icon: 'fast-food-outline',     label: 'Menu Produk',   route: '/(produksi)/menu',       color: '#22c55e' },
+    { icon: 'clipboard-outline',     label: 'Mfg Order',     route: '/(produksi)/mo',         color: '#f97316' },
   ],
   inventori: [
-    { icon: '📦', label: 'Stok',          route: '/(inventori)/dashboard',  color: '#f97316' },
-    { icon: '🛒', label: 'Purchase Order', route: '/(inventori)/po',         color: '#3b82f6' },
-    { icon: '🔄', label: 'Return',         route: '/(inventori)/return',     color: '#eab308' },
-    { icon: '📋', label: 'Loading',        route: '/(inventori)/loading',    color: '#22c55e' },
+    { icon: 'cube-outline',          label: 'Stok',          route: '/(inventori)/dashboard', color: '#f97316' },
+    { icon: 'cart-outline',          label: 'Purchase Order',route: '/(inventori)/po',        color: '#3b82f6' },
+    { icon: 'refresh-outline',       label: 'Return',        route: '/(inventori)/return',    color: '#eab308' },
+    { icon: 'archive-outline',       label: 'Loading',       route: '/(inventori)/loading',   color: '#22c55e' },
   ],
   driver: [
-    { icon: '🚛', label: 'Gerobak Saya',  route: '/(driver)/gerobak',       color: '#eab308' },
-    { icon: '💳', label: 'Penjualan',     route: '/(driver)/penjualan',     color: '#22c55e' },
-    { icon: '📦', label: 'Stok Harian',   route: '/(driver)/stok',          color: '#f97316' },
-    { icon: '✅',       label: 'Absensi',       route: '/(driver)/absensi',       color: '#14b8a6' },
+    { icon: 'car-outline',           label: 'Gerobak Saya',  route: '/(driver)/gerobak',      color: '#eab308' },
+    { icon: 'receipt-outline',       label: 'Penjualan',     route: '/(driver)/penjualan',    color: '#22c55e' },
+    { icon: 'cube-outline',          label: 'Stok Harian',   route: '/(driver)/stok',         color: '#f97316' },
   ],
   shareholder: [
-    { icon: '📊', label: 'Laporan',       route: '/(shareholder)/laporan',  color: '#3b82f6' },
-    { icon: '💰', label: 'Dividen',       route: '/(shareholder)/dividen',  color: '#f44444' },
+    { icon: 'bar-chart-outline',     label: 'Laporan',       route: '/(shareholder)/laporan', color: '#3b82f6' },
+    { icon: 'cash-outline',          label: 'Dividen',       route: '/(shareholder)/dividen', color: '#f44444' },
   ],
 };
 
@@ -65,65 +73,45 @@ const ROLE_LABEL: Record<UserRole, string> = {
   shareholder: 'Shareholder',
 };
 
-// ── Komponen Card Menu ───────────────────────────────────────────────────────
 function MenuCard({ item, index }: { item: MenuItem; index: number }) {
-  const scaleAnim = useRef(new Animated.Value(0.85)).current;
+  const scaleAnim = useRef(new Animated.Value(0.88)).current;
   const fadeAnim  = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const delay = index * 60;
     setTimeout(() => {
       Animated.parallel([
         Animated.spring(scaleAnim, { toValue: 1, tension: 70, friction: 8, useNativeDriver: true }),
-        Animated.timing(fadeAnim,  { toValue: 1, duration: 300, useNativeDriver: true }),
+        Animated.timing(fadeAnim,  { toValue: 1, duration: 280, useNativeDriver: true }),
       ]).start();
-    }, delay);
+    }, index * 55);
   }, []);
 
-  const handlePress = () => {
-    // Navigasi ke route — halaman belum dibuat akan di-handle oleh +not-found
-    router.push(item.route as any);
-  };
-
   return (
-    <Animated.View style={{
-      opacity: fadeAnim,
-      transform: [{ scale: scaleAnim }],
-      width: CARD_WIDTH,
-    }}>
-      <TouchableOpacity onPress={handlePress} activeOpacity={0.80}>
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ scale: scaleAnim }], width: CW }}>
+      <TouchableOpacity onPress={() => router.push(item.route as any)} activeOpacity={0.78}>
         <BlurView intensity={15} tint="dark" style={{
-          borderRadius: 18,
-          overflow: 'hidden',
-          borderWidth: 1,
-          borderColor: 'rgba(255,255,255,0.07)',
+          borderRadius: 16, overflow: 'hidden',
+          borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
           backgroundColor: 'rgba(255,255,255,0.03)',
-          padding: 18,
-          alignItems: 'flex-start',
-          minHeight: 100,
+          padding: 16, minHeight: 96,
           justifyContent: 'space-between',
         }}>
-          {/* Icon dengan warna unik per menu */}
           <View style={{
-            width: 44, height: 44, borderRadius: 12,
-            backgroundColor: `${item.color}22`,
-            borderWidth: 1, borderColor: `${item.color}44`,
+            width: 40, height: 40, borderRadius: 10,
+            backgroundColor: `${item.color}1a`,
+            borderWidth: 1, borderColor: `${item.color}33`,
             alignItems: 'center', justifyContent: 'center',
-            marginBottom: 12,
+            marginBottom: 10,
           }}>
-            <Text style={{ fontSize: 22 }}>{item.icon}</Text>
+            <Ionicons name={item.icon} size={20} color={item.color} />
           </View>
-          <Text style={{
-            color: '#ffffff', fontSize: 13, fontWeight: '600',
-            letterSpacing: 0.3, lineHeight: 18,
-          }}>
+          <Text style={{ color: '#e5e7eb', fontSize: 13, fontWeight: '600', letterSpacing: 0.2 }}>
             {item.label}
           </Text>
-          {/* Garis aksen bawah berwarna */}
           <View style={{
-            position: 'absolute', bottom: 0, left: 0, right: 0,
-            height: 2, borderBottomLeftRadius: 18, borderBottomRightRadius: 18,
-            backgroundColor: item.color, opacity: 0.5,
+            position: 'absolute', bottom: 0, left: 0, right: 0, height: 2,
+            borderBottomLeftRadius: 16, borderBottomRightRadius: 16,
+            backgroundColor: item.color, opacity: 0.45,
           }} />
         </BlurView>
       </TouchableOpacity>
@@ -131,153 +119,89 @@ function MenuCard({ item, index }: { item: MenuItem; index: number }) {
   );
 }
 
-// ── Dashboard Screen ─────────────────────────────────────────────────────────
 export default function DashboardScreen() {
   const user      = useAuthStore((s) => s.user);
   const clearAuth = useAuthStore((s) => s.clearAuth);
-
-  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const fadeAnim  = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }).start();
   }, []);
 
-  if (!user) {
-    router.replace('/(auth)/login');
-    return null;
-  }
+  if (!user) { router.replace('/(auth)/login'); return null; }
 
-  const role  = user.role as UserRole;
-  const menus = MENU_BY_ROLE[role] ?? [];
-
-  const handleLogout = () => {
-    clearAuth();
-    router.replace('/(auth)/login');
-  };
-
-  // Bagi menu jadi baris berpasangan untuk grid 2 kolom
+  const role     = user.role as UserRole;
+  const allMenus = [...MENU_COMMON, ...(MENU_BY_ROLE[role] ?? [])];
   const rows: MenuItem[][] = [];
-  for (let i = 0; i < menus.length; i += 2) {
-    rows.push(menus.slice(i, i + 2));
-  }
+  for (let i = 0; i < allMenus.length; i += 2) rows.push(allMenus.slice(i, i + 2));
 
   return (
-    <LinearGradient
-      colors={['#0f1117', '#13151e', '#0f1117']}
-      style={{ flex: 1 }}
-    >
+    <LinearGradient colors={['#0f1117', '#13151e', '#0f1117']} style={{ flex: 1 }}>
       <StatusBar barStyle="light-content" backgroundColor="#0f1117" />
-
-      {/* Dekorasi glow */}
       <View style={{
-        position: 'absolute', width: 300, height: 300, borderRadius: 150,
-        top: -60, right: -60, backgroundColor: 'rgba(244,68,68,0.09)',
-        pointerEvents: 'none',
-      }} />
-      <View style={{
-        position: 'absolute', width: 200, height: 200, borderRadius: 100,
-        bottom: 80, left: -50, backgroundColor: 'rgba(244,68,68,0.06)',
-        pointerEvents: 'none',
+        position: 'absolute', width: 280, height: 280, borderRadius: 140,
+        top: -60, right: -60, backgroundColor: 'rgba(244,68,68,0.08)',
       }} />
 
       <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
-        <ScrollView
-          contentContainerStyle={{ paddingBottom: 40 }}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* ── Header / Greeting ── */}
+        <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+
+          {/* Header */}
           <BlurView intensity={15} tint="dark" style={{
             paddingTop: (StatusBar.currentHeight ?? 44) + 16,
-            paddingBottom: 20,
-            paddingHorizontal: PADDING_H,
-            borderBottomWidth: 1,
-            borderBottomColor: 'rgba(255,255,255,0.07)',
+            paddingBottom: 18, paddingHorizontal: PAD,
+            borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)',
             backgroundColor: 'rgba(15,17,23,0.6)',
           }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              {/* Kiri: nama & role */}
               <View style={{ flex: 1 }}>
-                <Text style={{
-                  color: 'rgba(255,255,255,0.45)', fontSize: 11,
-                  letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2,
-                }}>
+                <Text style={{ color: 'rgba(255,255,255,0.40)', fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>
                   Selamat datang,
                 </Text>
-                <Text style={{
-                  color: '#ffffff', fontSize: 18, fontWeight: '700',
-                  letterSpacing: 0.3,
-                }} numberOfLines={1}>
+                <Text style={{ color: '#ffffff', fontSize: 17, fontWeight: '700' }} numberOfLines={1}>
                   {user.full_name}
                 </Text>
-                {/* Badge role */}
                 <View style={{
-                  alignSelf: 'flex-start', marginTop: 6,
-                  backgroundColor: 'rgba(244,68,68,0.15)',
-                  borderWidth: 1, borderColor: 'rgba(244,68,68,0.35)',
-                  borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
+                  alignSelf: 'flex-start', marginTop: 5,
+                  backgroundColor: 'rgba(244,68,68,0.14)', borderWidth: 1,
+                  borderColor: 'rgba(244,68,68,0.32)', borderRadius: 5,
+                  paddingHorizontal: 7, paddingVertical: 2,
                 }}>
                   <Text style={{ color: '#f44444', fontSize: 10, fontWeight: '600', letterSpacing: 1 }}>
                     {ROLE_LABEL[role]}
                   </Text>
                 </View>
               </View>
-
-              {/* Kanan: avatar + logout */}
-              <View style={{ alignItems: 'center', gap: 8 }}>
-                <View style={{
-                  width: 48, height: 48, borderRadius: 24,
-                  backgroundColor: 'rgba(244,68,68,0.15)',
-                  borderWidth: 1.5, borderColor: 'rgba(244,68,68,0.35)',
-                  alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <Text style={{ fontSize: 22 }}>☕</Text>
-                </View>
-                <TouchableOpacity onPress={handleLogout}>
-                  <Text style={{
-                    color: 'rgba(244,68,68,0.7)', fontSize: 10,
-                    letterSpacing: 1, textTransform: 'uppercase',
-                  }}>Keluar</Text>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity
+                onPress={() => { clearAuth(); router.replace('/(auth)/login'); }}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 4,
+                  backgroundColor: 'rgba(244,68,68,0.10)',
+                  borderWidth: 1, borderColor: 'rgba(244,68,68,0.25)',
+                  borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
+                }}
+              >
+                <Ionicons name="log-out-outline" size={16} color="#f44444" />
+                <Text style={{ color: '#f44444', fontSize: 11, fontWeight: '600' }}>Keluar</Text>
+              </TouchableOpacity>
             </View>
           </BlurView>
 
-          {/* ── Section Title ── */}
-          <View style={{ paddingHorizontal: PADDING_H, marginTop: 24, marginBottom: 14 }}>
-            <Text style={{
-              color: 'rgba(255,255,255,0.55)', fontSize: 10,
-              letterSpacing: 3, textTransform: 'uppercase',
-            }}>Menu Utama</Text>
-            <View style={{
-              width: 28, height: 2, borderRadius: 1,
-              backgroundColor: '#f44444', marginTop: 6,
-              shadowColor: '#f44444', shadowOffset: { width: 0, height: 0 },
-              shadowOpacity: 0.7, shadowRadius: 4,
-            }} />
+          {/* Section title */}
+          <View style={{ paddingHorizontal: PAD, marginTop: 22, marginBottom: 12 }}>
+            <Text style={{ color: 'rgba(255,255,255,0.50)', fontSize: 10, letterSpacing: 3, textTransform: 'uppercase' }}>Menu</Text>
+            <View style={{ width: 24, height: 2, borderRadius: 1, backgroundColor: '#f44444', marginTop: 5 }} />
           </View>
 
-          {/* ── Grid Menu ── */}
-          <View style={{ paddingHorizontal: PADDING_H }}>
-            {rows.map((row, rowIdx) => (
-              <View key={rowIdx} style={{
-                flexDirection: 'row',
-                gap: CARD_GAP,
-                marginBottom: CARD_GAP,
-              }}>
-                {row.map((item, colIdx) => (
-                  <MenuCard key={item.label} item={item} index={rowIdx * 2 + colIdx} />
-                ))}
-                {/* Jika baris ganjil, isi dengan placeholder kosong */}
-                {row.length === 1 && <View style={{ width: CARD_WIDTH }} />}
+          {/* Grid */}
+          <View style={{ paddingHorizontal: PAD }}>
+            {rows.map((row, ri) => (
+              <View key={ri} style={{ flexDirection: 'row', gap: GAP, marginBottom: GAP }}>
+                {row.map((item, ci) => <MenuCard key={item.label} item={item} index={ri * 2 + ci} />)}
+                {row.length === 1 && <View style={{ width: CW }} />}
               </View>
             ))}
           </View>
-
-          {/* ── Footer info ── */}
-          <Text style={{
-            color: 'rgba(255,255,255,0.15)', fontSize: 11,
-            textAlign: 'center', marginTop: 20, letterSpacing: 1,
-          }}>© 2026 Sekopi Platform</Text>
         </ScrollView>
       </Animated.View>
     </LinearGradient>

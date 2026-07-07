@@ -11,16 +11,27 @@
       "backgroundColor": "#0f1117"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Digunakan untuk foto absensi",
+        "NSLocationWhenInUseUsageDescription": "Digunakan untuk verifikasi lokasi absensi"
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0f1117"
-      }
+      },
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "expo-camera",
+      "expo-location"
     ]
   }
 }
