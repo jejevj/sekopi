@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import api from '../../lib/api';
 import { useAuthStore } from '../../stores/authStore';
+import * as FileSystem from 'expo-file-system';
 
 const { width: SW } = Dimensions.get('window');
 
@@ -23,7 +24,6 @@ export default function AbsensiScreen() {
 
   const [step, setStep]               = useState<Step>('idle');
   const [photoUri, setPhotoUri]       = useState<string | null>(null);
-  const [photoB64, setPhotoB64]       = useState<string | null>(null);
   const [isTaking, setIsTaking]       = useState(false);
   const [location, setLocation]       = useState<{ lat: number; lng: number } | null>(null);
   const [locLoading, setLocLoading]   = useState(false);
@@ -62,45 +62,34 @@ export default function AbsensiScreen() {
         return;
       }
     }
-    // Reset foto lama saat buka kamera ulang
     setPhotoUri(null);
-    setPhotoB64(null);
     setStep('camera');
   };
 
   const takePhoto = async () => {
-    // Guard: cegah double tap & pastikan ref siap
     if (isTaking || !cameraRef.current) return;
     setIsTaking(true);
     try {
-      // Refresh lokasi tepat saat shutter ditekan
-      try {
-        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        setLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
-      } catch { /* pakai lokasi lama jika gagal */ }
-
-      // FIX: exif:true agar GPS device otomatis tertanam, TANPA additionalExif
+      // Foto biasa: tanpa exif, tanpa base64 — paling cepat
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.75,
-        base64: true,
-        exif: true,
+        quality: 0.7,
+        base64: false,
+        exif: false,
+        skipProcessing: true,
       });
 
-      if (!photo?.uri) throw new Error('URI foto kosong');
-
+      if (!photo?.uri) throw new Error('URI kosong');
       setPhotoUri(photo.uri);
-      setPhotoB64(photo.base64 ?? null);
-      // Kembali ke idle — foto sudah ada, tampilan preview muncul
       setStep('idle');
-    } catch (e) {
-      Alert.alert('Gagal', 'Tidak dapat mengambil foto. Pastikan kamera siap lalu coba lagi.');
+    } catch {
+      Alert.alert('Gagal', 'Tidak dapat mengambil foto. Coba lagi.');
     } finally {
       setIsTaking(false);
     }
   };
 
   const handleSubmit = async () => {
-    if (!user || !location || !photoB64) {
+    if (!user || !location || !photoUri) {
       setErrorMsg('Pastikan lokasi dan foto sudah tersedia.');
       return;
     }
@@ -110,7 +99,12 @@ export default function AbsensiScreen() {
       const now       = new Date();
       const tanggal   = now.toISOString().split('T')[0];
       const jam_masuk = now.toTimeString().slice(0, 8);
-      const foto_url  = `data:image/jpeg;base64,${photoB64}`;
+
+      // Konversi URI ke base64 hanya saat submit, bukan saat foto diambil
+      const b64 = await FileSystem.readAsStringAsync(photoUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const foto_url = `data:image/jpeg;base64,${b64}`;
 
       const payload = {
         user_id:   user.id,
@@ -132,7 +126,7 @@ export default function AbsensiScreen() {
     }
   };
 
-  // ── KAMERA ──────────────────────────────────────────────────────────
+  // ── KAMERA ──────────────────────────────────────────────────────
   if (step === 'camera') {
     if (!camPerm?.granted) {
       return (
@@ -153,7 +147,6 @@ export default function AbsensiScreen() {
       <View style={styles.cameraContainer}>
         <StatusBar barStyle="light-content" backgroundColor="#000" />
 
-        {/* Kamera fullscreen — flex:1 agar ukuran terisi penuh */}
         <CameraView
           ref={cameraRef}
           style={styles.camera}
@@ -201,7 +194,7 @@ export default function AbsensiScreen() {
     );
   }
 
-  // ── SUKSES ──────────────────────────────────────────────────────────
+  // ── SUKSES ──────────────────────────────────────────────────────
   if (step === 'done' && successData) {
     return (
       <LinearGradient
@@ -261,7 +254,7 @@ export default function AbsensiScreen() {
     );
   }
 
-  // ── MAP HTML ─────────────────────────────────────────────────────────
+  // ── MAP HTML ──────────────────────────────────────────────────────
   const mapHtml = location ? `
     <!DOCTYPE html><html><head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -283,7 +276,7 @@ export default function AbsensiScreen() {
     </script></body></html>
   ` : '';
 
-  // ── MAIN SCREEN (idle) ───────────────────────────────────────────────
+  // ── MAIN SCREEN ──────────────────────────────────────────────────
   const canSubmit = !!location && !!photoUri && step !== 'submitting';
 
   return (
@@ -360,32 +353,12 @@ export default function AbsensiScreen() {
           }}>Foto Absensi</Text>
 
           {photoUri ? (
-            // ── FIX: tampilkan foto asli via <Image>, bukan placeholder teks
             <View>
               <Image
                 source={{ uri: photoUri }}
-                style={{
-                  width: '100%',
-                  height: 260,
-                  borderRadius: 12,
-                  backgroundColor: '#1a1a1a',
-                }}
+                style={{ width: '100%', height: 260, borderRadius: 12, backgroundColor: '#1a1a1a' }}
                 resizeMode="cover"
               />
-              {/* Overlay koordinat di atas foto */}
-              {location && (
-                <View style={{
-                  position: 'absolute', bottom: 44, left: 8,
-                  flexDirection: 'row', alignItems: 'center', gap: 4,
-                  backgroundColor: 'rgba(0,0,0,0.55)',
-                  paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10,
-                }}>
-                  <Ionicons name="location" size={10} color="#4ade80" />
-                  <Text style={{ color: '#4ade80', fontSize: 9.5 }}>
-                    {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
-                  </Text>
-                </View>
-              )}
               <TouchableOpacity
                 onPress={openCamera}
                 style={{
@@ -417,17 +390,13 @@ export default function AbsensiScreen() {
                 <Ionicons name="camera-outline" size={28} color="#f44444" />
               </View>
               <Text style={{ color: 'rgba(244,68,68,0.85)', fontSize: 13, fontWeight: '600' }}>Ambil Foto</Text>
-              <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Foto akan menyimpan data lokasi</Text>
+              <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Tap untuk membuka kamera</Text>
             </TouchableOpacity>
           )}
         </BlurView>
 
-        {/* Tombol Submit — hanya aktif kalau lokasi & foto sudah ada */}
-        <TouchableOpacity
-          onPress={handleSubmit}
-          disabled={!canSubmit}
-          activeOpacity={0.82}
-        >
+        {/* Tombol Submit */}
+        <TouchableOpacity onPress={handleSubmit} disabled={!canSubmit} activeOpacity={0.82}>
           <LinearGradient
             colors={canSubmit ? ['#f44444', '#d92b2b'] : ['#2a1515', '#1a0f0f']}
             start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
@@ -463,7 +432,7 @@ export default function AbsensiScreen() {
   );
 }
 
-// ── STYLES ────────────────────────────────────────────────────────────
+// ── STYLES ───────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   cameraContainer: { flex: 1, backgroundColor: '#000' },
   camera:          { flex: 1 },
