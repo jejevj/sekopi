@@ -44,8 +44,8 @@ class Absensi(Base):
     jarak_meter: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)
     dalam_radius: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
-    # ── Foto selfie saat absen
-    foto_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # FIX: ganti String(500) → Text agar bisa menampung base64 foto
+    foto_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     keterangan: Mapped[str | None]   = mapped_column(String(500), nullable=True)
     dicatat_oleh: Mapped[int | None] = mapped_column(
@@ -61,6 +61,5 @@ class Absensi(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    # fix: gunakan selectin agar kompatibel dengan AsyncSession
     user: Mapped["User"] = relationship("User", foreign_keys=[user_id], lazy="selectin")          # type: ignore
     pencatat: Mapped["User | None"] = relationship("User", foreign_keys=[dicatat_oleh], lazy="selectin")  # type: ignore

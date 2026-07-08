@@ -71,7 +71,7 @@ export default function AbsensiScreen() {
     setIsTaking(true);
     try {
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.7,
+        quality: 0.4,        // FIX: turunkan quality agar ukuran file kecil
         base64: false,
         exif: false,
         skipProcessing: true,
@@ -96,18 +96,18 @@ export default function AbsensiScreen() {
     try {
       const now       = new Date();
       const tanggal   = now.toISOString().split('T')[0];
-      const jam_masuk = now.toTimeString().slice(0, 8);
+      const jam_masuk = now.toTimeString().slice(0, 8); // "HH:MM:SS" — Pydantic time parse OK
 
-      // Gunakan File API baru (expo-file-system v54)
-      const file = new File(photoUri);
-      const b64  = await file.base64();
+      // FIX: baca file sebagai base64 menggunakan File API baru (expo-file-system/next)
+      const file     = new File(photoUri);
+      const b64      = await file.base64();
       const foto_url = `data:image/jpeg;base64,${b64}`;
 
       const payload = {
         user_id:   user.id,
         tanggal,
         jam_masuk,
-        status:    'hadir',
+        status:    'hadir',   // sesuai StatusAbsensi.HADIR = "hadir"
         latitude:  location.lat,
         longitude: location.lng,
         foto_url,
@@ -118,7 +118,11 @@ export default function AbsensiScreen() {
       setStep('done');
     } catch (e: any) {
       const detail = e?.response?.data?.detail;
-      setErrorMsg(detail ?? 'Gagal menyimpan absensi. Coba lagi.');
+      setErrorMsg(
+        typeof detail === 'string'
+          ? detail
+          : JSON.stringify(detail) ?? 'Gagal menyimpan absensi. Coba lagi.',
+      );
       setStep('idle');
     }
   };
@@ -143,12 +147,7 @@ export default function AbsensiScreen() {
     return (
       <View style={styles.cameraContainer}>
         <StatusBar barStyle="light-content" backgroundColor="#000" />
-
-        <CameraView
-          ref={cameraRef}
-          style={styles.camera}
-          facing={facing}
-        />
+        <CameraView ref={cameraRef} style={styles.camera} facing={facing} />
 
         <View style={styles.camTopBar}>
           <TouchableOpacity onPress={() => setStep('idle')} style={styles.camIconBtn}>
@@ -290,7 +289,6 @@ export default function AbsensiScreen() {
       </BlurView>
 
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} showsVerticalScrollIndicator={false}>
-
         {!!errorMsg && (
           <View style={{
             backgroundColor: 'rgba(244,68,68,0.12)', borderWidth: 1,
