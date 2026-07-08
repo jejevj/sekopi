@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView,
-  ActivityIndicator, Alert, Dimensions, StyleSheet, StatusBar,
+  ActivityIndicator, Alert, Dimensions, StyleSheet,
+  StatusBar, Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -15,7 +16,7 @@ import { useAuthStore } from '../../stores/authStore';
 
 const { width: SW } = Dimensions.get('window');
 
-type Step = 'idle' | 'camera' | 'preview' | 'submitting' | 'done';
+type Step = 'idle' | 'camera' | 'submitting' | 'done';
 
 export default function AbsensiScreen() {
   const user = useAuthStore((s) => s.user);
@@ -23,6 +24,7 @@ export default function AbsensiScreen() {
   const [step, setStep]               = useState<Step>('idle');
   const [photoUri, setPhotoUri]       = useState<string | null>(null);
   const [photoB64, setPhotoB64]       = useState<string | null>(null);
+  const [isTaking, setIsTaking]       = useState(false);
   const [location, setLocation]       = useState<{ lat: number; lng: number } | null>(null);
   const [locLoading, setLocLoading]   = useState(false);
   const [errorMsg, setErrorMsg]       = useState('');
@@ -32,9 +34,7 @@ export default function AbsensiScreen() {
   const [camPerm, requestCamPerm] = useCameraPermissions();
   const cameraRef                 = useRef<CameraView>(null);
 
-  useEffect(() => {
-    fetchLocation();
-  }, []);
+  useEffect(() => { fetchLocation(); }, []);
 
   const fetchLocation = async () => {
     setLocLoading(true);
@@ -62,43 +62,40 @@ export default function AbsensiScreen() {
         return;
       }
     }
+    // Reset foto lama saat buka kamera ulang
+    setPhotoUri(null);
+    setPhotoB64(null);
     setStep('camera');
   };
 
   const takePhoto = async () => {
-    if (!cameraRef.current) return;
+    // Guard: cegah double tap & pastikan ref siap
+    if (isTaking || !cameraRef.current) return;
+    setIsTaking(true);
     try {
-      // Ambil lokasi terbaru saat foto diambil supaya metadata akurat
-      let snapLocation = location;
+      // Refresh lokasi tepat saat shutter ditekan
       try {
         const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        snapLocation = { lat: loc.coords.latitude, lng: loc.coords.longitude };
-        setLocation(snapLocation);
-      } catch {
-        // Tetap lanjut pakai lokasi sebelumnya kalau gagal refresh
-      }
+        setLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+      } catch { /* pakai lokasi lama jika gagal */ }
 
+      // FIX: exif:true agar GPS device otomatis tertanam, TANPA additionalExif
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.75,
         base64: true,
-        exif: false,
-        // Sisipkan GPS ke EXIF via additionalExif
-        additionalExif: snapLocation
-          ? {
-              GPSLatitude: snapLocation.lat,
-              GPSLongitude: snapLocation.lng,
-              GPSLatitudeRef: snapLocation.lat >= 0 ? 'N' : 'S',
-              GPSLongitudeRef: snapLocation.lng >= 0 ? 'E' : 'W',
-              GPSAltitude: 0,
-            }
-          : {},
+        exif: true,
       });
 
-      setPhotoUri(photo!.uri);
-      setPhotoB64(photo!.base64 ?? null);
-      setStep('preview');
-    } catch {
-      Alert.alert('Error', 'Gagal mengambil foto. Coba lagi.');
+      if (!photo?.uri) throw new Error('URI foto kosong');
+
+      setPhotoUri(photo.uri);
+      setPhotoB64(photo.base64 ?? null);
+      // Kembali ke idle — foto sudah ada, tampilan preview muncul
+      setStep('idle');
+    } catch (e) {
+      Alert.alert('Gagal', 'Tidak dapat mengambil foto. Pastikan kamera siap lalu coba lagi.');
+    } finally {
+      setIsTaking(false);
     }
   };
 
@@ -131,11 +128,11 @@ export default function AbsensiScreen() {
     } catch (e: any) {
       const detail = e?.response?.data?.detail;
       setErrorMsg(detail ?? 'Gagal menyimpan absensi. Coba lagi.');
-      setStep('preview');
+      setStep('idle');
     }
   };
 
-  // ── KAMERA ─────────────────────────────────────────────
+  // ── KAMERA ──────────────────────────────────────────────────────────
   if (step === 'camera') {
     if (!camPerm?.granted) {
       return (
@@ -156,30 +153,28 @@ export default function AbsensiScreen() {
       <View style={styles.cameraContainer}>
         <StatusBar barStyle="light-content" backgroundColor="#000" />
 
-        {/* Kamera fullscreen */}
+        {/* Kamera fullscreen — flex:1 agar ukuran terisi penuh */}
         <CameraView
           ref={cameraRef}
           style={styles.camera}
           facing={facing}
         />
 
-        {/* Topbar kamera */}
+        {/* Topbar */}
         <View style={styles.camTopBar}>
           <TouchableOpacity onPress={() => setStep('idle')} style={styles.camIconBtn}>
             <Ionicons name="close" size={26} color="#fff" />
           </TouchableOpacity>
 
-          {/* Info lokasi kecil di tengah */}
           <View style={styles.camLocBadge}>
             <Ionicons name="location" size={11} color={location ? '#4ade80' : '#f44444'} />
-            <Text style={styles.camLocText}>
+            <Text style={styles.camLocText} numberOfLines={1}>
               {location
                 ? `${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}`
                 : 'Lokasi tidak tersedia'}
             </Text>
           </View>
 
-          {/* Flip kamera */}
           <TouchableOpacity
             onPress={() => setFacing((f) => (f === 'front' ? 'back' : 'front'))}
             style={styles.camIconBtn}
@@ -188,17 +183,25 @@ export default function AbsensiScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Tombol capture bawah */}
+        {/* Tombol capture */}
         <View style={styles.cameraControls}>
-          <TouchableOpacity onPress={takePhoto} style={styles.btnCapture}>
-            <View style={styles.btnCaptureInner} />
+          <TouchableOpacity
+            onPress={takePhoto}
+            style={[styles.btnCapture, isTaking && { opacity: 0.4 }]}
+            disabled={isTaking}
+            activeOpacity={0.8}
+          >
+            {isTaking
+              ? <ActivityIndicator color="#fff" size="large" />
+              : <View style={styles.btnCaptureInner} />
+            }
           </TouchableOpacity>
         </View>
       </View>
     );
   }
 
-  // ── SUKSES ─────────────────────────────────────────────
+  // ── SUKSES ──────────────────────────────────────────────────────────
   if (step === 'done' && successData) {
     return (
       <LinearGradient
@@ -258,34 +261,33 @@ export default function AbsensiScreen() {
     );
   }
 
-  // ── MAP HTML ─────────────────────────────────────────────
+  // ── MAP HTML ─────────────────────────────────────────────────────────
   const mapHtml = location ? `
     <!DOCTYPE html><html><head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>*{margin:0;padding:0}html,body,#map{width:100%;height:100%;background:#0f1117}</style>
-    </head><body>
-    <div id="map"></div>
+    </head><body><div id="map"></div>
     <script>
-      var map = L.map('map', { zoomControl: false, attributionControl: false })
-        .setView([${location.lat}, ${location.lng}], 16);
+      var map = L.map('map',{zoomControl:false,attributionControl:false})
+        .setView([${location.lat},${location.lng}],16);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-      L.circleMarker([${location.lat}, ${location.lng}], {
-        radius: 10, color: '#f44444', fillColor: '#f44444',
-        fillOpacity: 0.9, weight: 3,
+      L.circleMarker([${location.lat},${location.lng}],{
+        radius:10,color:'#f44444',fillColor:'#f44444',fillOpacity:0.9,weight:3
       }).addTo(map);
-      L.circle([${location.lat}, ${location.lng}], {
-        radius: 100, color: '#f44444', fillColor: '#f44444',
-        fillOpacity: 0.08, weight: 1.5, dashArray: '4',
+      L.circle([${location.lat},${location.lng}],{
+        radius:100,color:'#f44444',fillColor:'#f44444',
+        fillOpacity:0.08,weight:1.5,dashArray:'4'
       }).addTo(map);
     </script></body></html>
   ` : '';
 
-  // ── MAIN SCREEN ────────────────────────────────────────────
+  // ── MAIN SCREEN (idle) ───────────────────────────────────────────────
+  const canSubmit = !!location && !!photoUri && step !== 'submitting';
+
   return (
     <LinearGradient colors={['#0f1117', '#13151e', '#0f1117']} style={{ flex: 1 }}>
-      {/* Topbar */}
       <BlurView intensity={15} tint="dark" style={{
         paddingTop: 52, paddingBottom: 14, paddingHorizontal: 20,
         borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)',
@@ -296,19 +298,13 @@ export default function AbsensiScreen() {
         </TouchableOpacity>
         <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700', flex: 1 }}>Absensi</Text>
         <TouchableOpacity onPress={fetchLocation} disabled={locLoading}>
-          <Ionicons
-            name="refresh"
-            size={20}
-            color={locLoading ? 'rgba(255,255,255,0.3)' : '#f44444'}
-          />
+          <Ionicons name="refresh" size={20}
+            color={locLoading ? 'rgba(255,255,255,0.3)' : '#f44444'} />
         </TouchableOpacity>
       </BlurView>
 
-      <ScrollView
-        contentContainerStyle={{ padding: 20, gap: 16 }}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Error */}
+      <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} showsVerticalScrollIndicator={false}>
+
         {!!errorMsg && (
           <View style={{
             backgroundColor: 'rgba(244,68,68,0.12)', borderWidth: 1,
@@ -329,9 +325,7 @@ export default function AbsensiScreen() {
           <View style={{ padding: 14, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Ionicons name="location" size={16} color="#f44444" />
             <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, flex: 1 }}>
-              {locLoading
-                ? 'Mengambil lokasi...'
-                : location
+              {locLoading ? 'Mengambil lokasi...' : location
                 ? `${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}`
                 : 'Lokasi tidak tersedia'}
             </Text>
@@ -346,10 +340,8 @@ export default function AbsensiScreen() {
               javaScriptEnabled
             />
           ) : (
-            <View style={{
-              height: 160, alignItems: 'center', justifyContent: 'center',
-              backgroundColor: 'rgba(255,255,255,0.02)',
-            }}>
+            <View style={{ height: 160, alignItems: 'center', justifyContent: 'center',
+              backgroundColor: 'rgba(255,255,255,0.02)' }}>
               {locLoading
                 ? <ActivityIndicator color="#f44444" />
                 : <Ionicons name="map-outline" size={40} color="rgba(255,255,255,0.15)" />}
@@ -357,7 +349,7 @@ export default function AbsensiScreen() {
           )}
         </BlurView>
 
-        {/* Foto */}
+        {/* Foto Absensi */}
         <BlurView intensity={15} tint="dark" style={{
           borderRadius: 16, overflow: 'hidden', padding: 16,
           borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
@@ -368,24 +360,32 @@ export default function AbsensiScreen() {
           }}>Foto Absensi</Text>
 
           {photoUri ? (
+            // ── FIX: tampilkan foto asli via <Image>, bukan placeholder teks
             <View>
-              <View style={{
-                width: '100%', height: 200, borderRadius: 12, overflow: 'hidden',
-                backgroundColor: 'rgba(34,197,94,0.08)',
-                alignItems: 'center', justifyContent: 'center', gap: 8,
-              }}>
-                <Ionicons name="checkmark-circle" size={48} color="#22c55e" />
-                <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '600' }}>Foto diambil</Text>
-                {location && (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                    <Ionicons name="location" size={11} color="#4ade80" />
-                    <Text style={{ color: 'rgba(74,222,128,0.8)', fontSize: 10 }}>
-                      {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
-                    </Text>
-                  </View>
-                )}
-                <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Tap untuk ganti foto</Text>
-              </View>
+              <Image
+                source={{ uri: photoUri }}
+                style={{
+                  width: '100%',
+                  height: 260,
+                  borderRadius: 12,
+                  backgroundColor: '#1a1a1a',
+                }}
+                resizeMode="cover"
+              />
+              {/* Overlay koordinat di atas foto */}
+              {location && (
+                <View style={{
+                  position: 'absolute', bottom: 44, left: 8,
+                  flexDirection: 'row', alignItems: 'center', gap: 4,
+                  backgroundColor: 'rgba(0,0,0,0.55)',
+                  paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10,
+                }}>
+                  <Ionicons name="location" size={10} color="#4ade80" />
+                  <Text style={{ color: '#4ade80', fontSize: 9.5 }}>
+                    {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
+                  </Text>
+                </View>
+              )}
               <TouchableOpacity
                 onPress={openCamera}
                 style={{
@@ -422,20 +422,20 @@ export default function AbsensiScreen() {
           )}
         </BlurView>
 
-        {/* Tombol Submit */}
+        {/* Tombol Submit — hanya aktif kalau lokasi & foto sudah ada */}
         <TouchableOpacity
           onPress={handleSubmit}
-          disabled={!location || !photoUri || step === 'submitting'}
+          disabled={!canSubmit}
           activeOpacity={0.82}
         >
           <LinearGradient
-            colors={(!location || !photoUri) ? ['#2a1515', '#1a0f0f'] : ['#f44444', '#d92b2b']}
+            colors={canSubmit ? ['#f44444', '#d92b2b'] : ['#2a1515', '#1a0f0f']}
             start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
             style={{
               borderRadius: 12, height: 52,
               alignItems: 'center', justifyContent: 'center',
               flexDirection: 'row', gap: 8,
-              opacity: (!location || !photoUri) ? 0.5 : 1,
+              opacity: canSubmit ? 1 : 0.5,
             }}
           >
             {step === 'submitting'
@@ -463,98 +463,46 @@ export default function AbsensiScreen() {
   );
 }
 
-// ── STYLES ───────────────────────────────────────────────────────────
+// ── STYLES ────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  cameraContainer: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  camera: {
-    flex: 1,
-  },
+  cameraContainer: { flex: 1, backgroundColor: '#000' },
+  camera:          { flex: 1 },
   camTopBar: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    paddingTop: 52,
-    paddingBottom: 12,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    position: 'absolute', top: 0, left: 0, right: 0,
+    paddingTop: 52, paddingBottom: 12, paddingHorizontal: 16,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
   camIconBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 44, height: 44, borderRadius: 22,
     backgroundColor: 'rgba(0,0,0,0.45)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
   camLocBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20,
     maxWidth: SW * 0.5,
   },
-  camLocText: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 10,
-    letterSpacing: 0.3,
-  },
+  camLocText: { color: 'rgba(255,255,255,0.8)', fontSize: 10, letterSpacing: 0.3 },
   cameraControls: {
-    position: 'absolute',
-    bottom: 52,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
+    position: 'absolute', bottom: 52, left: 0, right: 0,
+    alignItems: 'center', justifyContent: 'center',
   },
   btnCapture: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 4,
-    borderColor: 'rgba(255,255,255,0.7)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 80, height: 80, borderRadius: 40,
+    borderWidth: 4, borderColor: 'rgba(255,255,255,0.7)',
+    alignItems: 'center', justifyContent: 'center',
     backgroundColor: 'transparent',
   },
-  btnCaptureInner: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    backgroundColor: '#fff',
-  },
+  btnCaptureInner: { width: 62, height: 62, borderRadius: 31, backgroundColor: '#fff' },
   permissionBox: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
-    padding: 32,
+    flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32,
   },
-  permissionText: {
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: 14,
-    textAlign: 'center',
-  },
+  permissionText: { color: 'rgba(255,255,255,0.55)', fontSize: 14, textAlign: 'center' },
   permissionBtn: {
-    paddingHorizontal: 28,
-    paddingVertical: 13,
-    backgroundColor: '#f44444',
-    borderRadius: 12,
-    marginTop: 4,
+    paddingHorizontal: 28, paddingVertical: 13,
+    backgroundColor: '#f44444', borderRadius: 12, marginTop: 4,
   },
-  permissionBtnText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 13,
-    letterSpacing: 1,
-  },
+  permissionBtnText: { color: '#fff', fontWeight: '700', fontSize: 13, letterSpacing: 1 },
 });
