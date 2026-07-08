@@ -7,12 +7,28 @@ import {
   CheckCircle, X, ChevronLeft, ChevronRight, MapPin, Eye,
 } from 'lucide-react-native';
 
-// ── helpers ────────────────────────────────────────────────────────────────
-const toISO = (d: Date) => d.toISOString().slice(0, 10);
-const today = () => toISO(new Date());
-const addDays = (iso: string, n: number) => {
-  const d = new Date(iso); d.setDate(d.getDate() + n); return toISO(d);
+// ── helpers WIB (Asia/Jakarta = UTC+7) ────────────────────────────────────
+/** Kembalikan string 'YYYY-MM-DD' dari objek Date sesuai timezone WIB */
+const toISOWIB = (d: Date): string =>
+  new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Jakarta' }).format(d);
+
+/** Tanggal hari ini dalam WIB */
+const today = (): string => toISOWIB(new Date());
+
+/** Tambah/kurangi n hari dari string 'YYYY-MM-DD', tetap dalam WIB */
+const addDays = (iso: string, n: number): string => {
+  // parse tanggal sebagai waktu lokal WIB tengah hari supaya DST-safe
+  const d = new Date(`${iso}T12:00:00+07:00`);
+  d.setDate(d.getDate() + n);
+  return toISOWIB(d);
 };
+
+/** Format tanggal panjang WIB untuk tampilan, mis: "Kamis, 09 Juli 2026" */
+const formatTanggalWIB = (iso: string): string =>
+  new Intl.DateTimeFormat('id-ID', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    timeZone: 'Asia/Jakarta',
+  }).format(new Date(`${iso}T12:00:00+07:00`));
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
   hadir: { label: 'Hadir',   color: '#22c55e', bg: 'rgba(34,197,94,0.1)',   icon: <UserCheck size={13} color="#22c55e" /> },
@@ -116,7 +132,8 @@ function DetailModal({ record, onClose }: { record: AbsensiRecord; onClose: () =
           {/* Info grid */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {[
-              { label: 'Tanggal', value: new Date(record.tanggal).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) },
+              // ✅ Gunakan formatTanggalWIB agar tanggal tidak mundur 1 hari
+              { label: 'Tanggal', value: formatTanggalWIB(record.tanggal) },
               { label: 'Dicatat Oleh', value: record.pencatat?.full_name ?? '—' },
               { label: 'Jam Masuk', value: record.jam_masuk ? record.jam_masuk.slice(0, 5) : '—' },
               { label: 'Jam Keluar', value: record.jam_keluar ? record.jam_keluar.slice(0, 5) : '—' },
