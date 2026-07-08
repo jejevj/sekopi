@@ -6,6 +6,10 @@ COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci --legacy-peer-deps
 
 COPY frontend/ .
+
+# Hardcode HTTPS API URL agar tidak pakai nilai http:// dari .env.example
+ENV EXPO_PUBLIC_API_URL=https://api-sekopi.ourtestcloud.my.id/api/v1
+
 RUN npx expo export --platform web
 
 # Stage 2: Serve dengan Apache httpd
