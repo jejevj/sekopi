@@ -10,6 +10,8 @@ services:
     environment:
       # Hardcoded — menang atas nilai apapun di .env
       BACKEND_CORS_ORIGINS: "*"
+      # Pastikan semua datetime di Python pakai WIB
+      TZ: "Asia/Jakarta"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: always
