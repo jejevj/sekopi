@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   ScrollView,
   KeyboardAvoidingView,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -166,8 +167,13 @@ export default function LoginScreen() {
                 alignItems: 'center', justifyContent: 'center', marginBottom: 16,
                 shadowColor: '#f44444', shadowOffset: { width: 0, height: 0 },
                 shadowOpacity: 0.5, shadowRadius: 16, elevation: 10,
+                overflow: 'hidden',
               }}>
-                <Text style={{ fontSize: 34 }}>☕</Text>
+                <Image
+                  source={require('../../assets/android-icon-background.png')}
+                  style={{ width: 72, height: 72, borderRadius: 36 }}
+                  resizeMode="cover"
+                />
               </View>
               <Text style={{
                 color: '#ffffff', fontSize: 30, fontWeight: '800',

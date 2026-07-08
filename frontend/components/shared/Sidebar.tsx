@@ -1,4 +1,4 @@
-import { View, Text, Pressable, ScrollView } from "react-native";
+import { View, Text, Pressable, ScrollView, Image } from "react-native";
 import { Link, usePathname } from "expo-router";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { UserRole } from "@/lib/types/user";
@@ -53,7 +53,14 @@ export function Sidebar() {
 
   return (
     <View style={{ width: 220, height: '100%', backgroundColor: '#111', borderRightWidth: 1, borderRightColor: '#1f1f1f', padding: 16, display: 'flex', flexDirection: 'column' } as any}>
-      <Text style={{ color: 'white', fontSize: 18, fontWeight: '700', marginBottom: 24 }}>☕ SekoPi</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24, gap: 8 }}>
+        <Image
+          source={require('../../sekopi-mobile/assets/android-icon-background.png')}
+          style={{ width: 28, height: 28, borderRadius: 14 }}
+          resizeMode="cover"
+        />
+        <Text style={{ color: 'white', fontSize: 18, fontWeight: '700' }}>SekoPi</Text>
+      </View>
 
       <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
         {menus.map((item) => {

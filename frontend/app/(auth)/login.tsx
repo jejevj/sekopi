@@ -73,13 +73,18 @@ export default function LoginPage() {
         {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
           <div style={{
-            width: 72, height: 72, borderRadius: 18,
+            width: 72, height: 72, borderRadius: '50%',
             backgroundColor: '#f44444',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             margin: '0 auto 16px',
             boxShadow: '0 0 32px rgba(244,68,68,0.5)',
+            overflow: 'hidden',
           }}>
-            <span style={{ fontSize: 36 }}>☕</span>
+            <img
+              src="/assets/android-icon-background.png"
+              alt="Sekopi Logo"
+              style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover' }}
+            />
           </div>
           <h1 style={{ color: '#f44444', fontSize: 28, fontWeight: 'bold', margin: 0 }}>SekoPi</h1>
           <p style={{ color: '#666', fontSize: 13, marginTop: 6 }}>Sistem Manajemen Kopi Gerobakan</p>

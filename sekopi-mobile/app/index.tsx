@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Animated, View, Text } from 'react-native';
+import { Animated, View, Text, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { router } from 'expo-router';
@@ -97,9 +97,14 @@ export default function SplashScreen() {
               justifyContent: 'center',
               marginBottom: 20,
               elevation: 12,
+              overflow: 'hidden',
             }}
           >
-            <Text style={{ fontSize: 42 }}>☕</Text>
+            <Image
+              source={require('../assets/android-icon-background.png')}
+              style={{ width: 88, height: 88, borderRadius: 44 }}
+              resizeMode="cover"
+            />
           </View>
 
           {/* Brand Name */}
