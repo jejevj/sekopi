@@ -1,0 +1,15 @@
+# Stage 1: Build Expo web
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci --legacy-peer-deps
+
+COPY frontend/ .
+RUN npx expo export --platform web
+
+# Stage 2: Serve dengan Apache httpd
+FROM httpd:2.4-alpine
+COPY --from=builder /app/dist /usr/local/apache2/htdocs
+COPY httpd.conf /usr/local/apache2/conf/extra/httpd-vhosts.conf
+EXPOSE 80
