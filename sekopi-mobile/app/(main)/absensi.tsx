@@ -13,7 +13,7 @@ import { router } from 'expo-router';
 import api from '../../lib/api';
 import { useAuthStore } from '../../stores/authStore';
 
-const { width: SW, height: SH } = Dimensions.get('window');
+const { width: SW } = Dimensions.get('window');
 
 type Step = 'idle' | 'camera' | 'preview' | 'submitting' | 'done';
 
@@ -25,9 +25,9 @@ export default function AbsensiScreen() {
   const [photoB64, setPhotoB64]       = useState<string | null>(null);
   const [location, setLocation]       = useState<{ lat: number; lng: number } | null>(null);
   const [locLoading, setLocLoading]   = useState(false);
-  const [mapReady, setMapReady]       = useState(false);
   const [errorMsg, setErrorMsg]       = useState('');
   const [successData, setSuccessData] = useState<any>(null);
+  const [facing, setFacing]           = useState<'front' | 'back'>('front');
 
   const [camPerm, requestCamPerm] = useCameraPermissions();
   const cameraRef                 = useRef<CameraView>(null);
@@ -68,16 +68,37 @@ export default function AbsensiScreen() {
   const takePhoto = async () => {
     if (!cameraRef.current) return;
     try {
+      // Ambil lokasi terbaru saat foto diambil supaya metadata akurat
+      let snapLocation = location;
+      try {
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        snapLocation = { lat: loc.coords.latitude, lng: loc.coords.longitude };
+        setLocation(snapLocation);
+      } catch {
+        // Tetap lanjut pakai lokasi sebelumnya kalau gagal refresh
+      }
+
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.6,
+        quality: 0.75,
         base64: true,
         exif: false,
+        // Sisipkan GPS ke EXIF via additionalExif
+        additionalExif: snapLocation
+          ? {
+              GPSLatitude: snapLocation.lat,
+              GPSLongitude: snapLocation.lng,
+              GPSLatitudeRef: snapLocation.lat >= 0 ? 'N' : 'S',
+              GPSLongitudeRef: snapLocation.lng >= 0 ? 'E' : 'W',
+              GPSAltitude: 0,
+            }
+          : {},
       });
+
       setPhotoUri(photo!.uri);
       setPhotoB64(photo!.base64 ?? null);
       setStep('preview');
     } catch {
-      Alert.alert('Error', 'Gagal mengambil foto.');
+      Alert.alert('Error', 'Gagal mengambil foto. Coba lagi.');
     }
   };
 
@@ -92,8 +113,7 @@ export default function AbsensiScreen() {
       const now       = new Date();
       const tanggal   = now.toISOString().split('T')[0];
       const jam_masuk = now.toTimeString().slice(0, 8);
-
-      const foto_url = `data:image/jpeg;base64,${photoB64}`;
+      const foto_url  = `data:image/jpeg;base64,${photoB64}`;
 
       const payload = {
         user_id:   user.id,
@@ -115,15 +135,14 @@ export default function AbsensiScreen() {
     }
   };
 
-  // ── KAMERA ─────────────────────────────────────────────────────────────
+  // ── KAMERA ─────────────────────────────────────────────
   if (step === 'camera') {
-    // Pastikan permission sudah granted sebelum render CameraView
     if (!camPerm?.granted) {
       return (
         <View style={styles.cameraContainer}>
           <StatusBar barStyle="light-content" backgroundColor="#000" />
           <View style={styles.permissionBox}>
-            <Ionicons name="camera-outline" size={48} color="rgba(255,255,255,0.4)" />
+            <Ionicons name="camera-outline" size={52} color="rgba(255,255,255,0.35)" />
             <Text style={styles.permissionText}>Izin kamera diperlukan</Text>
             <TouchableOpacity onPress={requestCamPerm} style={styles.permissionBtn}>
               <Text style={styles.permissionBtnText}>Berikan Izin</Text>
@@ -137,56 +156,49 @@ export default function AbsensiScreen() {
       <View style={styles.cameraContainer}>
         <StatusBar barStyle="light-content" backgroundColor="#000" />
 
-        {/* CameraView mengisi penuh layar dengan flex: 1 */}
+        {/* Kamera fullscreen */}
         <CameraView
           ref={cameraRef}
           style={styles.camera}
-          facing="front"
+          facing={facing}
         />
 
-        {/* Overlay semi-transparan di atas kamera */}
-        <View style={styles.cameraOverlay} pointerEvents="none">
-          {/* Area gelap atas */}
-          <View style={styles.overlayDark} />
-
-          {/* Baris tengah: gelap kiri + frame oval + gelap kanan */}
-          <View style={styles.overlayMiddle}>
-            <View style={styles.overlaySide} />
-            {/* Frame wajah oval */}
-            <View style={styles.faceFrame} />
-            <View style={styles.overlaySide} />
-          </View>
-
-          {/* Area gelap bawah */}
-          <View style={styles.overlayDark} />
-        </View>
-
-        {/* Label guide */}
-        <View style={styles.guideLabel} pointerEvents="none">
-          <Text style={styles.guideLabelText}>Posisikan wajah di dalam frame</Text>
-        </View>
-
-        {/* Tombol bawah */}
-        <View style={styles.cameraControls}>
-          <TouchableOpacity
-            onPress={() => setStep('idle')}
-            style={styles.btnCancel}
-          >
-            <Ionicons name="close" size={24} color="#fff" />
+        {/* Topbar kamera */}
+        <View style={styles.camTopBar}>
+          <TouchableOpacity onPress={() => setStep('idle')} style={styles.camIconBtn}>
+            <Ionicons name="close" size={26} color="#fff" />
           </TouchableOpacity>
 
+          {/* Info lokasi kecil di tengah */}
+          <View style={styles.camLocBadge}>
+            <Ionicons name="location" size={11} color={location ? '#4ade80' : '#f44444'} />
+            <Text style={styles.camLocText}>
+              {location
+                ? `${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}`
+                : 'Lokasi tidak tersedia'}
+            </Text>
+          </View>
+
+          {/* Flip kamera */}
+          <TouchableOpacity
+            onPress={() => setFacing((f) => (f === 'front' ? 'back' : 'front'))}
+            style={styles.camIconBtn}
+          >
+            <Ionicons name="camera-reverse-outline" size={26} color="#fff" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Tombol capture bawah */}
+        <View style={styles.cameraControls}>
           <TouchableOpacity onPress={takePhoto} style={styles.btnCapture}>
             <View style={styles.btnCaptureInner} />
           </TouchableOpacity>
-
-          {/* Spacer kanan supaya tombol capture center */}
-          <View style={{ width: 52 }} />
         </View>
       </View>
     );
   }
 
-  // ── SUKSES ──────────────────────────────────────────────────────────────
+  // ── SUKSES ─────────────────────────────────────────────
   if (step === 'done' && successData) {
     return (
       <LinearGradient
@@ -213,7 +225,8 @@ export default function AbsensiScreen() {
           {successData.dalam_radius !== null && (
             <View style={{
               marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 6,
-              backgroundColor: successData.dalam_radius ? 'rgba(34,197,94,0.12)' : 'rgba(244,68,68,0.12)',
+              backgroundColor: successData.dalam_radius
+                ? 'rgba(34,197,94,0.12)' : 'rgba(244,68,68,0.12)',
               borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6,
             }}>
               <Ionicons
@@ -245,7 +258,7 @@ export default function AbsensiScreen() {
     );
   }
 
-  // ── MAP HTML ────────────────────────────────────────────────────────────
+  // ── MAP HTML ─────────────────────────────────────────────
   const mapHtml = location ? `
     <!DOCTYPE html><html><head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -269,7 +282,7 @@ export default function AbsensiScreen() {
     </script></body></html>
   ` : '';
 
-  // ── MAIN SCREEN ─────────────────────────────────────────────────────────
+  // ── MAIN SCREEN ────────────────────────────────────────────
   return (
     <LinearGradient colors={['#0f1117', '#13151e', '#0f1117']} style={{ flex: 1 }}>
       {/* Topbar */}
@@ -283,7 +296,11 @@ export default function AbsensiScreen() {
         </TouchableOpacity>
         <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700', flex: 1 }}>Absensi</Text>
         <TouchableOpacity onPress={fetchLocation} disabled={locLoading}>
-          <Ionicons name="refresh" size={20} color={locLoading ? 'rgba(255,255,255,0.3)' : '#f44444'} />
+          <Ionicons
+            name="refresh"
+            size={20}
+            color={locLoading ? 'rgba(255,255,255,0.3)' : '#f44444'}
+          />
         </TouchableOpacity>
       </BlurView>
 
@@ -325,7 +342,6 @@ export default function AbsensiScreen() {
               originWhitelist={['*']}
               source={{ html: mapHtml }}
               style={{ height: 200, backgroundColor: '#0f1117' }}
-              onLoadEnd={() => setMapReady(true)}
               scrollEnabled={false}
               javaScriptEnabled
             />
@@ -341,7 +357,7 @@ export default function AbsensiScreen() {
           )}
         </BlurView>
 
-        {/* Foto Selfie */}
+        {/* Foto */}
         <BlurView intensity={15} tint="dark" style={{
           borderRadius: 16, overflow: 'hidden', padding: 16,
           borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
@@ -349,34 +365,38 @@ export default function AbsensiScreen() {
           <Text style={{
             color: 'rgba(255,255,255,0.5)', fontSize: 10,
             letterSpacing: 2, textTransform: 'uppercase', marginBottom: 12,
-          }}>Foto Selfie</Text>
+          }}>Foto Absensi</Text>
 
           {photoUri ? (
-            <View style={{ position: 'relative' }}>
+            <View>
               <View style={{
-                width: '100%', height: 200, borderRadius: 12,
-                overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.05)',
-                alignItems: 'center', justifyContent: 'center',
+                width: '100%', height: 200, borderRadius: 12, overflow: 'hidden',
+                backgroundColor: 'rgba(34,197,94,0.08)',
+                alignItems: 'center', justifyContent: 'center', gap: 8,
               }}>
-                <View style={{
-                  width: '100%', height: '100%',
-                  backgroundColor: 'rgba(34,197,94,0.08)',
-                  alignItems: 'center', justifyContent: 'center', gap: 8,
-                }}>
-                  <Ionicons name="checkmark-circle" size={48} color="#22c55e" />
-                  <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '600' }}>Foto diambil</Text>
-                  <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>Tap ulang untuk ganti</Text>
-                </View>
+                <Ionicons name="checkmark-circle" size={48} color="#22c55e" />
+                <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '600' }}>Foto diambil</Text>
+                {location && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                    <Ionicons name="location" size={11} color="#4ade80" />
+                    <Text style={{ color: 'rgba(74,222,128,0.8)', fontSize: 10 }}>
+                      {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
+                    </Text>
+                  </View>
+                )}
+                <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Tap untuk ganti foto</Text>
               </View>
               <TouchableOpacity
                 onPress={openCamera}
                 style={{
-                  position: 'absolute', top: 8, right: 8,
-                  backgroundColor: 'rgba(0,0,0,0.6)',
-                  borderRadius: 8, padding: 6,
+                  marginTop: 10, borderRadius: 10,
+                  borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+                  paddingVertical: 10, alignItems: 'center',
+                  flexDirection: 'row', justifyContent: 'center', gap: 6,
                 }}
               >
-                <Ionicons name="refresh" size={16} color="#fff" />
+                <Ionicons name="camera-outline" size={15} color="rgba(255,255,255,0.5)" />
+                <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>Ambil ulang foto</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -390,14 +410,14 @@ export default function AbsensiScreen() {
               }}
             >
               <View style={{
-                width: 52, height: 52, borderRadius: 26,
+                width: 56, height: 56, borderRadius: 28,
                 backgroundColor: 'rgba(244,68,68,0.15)',
                 alignItems: 'center', justifyContent: 'center',
               }}>
-                <Ionicons name="camera-outline" size={26} color="#f44444" />
+                <Ionicons name="camera-outline" size={28} color="#f44444" />
               </View>
-              <Text style={{ color: 'rgba(244,68,68,0.8)', fontSize: 13, fontWeight: '600' }}>Ambil Foto Selfie</Text>
-              <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Diperlukan untuk absensi</Text>
+              <Text style={{ color: 'rgba(244,68,68,0.85)', fontSize: 13, fontWeight: '600' }}>Ambil Foto</Text>
+              <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Foto akan menyimpan data lokasi</Text>
             </TouchableOpacity>
           )}
         </BlurView>
@@ -434,7 +454,6 @@ export default function AbsensiScreen() {
           color: 'rgba(255,255,255,0.15)', fontSize: 11,
           textAlign: 'center', letterSpacing: 1,
         }}>
-          Absensi dicatat pada{' '}
           {new Date().toLocaleDateString('id-ID', {
             weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
           })}
@@ -444,121 +463,98 @@ export default function AbsensiScreen() {
   );
 }
 
-// ── STYLES ──────────────────────────────────────────────────────────────────
-const FACE_W = SW * 0.58;
-const FACE_H = FACE_W * 1.22;
-
+// ── STYLES ───────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  // Container kamera — HARUS flex:1 + backgroundColor hitam
   cameraContainer: {
     flex: 1,
     backgroundColor: '#000',
   },
-  // CameraView mengisi seluruh container dengan flex:1
   camera: {
     flex: 1,
   },
-  // Overlay ditumpuk di atas kamera via absolute
-  cameraOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    flexDirection: 'column',
-  },
-  overlayDark: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-  },
-  overlayMiddle: {
-    flexDirection: 'row',
-    height: FACE_H,
-  },
-  overlaySide: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-  },
-  // Frame oval wajah — hanya border, tidak ada background gelap
-  faceFrame: {
-    width: FACE_W,
-    height: FACE_H,
-    borderRadius: FACE_W / 2,
-    borderWidth: 2.5,
-    borderColor: '#f44444',
-    backgroundColor: 'transparent',
-  },
-  // Label instruksi di bawah frame
-  guideLabel: {
+  camTopBar: {
     position: 'absolute',
-    bottom: 148,
+    top: 0,
     left: 0,
     right: 0,
-    alignItems: 'center',
-  },
-  guideLabelText: {
-    color: 'rgba(255,255,255,0.85)',
-    fontSize: 13,
-    letterSpacing: 0.5,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    paddingTop: 52,
+    paddingBottom: 12,
     paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 20,
-    overflow: 'hidden',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(0,0,0,0.35)',
   },
-  // Kontrol bawah kamera
+  camIconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  camLocBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    maxWidth: SW * 0.5,
+  },
+  camLocText: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 10,
+    letterSpacing: 0.3,
+  },
   cameraControls: {
     position: 'absolute',
-    bottom: 48,
+    bottom: 52,
     left: 0,
     right: 0,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 48,
-    paddingHorizontal: 40,
-  },
-  btnCancel: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: 'rgba(255,255,255,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Tombol capture: lingkaran putih dengan ring luar
   btnCapture: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    borderWidth: 3,
-    borderColor: 'rgba(255,255,255,0.6)',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 4,
+    borderColor: 'rgba(255,255,255,0.7)',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
   },
   btnCaptureInner: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 62,
+    height: 62,
+    borderRadius: 31,
     backgroundColor: '#fff',
   },
-  // Permission screen
   permissionBox: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 16,
+    padding: 32,
   },
   permissionText: {
-    color: 'rgba(255,255,255,0.6)',
+    color: 'rgba(255,255,255,0.55)',
     fontSize: 14,
+    textAlign: 'center',
   },
   permissionBtn: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+    paddingHorizontal: 28,
+    paddingVertical: 13,
     backgroundColor: '#f44444',
     borderRadius: 12,
+    marginTop: 4,
   },
   permissionBtnText: {
     color: '#fff',
     fontWeight: '700',
     fontSize: 13,
+    letterSpacing: 1,
   },
 });
