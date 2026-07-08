@@ -9,7 +9,7 @@ from app.models.user import User, UserRole
 from app.repositories.absensi import AbsensiRepository
 from app.repositories.absensi_setting import AbsensiSettingRepository
 from app.schemas.absensi import (
-    AbsensiCreate, AbsensiRekapHarian, AbsensiResponse,
+    AbsensiCreate, AbsensiPulangUpdate, AbsensiRekapHarian, AbsensiResponse,
     AbsensiSettingCreate, AbsensiSettingResponse, AbsensiSettingUpdate,
     AbsensiUpdate,
 )
@@ -76,6 +76,22 @@ async def catat_absensi(
     return await svc.catat(data, current_user.id, enforce_radius=enforce_radius)
 
 
+# ── PENTING: route statis harus di atas route dinamis /{absensi_id} ──────────
+
+@router.get("/hari-ini", response_model=Optional[AbsensiResponse])
+async def get_absensi_hari_ini(
+    user_id: int = Query(..., description="ID user yang dicek"),
+    tanggal: date = Query(default=date.today(), description="Tanggal absensi (default: hari ini)"),
+    svc: AbsensiService = Depends(_svc),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Cek apakah user sudah absen pada tanggal tertentu.
+    Return data absensi jika ada, null jika belum absen.
+    """
+    return await svc.get_hari_ini(user_id, tanggal)
+
+
 @router.get("/", response_model=list[AbsensiResponse])
 async def list_absensi(
     dari: date = Query(...),
@@ -105,6 +121,20 @@ async def get_absensi(
     _: User = Depends(get_current_user),
 ):
     return await svc.get(absensi_id)
+
+
+@router.patch("/{absensi_id}/pulang", response_model=AbsensiResponse)
+async def catat_jam_pulang(
+    absensi_id: int,
+    data: AbsensiPulangUpdate,
+    svc: AbsensiService = Depends(_svc),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Catat jam pulang user. Hanya bisa dilakukan oleh user pemilik absensi.
+    Akan ditolak jika jam_keluar sudah terisi sebelumnya (HTTP 409).
+    """
+    return await svc.catat_pulang(absensi_id, data, current_user.id)
 
 
 @router.patch("/{absensi_id}", response_model=AbsensiResponse)

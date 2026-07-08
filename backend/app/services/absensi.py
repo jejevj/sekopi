@@ -8,7 +8,7 @@ from app.repositories.absensi_setting import AbsensiSettingRepository
 from app.schemas.absensi import (
     AbsensiCreate, AbsensiRekapHarian, AbsensiResponse,
     AbsensiSettingCreate, AbsensiSettingResponse, AbsensiSettingUpdate,
-    AbsensiUpdate, haversine_meter,
+    AbsensiUpdate, AbsensiPulangUpdate, haversine_meter,
 )
 
 
@@ -86,6 +86,49 @@ class AbsensiService:
         obj = await self.repo.get_by_id(absensi_id)
         if not obj:
             raise HTTPException(404, "Absensi tidak ditemukan")
+        return AbsensiResponse.from_orm_obj(obj)
+
+    async def get_hari_ini(self, user_id: int, tanggal: date) -> Optional[AbsensiResponse]:
+        """Ambil absensi user pada tanggal tertentu. Return None jika belum ada."""
+        obj = await self.repo.get_by_user_tanggal(user_id, tanggal)
+        if not obj:
+            return None
+        return AbsensiResponse.from_orm_obj(obj)
+
+    async def catat_pulang(
+        self,
+        absensi_id: int,
+        data: AbsensiPulangUpdate,
+        current_user_id: int,
+    ) -> AbsensiResponse:
+        """Update jam_keluar (dan opsional foto/lokasi pulang) pada record absensi."""
+        obj = await self.repo.get_by_id(absensi_id)
+        if not obj:
+            raise HTTPException(404, "Absensi tidak ditemukan")
+        if obj.user_id != current_user_id:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail="Tidak bisa mengubah absensi milik user lain.",
+            )
+        if obj.jam_keluar is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail="Jam pulang sudah tercatat sebelumnya.",
+            )
+
+        # Hitung jarak pulang kalau ada koordinat
+        jarak_pulang = dalam_radius_pulang = None
+        if data.latitude is not None and data.longitude is not None:
+            jarak_pulang, dalam_radius_pulang = await self._hitung_jarak(
+                data.latitude, data.longitude
+            )
+
+        update_payload = AbsensiUpdate(
+            jam_keluar=data.jam_keluar,
+            # Timpa foto_url dengan foto pulang jika dikirim
+            foto_url=data.foto_url if data.foto_url else None,
+        )
+        obj = await self.repo.update(obj, update_payload)
         return AbsensiResponse.from_orm_obj(obj)
 
     async def update(self, absensi_id: int, data: AbsensiUpdate) -> AbsensiResponse:

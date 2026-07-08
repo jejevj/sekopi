@@ -9,7 +9,7 @@ from app.models.absensi import StatusAbsensi
 
 # ── Haversine helper ───────────────────────────────────────────────────────
 def haversine_meter(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    R = 6_371_000  # radius bumi dalam meter
+    R = 6_371_000
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlam = math.radians(lon2 - lon1)
@@ -67,10 +67,8 @@ class AbsensiCreate(BaseModel):
     jam_masuk: Optional[time] = None
     jam_keluar: Optional[time] = None
     keterangan: Optional[str] = None
-    # Lokasi — opsional (wajib dari mobile, opsional dari web/admin)
     latitude: Optional[float] = None
     longitude: Optional[float] = None
-    # Foto URL — setelah upload ke storage
     foto_url: Optional[str] = None
 
 
@@ -79,6 +77,14 @@ class AbsensiUpdate(BaseModel):
     jam_masuk: Optional[time] = None
     jam_keluar: Optional[time] = None
     keterangan: Optional[str] = None
+    foto_url: Optional[str] = None
+
+
+# ── Schema khusus untuk catat jam pulang dari mobile ─────────────────────────
+class AbsensiPulangUpdate(BaseModel):
+    jam_keluar: time
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     foto_url: Optional[str] = None
 
 
