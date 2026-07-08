@@ -7,6 +7,9 @@ services:
       - "5030:5030"
     env_file:
       - ./backend/.env
+    environment:
+      # Hardcoded — menang atas nilai apapun di .env
+      BACKEND_CORS_ORIGINS: "*"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: always
