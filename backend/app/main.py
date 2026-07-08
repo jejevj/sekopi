@@ -55,13 +55,24 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.BACKEND_CORS_ORIGINS,
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Ambil origins dari settings; kalau ["*"] gunakan wildcard langsung
+_origins = settings.BACKEND_CORS_ORIGINS
+if _origins == ["*"] or _origins == "*":
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # FIX: tolak request body > 20MB dengan pesan yang jelas
 MAX_BODY_SIZE = 20 * 1024 * 1024  # 20 MB
