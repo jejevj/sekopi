@@ -6,7 +6,8 @@ const BASE_URL =
 
 const api = axios.create({
   baseURL: BASE_URL,
-  timeout: 15000,
+  // Dinaikkan ke 60 detik — foto base64 bisa besar, butuh waktu upload
+  timeout: 60000,
 });
 
 // Inject Bearer token otomatis dari authStore

@@ -30,13 +30,34 @@ interface AbsensiHariIni {
   tanggal: string;
 }
 
+/** Ekstrak pesan error yang berguna dari berbagai bentuk error axios/network */
+function parseError(e: any): string {
+  // Timeout
+  if (e?.code === 'ECONNABORTED' || e?.message?.includes('timeout')) {
+    return 'Koneksi timeout. Coba lagi dengan koneksi internet yang lebih stabil.';
+  }
+  // Tidak ada koneksi sama sekali
+  if (e?.code === 'ERR_NETWORK' || e?.message === 'Network Error') {
+    return 'Tidak dapat terhubung ke server. Periksa koneksi internet.';
+  }
+  // Server merespons dengan error
+  const detail = e?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) return detail.map((d: any) => d?.msg ?? JSON.stringify(d)).join(', ');
+  if (detail) return JSON.stringify(detail);
+  // HTTP status fallback
+  const status = e?.response?.status;
+  if (status === 409) return 'Absensi hari ini sudah tercatat sebelumnya.';
+  if (status === 403) return 'Tidak punya akses untuk melakukan aksi ini.';
+  if (status === 422) return 'Data tidak valid. Coba ulangi dari awal.';
+  if (status >= 500) return `Server error (${status}). Hubungi admin.`;
+  return e?.message ?? 'Terjadi kesalahan. Coba lagi.';
+}
+
 export default function AbsensiScreen() {
   const user = useAuthStore((s) => s.user);
 
-  // ── Tab aktif ────────────────────────────────────────────────
   const [tab, setTab]                     = useState<TabMode>('masuk');
-
-  // ── State umum ───────────────────────────────────────────────
   const [step, setStep]                   = useState<Step>('idle');
   const [photoUri, setPhotoUri]           = useState<string | null>(null);
   const [isTaking, setIsTaking]           = useState(false);
@@ -45,8 +66,8 @@ export default function AbsensiScreen() {
   const [errorMsg, setErrorMsg]           = useState('');
   const [successData, setSuccessData]     = useState<any>(null);
   const [facing, setFacing]               = useState<'front' | 'back'>('front');
+  const [uploadProgress, setUploadProgress] = useState('');
 
-  // ── Data absensi hari ini ─────────────────────────────────────
   const [absensiHariIni, setAbsensiHariIni] = useState<AbsensiHariIni | null>(null);
   const [loadingStatus, setLoadingStatus]   = useState(true);
 
@@ -58,7 +79,6 @@ export default function AbsensiScreen() {
     fetchAbsensiHariIni();
   }, []);
 
-  // Cek apakah user sudah absen masuk hari ini
   const fetchAbsensiHariIni = useCallback(async () => {
     if (!user) return;
     setLoadingStatus(true);
@@ -66,7 +86,6 @@ export default function AbsensiScreen() {
       const tanggal = new Date().toISOString().split('T')[0];
       const res = await api.get(`/absensi/hari-ini?user_id=${user.id}&tanggal=${tanggal}`);
       setAbsensiHariIni(res.data ?? null);
-      // Kalau sudah absen masuk, langsung arahkan ke tab pulang
       if (res.data?.jam_masuk && !res.data?.jam_keluar) {
         setTab('pulang');
       }
@@ -112,7 +131,7 @@ export default function AbsensiScreen() {
     setIsTaking(true);
     try {
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.4,
+        quality: 0.3,        // Lebih kecil agar upload lebih cepat
         base64: false,
         exif: false,
         skipProcessing: true,
@@ -127,7 +146,6 @@ export default function AbsensiScreen() {
     }
   };
 
-  // ── Submit Jam Masuk (POST) ────────────────────────────────────
   const handleSubmitMasuk = async () => {
     if (!user || !location || !photoUri) {
       setErrorMsg('Pastikan lokasi dan foto sudah tersedia.');
@@ -135,15 +153,18 @@ export default function AbsensiScreen() {
     }
     setStep('submitting');
     setErrorMsg('');
+    setUploadProgress('Menyiapkan foto...');
     try {
       const now       = new Date();
       const tanggal   = now.toISOString().split('T')[0];
       const jam_masuk = now.toTimeString().slice(0, 8);
 
+      setUploadProgress('Mengompres foto...');
       const file     = new File(photoUri);
       const b64      = await file.base64();
       const foto_url = `data:image/jpeg;base64,${b64}`;
 
+      setUploadProgress('Mengirim data absensi...');
       const payload = {
         user_id:   user.id,
         tanggal,
@@ -159,17 +180,13 @@ export default function AbsensiScreen() {
       setAbsensiHariIni(res.data);
       setStep('done');
     } catch (e: any) {
-      const detail = e?.response?.data?.detail;
-      setErrorMsg(
-        typeof detail === 'string'
-          ? detail
-          : JSON.stringify(detail) ?? 'Gagal menyimpan absensi. Coba lagi.',
-      );
+      setErrorMsg(parseError(e));
       setStep('idle');
+    } finally {
+      setUploadProgress('');
     }
   };
 
-  // ── Submit Jam Pulang (PATCH) ─────────────────────────────────
   const handleSubmitPulang = async () => {
     if (!user || !location || !photoUri) {
       setErrorMsg('Pastikan lokasi dan foto sudah tersedia.');
@@ -181,14 +198,17 @@ export default function AbsensiScreen() {
     }
     setStep('submitting');
     setErrorMsg('');
+    setUploadProgress('Menyiapkan foto...');
     try {
       const now        = new Date();
       const jam_keluar = now.toTimeString().slice(0, 8);
 
+      setUploadProgress('Mengompres foto...');
       const file     = new File(photoUri);
       const b64      = await file.base64();
       const foto_url = `data:image/jpeg;base64,${b64}`;
 
+      setUploadProgress('Mengirim data pulang...');
       const payload = {
         jam_keluar,
         latitude:  location.lat,
@@ -201,13 +221,10 @@ export default function AbsensiScreen() {
       setAbsensiHariIni(res.data);
       setStep('done');
     } catch (e: any) {
-      const detail = e?.response?.data?.detail;
-      setErrorMsg(
-        typeof detail === 'string'
-          ? detail
-          : JSON.stringify(detail) ?? 'Gagal menyimpan jam pulang. Coba lagi.',
-      );
+      setErrorMsg(parseError(e));
       setStep('idle');
+    } finally {
+      setUploadProgress('');
     }
   };
 
@@ -298,9 +315,7 @@ export default function AbsensiScreen() {
           </Text>
           <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, marginBottom: 4 }}>
             {successData.tanggal} •{' '}
-            {isPulang
-              ? successData.jam_keluar?.slice(0, 5)
-              : successData.jam_masuk?.slice(0, 5)}
+            {isPulang ? successData.jam_keluar?.slice(0, 5) : successData.jam_masuk?.slice(0, 5)}
           </Text>
           {isPulang && successData.jam_masuk && (
             <Text style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, marginBottom: 4 }}>
@@ -367,12 +382,9 @@ export default function AbsensiScreen() {
 
   const sudahMasuk  = !!absensiHariIni?.jam_masuk;
   const sudahPulang = !!absensiHariIni?.jam_keluar;
-
-  // Tentukan apakah tombol submit aktif
   const isPulangTab = tab === 'pulang';
   const canSubmit   = !!location && !!photoUri && step !== 'submitting'
     && (isPulangTab ? sudahMasuk && !sudahPulang : !sudahMasuk);
-
   const accentColor = isPulangTab ? '#6366f1' : '#f44444';
 
   return (
@@ -399,19 +411,12 @@ export default function AbsensiScreen() {
           style={[styles.tabBtn, tab === 'masuk' && { borderBottomColor: '#f44444', borderBottomWidth: 2 }]}
           onPress={() => { setTab('masuk'); setErrorMsg(''); setPhotoUri(null); }}
         >
-          <Ionicons
-            name="log-in-outline" size={16}
-            color={tab === 'masuk' ? '#f44444' : 'rgba(255,255,255,0.35)'}
-          />
-          <Text style={[
-            styles.tabText,
-            { color: tab === 'masuk' ? '#f44444' : 'rgba(255,255,255,0.35)' },
-          ]}>Jam Masuk</Text>
-          {sudahMasuk && (
-            <View style={styles.tabBadgeDone}>
-              <Ionicons name="checkmark" size={10} color="#22c55e" />
-            </View>
-          )}
+          <Ionicons name="log-in-outline" size={16}
+            color={tab === 'masuk' ? '#f44444' : 'rgba(255,255,255,0.35)'} />
+          <Text style={[styles.tabText, { color: tab === 'masuk' ? '#f44444' : 'rgba(255,255,255,0.35)' }]}>
+            Jam Masuk
+          </Text>
+          {sudahMasuk && <View style={styles.tabBadgeDone}><Ionicons name="checkmark" size={10} color="#22c55e" /></View>}
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -428,25 +433,18 @@ export default function AbsensiScreen() {
             setTab('pulang'); setErrorMsg(''); setPhotoUri(null);
           }}
         >
-          <Ionicons
-            name="log-out-outline" size={16}
-            color={tab === 'pulang' ? '#6366f1' : 'rgba(255,255,255,0.35)'}
-          />
-          <Text style={[
-            styles.tabText,
-            { color: tab === 'pulang' ? '#6366f1' : 'rgba(255,255,255,0.35)' },
-          ]}>Jam Pulang</Text>
-          {sudahPulang && (
-            <View style={styles.tabBadgeDone}>
-              <Ionicons name="checkmark" size={10} color="#22c55e" />
-            </View>
-          )}
+          <Ionicons name="log-out-outline" size={16}
+            color={tab === 'pulang' ? '#6366f1' : 'rgba(255,255,255,0.35)'} />
+          <Text style={[styles.tabText, { color: tab === 'pulang' ? '#6366f1' : 'rgba(255,255,255,0.35)' }]}>
+            Jam Pulang
+          </Text>
+          {sudahPulang && <View style={styles.tabBadgeDone}><Ionicons name="checkmark" size={10} color="#22c55e" /></View>}
         </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} showsVerticalScrollIndicator={false}>
 
-        {/* Status info card */}
+        {/* Status info */}
         {loadingStatus ? (
           <ActivityIndicator color={accentColor} style={{ marginVertical: 8 }} />
         ) : (
@@ -459,7 +457,9 @@ export default function AbsensiScreen() {
               <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>
                 {sudahMasuk
                   ? `Masuk: ${absensiHariIni?.jam_masuk?.slice(0, 5)}${
-                      sudahPulang ? `  ·  Pulang: ${absensiHariIni?.jam_keluar?.slice(0, 5)}` : '  ·  Belum pulang'
+                      sudahPulang
+                        ? `  ·  Pulang: ${absensiHariIni?.jam_keluar?.slice(0, 5)}`
+                        : '  ·  Belum pulang'
                     }`
                   : 'Belum absen hari ini'}
               </Text>
@@ -467,37 +467,36 @@ export default function AbsensiScreen() {
           </BlurView>
         )}
 
-        {/* Sudah selesai absen masuk & pulang */}
         {sudahPulang && tab === 'pulang' && (
-          <BlurView intensity={12} tint="dark" style={[styles.statusCard, {
-            borderColor: 'rgba(99,102,241,0.3)',
-          }]}>
+          <BlurView intensity={12} tint="dark" style={[styles.statusCard, { borderColor: 'rgba(99,102,241,0.3)' }]}>
             <Ionicons name="checkmark-circle" size={18} color="#6366f1" />
-            <Text style={{ color: '#6366f1', fontSize: 13, fontWeight: '600' }}>
-              Jam pulang sudah tercatat hari ini
-            </Text>
+            <Text style={{ color: '#6366f1', fontSize: 13, fontWeight: '600' }}>Jam pulang sudah tercatat hari ini</Text>
           </BlurView>
         )}
 
         {sudahMasuk && tab === 'masuk' && (
-          <BlurView intensity={12} tint="dark" style={[styles.statusCard, {
-            borderColor: 'rgba(34,197,94,0.3)',
-          }]}>
+          <BlurView intensity={12} tint="dark" style={[styles.statusCard, { borderColor: 'rgba(34,197,94,0.3)' }]}>
             <Ionicons name="checkmark-circle" size={18} color="#22c55e" />
-            <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '600' }}>
-              Absensi masuk sudah tercatat hari ini
-            </Text>
+            <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '600' }}>Absensi masuk sudah tercatat hari ini</Text>
           </BlurView>
         )}
 
         {!!errorMsg && (
           <View style={styles.errorBox}>
             <Ionicons name="warning-outline" size={16} color="#f44444" />
-            <Text style={{ color: '#f44444', fontSize: 12, flex: 1 }}>{errorMsg}</Text>
+            <Text style={{ color: '#f44444', fontSize: 12, flex: 1, lineHeight: 18 }}>{errorMsg}</Text>
           </View>
         )}
 
-        {/* Peta Lokasi */}
+        {/* Submitting progress */}
+        {step === 'submitting' && !!uploadProgress && (
+          <BlurView intensity={12} tint="dark" style={[styles.statusCard, { borderColor: `${accentColor}40` }]}>
+            <ActivityIndicator size="small" color={accentColor} />
+            <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>{uploadProgress}</Text>
+          </BlurView>
+        )}
+
+        {/* Peta */}
         <BlurView intensity={15} tint="dark" style={{
           borderRadius: 16, overflow: 'hidden',
           borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
@@ -529,98 +528,97 @@ export default function AbsensiScreen() {
           )}
         </BlurView>
 
-        {/* Foto Absensi — hanya tampil jika belum done hari ini pada tab yg aktif */}
+        {/* Form foto + submit — hanya jika belum selesai */}
         {((tab === 'masuk' && !sudahMasuk) || (tab === 'pulang' && sudahMasuk && !sudahPulang)) && (
-          <BlurView intensity={15} tint="dark" style={{
-            borderRadius: 16, overflow: 'hidden', padding: 16,
-            borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
-          }}>
-            <Text style={{
-              color: 'rgba(255,255,255,0.5)', fontSize: 10,
-              letterSpacing: 2, textTransform: 'uppercase', marginBottom: 12,
-            }}>Foto {tab === 'masuk' ? 'Masuk' : 'Pulang'}</Text>
+          <>
+            <BlurView intensity={15} tint="dark" style={{
+              borderRadius: 16, overflow: 'hidden', padding: 16,
+              borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
+            }}>
+              <Text style={{
+                color: 'rgba(255,255,255,0.5)', fontSize: 10,
+                letterSpacing: 2, textTransform: 'uppercase', marginBottom: 12,
+              }}>Foto {tab === 'masuk' ? 'Masuk' : 'Pulang'}</Text>
 
-            {photoUri ? (
-              <View>
-                <Image
-                  source={{ uri: photoUri }}
-                  style={{ width: '100%', height: 260, borderRadius: 12, backgroundColor: '#1a1a1a' }}
-                  resizeMode="cover"
-                />
+              {photoUri ? (
+                <View>
+                  <Image
+                    source={{ uri: photoUri }}
+                    style={{ width: '100%', height: 260, borderRadius: 12, backgroundColor: '#1a1a1a' }}
+                    resizeMode="cover"
+                  />
+                  <TouchableOpacity
+                    onPress={openCamera}
+                    style={{
+                      marginTop: 10, borderRadius: 10,
+                      borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+                      paddingVertical: 10, alignItems: 'center',
+                      flexDirection: 'row', justifyContent: 'center', gap: 6,
+                    }}
+                    disabled={step === 'submitting'}
+                  >
+                    <Ionicons name="camera-outline" size={15} color="rgba(255,255,255,0.5)" />
+                    <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>Ambil ulang foto</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
                 <TouchableOpacity
                   onPress={openCamera}
+                  disabled={step === 'submitting'}
                   style={{
-                    marginTop: 10, borderRadius: 10,
-                    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
-                    paddingVertical: 10, alignItems: 'center',
-                    flexDirection: 'row', justifyContent: 'center', gap: 6,
+                    height: 160, borderRadius: 12,
+                    borderWidth: 1.5, borderColor: `${accentColor}4D`,
+                    borderStyle: 'dashed', backgroundColor: `${accentColor}0D`,
+                    alignItems: 'center', justifyContent: 'center', gap: 10,
                   }}
                 >
-                  <Ionicons name="camera-outline" size={15} color="rgba(255,255,255,0.5)" />
-                  <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>Ambil ulang foto</Text>
+                  <View style={{
+                    width: 56, height: 56, borderRadius: 28,
+                    backgroundColor: `${accentColor}26`,
+                    alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <Ionicons name="camera-outline" size={28} color={accentColor} />
+                  </View>
+                  <Text style={{ color: accentColor, fontSize: 13, fontWeight: '600', opacity: 0.85 }}>Ambil Foto</Text>
+                  <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Tap untuk membuka kamera</Text>
                 </TouchableOpacity>
-              </View>
-            ) : (
-              <TouchableOpacity
-                onPress={openCamera}
+              )}
+            </BlurView>
+
+            <TouchableOpacity
+              onPress={tab === 'masuk' ? handleSubmitMasuk : handleSubmitPulang}
+              disabled={!canSubmit}
+              activeOpacity={0.82}
+            >
+              <LinearGradient
+                colors={canSubmit
+                  ? (isPulangTab ? ['#6366f1', '#4f46e5'] : ['#f44444', '#d92b2b'])
+                  : ['#1a1a2e', '#12121e']}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                 style={{
-                  height: 160, borderRadius: 12,
-                  borderWidth: 1.5,
-                  borderColor: `${accentColor}4D`,
-                  borderStyle: 'dashed',
-                  backgroundColor: `${accentColor}0D`,
-                  alignItems: 'center', justifyContent: 'center', gap: 10,
+                  borderRadius: 12, height: 52,
+                  alignItems: 'center', justifyContent: 'center',
+                  flexDirection: 'row', gap: 8,
+                  opacity: canSubmit ? 1 : 0.5,
                 }}
               >
-                <View style={{
-                  width: 56, height: 56, borderRadius: 28,
-                  backgroundColor: `${accentColor}26`,
-                  alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <Ionicons name="camera-outline" size={28} color={accentColor} />
-                </View>
-                <Text style={{ color: accentColor, fontSize: 13, fontWeight: '600', opacity: 0.85 }}>Ambil Foto</Text>
-                <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Tap untuk membuka kamera</Text>
-              </TouchableOpacity>
-            )}
-          </BlurView>
-        )}
-
-        {/* Tombol Submit */}
-        {((tab === 'masuk' && !sudahMasuk) || (tab === 'pulang' && sudahMasuk && !sudahPulang)) && (
-          <TouchableOpacity
-            onPress={tab === 'masuk' ? handleSubmitMasuk : handleSubmitPulang}
-            disabled={!canSubmit}
-            activeOpacity={0.82}
-          >
-            <LinearGradient
-              colors={canSubmit
-                ? (isPulangTab ? ['#6366f1', '#4f46e5'] : ['#f44444', '#d92b2b'])
-                : ['#1a1a2e', '#12121e']}
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-              style={{
-                borderRadius: 12, height: 52,
-                alignItems: 'center', justifyContent: 'center',
-                flexDirection: 'row', gap: 8,
-                opacity: canSubmit ? 1 : 0.5,
-              }}
-            >
-              {step === 'submitting'
-                ? <ActivityIndicator color="#fff" />
-                : (
-                  <>
-                    <Ionicons
-                      name={isPulangTab ? 'exit-outline' : 'checkmark-circle-outline'}
-                      size={20} color="#fff"
-                    />
-                    <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700', letterSpacing: 2 }}>
-                      {isPulangTab ? 'CATAT JAM PULANG' : 'CATAT ABSENSI'}
-                    </Text>
-                  </>
-                )
-              }
-            </LinearGradient>
-          </TouchableOpacity>
+                {step === 'submitting'
+                  ? <ActivityIndicator color="#fff" />
+                  : (
+                    <>
+                      <Ionicons
+                        name={isPulangTab ? 'exit-outline' : 'checkmark-circle-outline'}
+                        size={20} color="#fff"
+                      />
+                      <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700', letterSpacing: 2 }}>
+                        {isPulangTab ? 'CATAT JAM PULANG' : 'CATAT ABSENSI'}
+                      </Text>
+                    </>
+                  )
+                }
+              </LinearGradient>
+            </TouchableOpacity>
+          </>
         )}
 
         <Text style={{
@@ -636,7 +634,6 @@ export default function AbsensiScreen() {
   );
 }
 
-// ── STYLES ───────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   tabWrapper: {
     flexDirection: 'row',
@@ -646,8 +643,7 @@ const styles = StyleSheet.create({
   },
   tabBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, paddingVertical: 13, borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
+    gap: 6, paddingVertical: 13, borderBottomWidth: 2, borderBottomColor: 'transparent',
   },
   tabText: { fontSize: 13, fontWeight: '600' },
   tabBadgeDone: {
@@ -693,8 +689,7 @@ const styles = StyleSheet.create({
   btnCapture: {
     width: 80, height: 80, borderRadius: 40,
     borderWidth: 4, borderColor: 'rgba(255,255,255,0.7)',
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: 'transparent',
+    alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent',
   },
   btnCaptureInner: { width: 62, height: 62, borderRadius: 31, backgroundColor: '#fff' },
   permissionBox: {
