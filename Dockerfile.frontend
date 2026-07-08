@@ -5,15 +5,26 @@ WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci --legacy-peer-deps
 
+# Set HTTPS API URL sebelum copy source agar tidak di-override .env lama
+ENV EXPO_PUBLIC_API_URL=https://api-sekopi.ourtestcloud.my.id/api/v1
+
 COPY frontend/ .
 
-# Hardcode HTTPS API URL agar tidak pakai nilai http:// dari .env.example
-ENV EXPO_PUBLIC_API_URL=https://api-sekopi.ourtestcloud.my.id/api/v1
+# Hapus .env lama kalau ada, paksa pakai ENV di atas
+RUN rm -f .env .env.local .env.production
 
 RUN npx expo export --platform web
 
 # Stage 2: Serve dengan Apache httpd
 FROM httpd:2.4-alpine
+
+# Aktifkan mod_rewrite dan mod_headers yang diperlukan untuk SPA
+RUN sed -i \
+    -e 's/#LoadModule rewrite_module/LoadModule rewrite_module/' \
+    -e 's/#LoadModule headers_module/LoadModule headers_module/' \
+    -e 's/#Include conf\/extra\/httpd-vhosts.conf/Include conf\/extra\/httpd-vhosts.conf/' \
+    /usr/local/apache2/conf/httpd.conf
+
 COPY --from=builder /app/dist /usr/local/apache2/htdocs
 COPY httpd.conf /usr/local/apache2/conf/extra/httpd-vhosts.conf
 EXPOSE 80
