@@ -4,7 +4,7 @@ import { api } from '../../../lib/api';
 import { Navbar } from '../../../components/layout/Navbar';
 import {
   CalendarDays, UserCheck, UserX, Clock, AlertCircle,
-  CheckCircle, X, ChevronLeft, ChevronRight,
+  CheckCircle, X, ChevronLeft, ChevronRight, MapPin, Eye,
 } from 'lucide-react-native';
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -61,10 +61,132 @@ interface AbsensiRecord {
   user: { id: number; full_name: string; role: string };
   pencatat: { id: number; full_name: string } | null;
   created_at: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  foto_url?: string | null;
 }
 interface Rekap {
   tanggal: string; total: number; hadir: number; izin: number; sakit: number; alpha: number;
   records: AbsensiRecord[];
+}
+
+// ── Detail Modal ──────────────────────────────────────────────────────────
+function DetailModal({ record, onClose }: { record: AbsensiRecord; onClose: () => void }) {
+  const s = STATUS_META[record.status] ?? STATUS_META.alpha;
+  const hasLocation = record.latitude != null && record.longitude != null;
+  const mapUrl = hasLocation
+    ? `https://www.openstreetmap.org/export/embed.html?bbox=${record.longitude! - 0.003}%2C${record.latitude! - 0.003}%2C${record.longitude! + 0.003}%2C${record.latitude! + 0.003}&layer=mapnik&marker=${record.latitude}%2C${record.longitude}`
+    : null;
+  const mapsLink = hasLocation
+    ? `https://www.google.com/maps?q=${record.latitude},${record.longitude}`
+    : null;
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 70, padding: 16 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div style={{ background: '#141414', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, width: 560, maxWidth: '96vw', maxHeight: '92vh', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 22px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Eye size={18} color="#60a5fa" />
+            <span style={{ color: 'white', fontWeight: 700, fontSize: 16 }}>Detail Absensi</span>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><X size={17} color="#555" /></button>
+        </div>
+
+        <div style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+          {/* Karyawan info */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(96,165,250,0.15)', border: '2px solid rgba(96,165,250,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <span style={{ color: '#60a5fa', fontWeight: 700, fontSize: 18 }}>{record.user.full_name.charAt(0).toUpperCase()}</span>
+            </div>
+            <div>
+              <div style={{ color: 'white', fontWeight: 700, fontSize: 16 }}>{record.user.full_name}</div>
+              <div style={{ color: '#888', fontSize: 12, textTransform: 'capitalize', marginTop: 2 }}>{record.user.role}</div>
+            </div>
+            <div style={{ marginLeft: 'auto' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, background: s.bg, color: s.color, border: `1px solid ${s.color}30` }}>
+                {s.icon} {s.label}
+              </span>
+            </div>
+          </div>
+
+          {/* Info grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {[
+              { label: 'Tanggal', value: new Date(record.tanggal).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) },
+              { label: 'Dicatat Oleh', value: record.pencatat?.full_name ?? '—' },
+              { label: 'Jam Masuk', value: record.jam_masuk ? record.jam_masuk.slice(0, 5) : '—' },
+              { label: 'Jam Keluar', value: record.jam_keluar ? record.jam_keluar.slice(0, 5) : '—' },
+            ].map(({ label, value }) => (
+              <div key={label} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '12px 14px' }}>
+                <div style={{ color: '#666', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>{label}</div>
+                <div style={{ color: 'white', fontSize: 13, fontWeight: 600 }}>{value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Keterangan */}
+          {record.keterangan && (
+            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '12px 14px' }}>
+              <div style={{ color: '#666', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>Keterangan</div>
+              <div style={{ color: '#ccc', fontSize: 13 }}>{record.keterangan}</div>
+            </div>
+          )}
+
+          {/* Foto */}
+          {record.foto_url && (
+            <div>
+              <div style={{ color: '#666', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Foto Absensi</div>
+              <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <img
+                  src={record.foto_url.startsWith('data:') ? record.foto_url : `data:image/jpeg;base64,${record.foto_url}`}
+                  alt="Foto absensi"
+                  style={{ width: '100%', maxHeight: 240, objectFit: 'cover', display: 'block' }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Map */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#666', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                <MapPin size={11} color="#666" /> Lokasi Absensi
+              </div>
+              {mapsLink && (
+                <a href={mapsLink} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#60a5fa', textDecoration: 'none' }}>Buka di Google Maps ↗</a>
+              )}
+            </div>
+            {mapUrl ? (
+              <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)', height: 220 }}>
+                <iframe
+                  src={mapUrl}
+                  width="100%"
+                  height="220"
+                  style={{ border: 0, display: 'block' }}
+                  title="Lokasi Absensi"
+                  loading="lazy"
+                />
+              </div>
+            ) : (
+              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '28px 14px', textAlign: 'center' }}>
+                <MapPin size={24} color="#333" style={{ marginBottom: 8 }} />
+                <div style={{ color: '#555', fontSize: 13 }}>Data lokasi tidak tersedia</div>
+              </div>
+            )}
+            {hasLocation && (
+              <div style={{ marginTop: 6, color: '#555', fontSize: 11 }}>
+                {record.latitude?.toFixed(6)}, {record.longitude?.toFixed(6)}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ── Page ───────────────────────────────────────────────────────────────────
@@ -85,6 +207,9 @@ export default function AbsensiMonitorPage() {
 
   // delete confirm
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null);
+
+  // detail modal
+  const [detailRecord, setDetailRecord] = useState<AbsensiRecord | null>(null);
 
   // ── Queries
   const { data: rekap, isLoading } = useQuery<Rekap>({
@@ -250,6 +375,9 @@ export default function AbsensiMonitorPage() {
                           <td style={{ padding: '12px 16px', color: '#666', fontSize: 12 }}>{r.pencatat?.full_name ?? '—'}</td>
                           <td style={{ padding: '12px 16px' }}>
                             <div style={{ display: 'flex', gap: 6 }}>
+                              <button onClick={() => setDetailRecord(r)} title="Detail" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 7, background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.2)', cursor: 'pointer', fontSize: 11, color: '#60a5fa' }}>
+                                <Eye size={11} color="#60a5fa" /> Detail
+                              </button>
                               <button onClick={() => openEdit(r)} title="Edit" style={{ padding: '5px 8px', borderRadius: 7, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', fontSize: 11, color: '#aaa' }}>Edit</button>
                               <button onClick={() => setDeleteTarget({ id: r.id, name: r.user.full_name })} title="Hapus" style={{ padding: '5px 8px', borderRadius: 7, background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)', cursor: 'pointer' }}>
                                 <X size={11} color="#f87171" />
@@ -264,6 +392,9 @@ export default function AbsensiMonitorPage() {
               )}
         </div>
       </div>
+
+      {/* ══ Modal: Detail Absensi */}
+      {detailRecord && <DetailModal record={detailRecord} onClose={() => setDetailRecord(null)} />}
 
       {/* ══ Modal: Catat Absensi */}
       {showForm && (
