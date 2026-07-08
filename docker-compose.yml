@@ -23,6 +23,9 @@ services:
       dockerfile: Dockerfile.frontend
     ports:
       - "5020:80"
+    environment:
+      # Timezone container Nginx/frontend juga WIB (untuk log server)
+      TZ: "Asia/Jakarta"
     restart: always
 
 volumes: {}
