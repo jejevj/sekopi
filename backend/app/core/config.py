@@ -13,20 +13,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite+aiosqlite:///./sekopi.db"
     ENVIRONMENT: str = "development"
 
-    BACKEND_CORS_ORIGINS: Union[List[str], str] = [
-        # local dev
-        "http://localhost:8081",
-        "http://localhost:19006",
-        "http://localhost:3000",
-        "http://localhost:5020",
-        "http://127.0.0.1:8081",
-        "http://127.0.0.1:19006",
-        "http://10.0.2.2:8000",
-        "exp://localhost:8081",
-        # production
-        "https://sekopi.ourtestcloud.my.id",
-        "http://sekopi.ourtestcloud.my.id",
-    ]
+    BACKEND_CORS_ORIGINS: Union[List[str], str] = ["*"]
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
