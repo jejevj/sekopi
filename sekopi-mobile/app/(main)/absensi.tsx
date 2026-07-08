@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import api from '../../lib/api';
 import { useAuthStore } from '../../stores/authStore';
-import * as FileSystem from 'expo-file-system';
+import { File } from 'expo-file-system/next';
 
 const { width: SW } = Dimensions.get('window');
 
@@ -70,14 +70,12 @@ export default function AbsensiScreen() {
     if (isTaking || !cameraRef.current) return;
     setIsTaking(true);
     try {
-      // Foto biasa: tanpa exif, tanpa base64 — paling cepat
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.7,
         base64: false,
         exif: false,
         skipProcessing: true,
       });
-
       if (!photo?.uri) throw new Error('URI kosong');
       setPhotoUri(photo.uri);
       setStep('idle');
@@ -100,10 +98,9 @@ export default function AbsensiScreen() {
       const tanggal   = now.toISOString().split('T')[0];
       const jam_masuk = now.toTimeString().slice(0, 8);
 
-      // Konversi URI ke base64 hanya saat submit, bukan saat foto diambil
-      const b64 = await FileSystem.readAsStringAsync(photoUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+      // Gunakan File API baru (expo-file-system v54)
+      const file = new File(photoUri);
+      const b64  = await file.base64();
       const foto_url = `data:image/jpeg;base64,${b64}`;
 
       const payload = {
@@ -153,12 +150,10 @@ export default function AbsensiScreen() {
           facing={facing}
         />
 
-        {/* Topbar */}
         <View style={styles.camTopBar}>
           <TouchableOpacity onPress={() => setStep('idle')} style={styles.camIconBtn}>
             <Ionicons name="close" size={26} color="#fff" />
           </TouchableOpacity>
-
           <View style={styles.camLocBadge}>
             <Ionicons name="location" size={11} color={location ? '#4ade80' : '#f44444'} />
             <Text style={styles.camLocText} numberOfLines={1}>
@@ -167,7 +162,6 @@ export default function AbsensiScreen() {
                 : 'Lokasi tidak tersedia'}
             </Text>
           </View>
-
           <TouchableOpacity
             onPress={() => setFacing((f) => (f === 'front' ? 'back' : 'front'))}
             style={styles.camIconBtn}
@@ -176,7 +170,6 @@ export default function AbsensiScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Tombol capture */}
         <View style={styles.cameraControls}>
           <TouchableOpacity
             onPress={takePhoto}
@@ -276,7 +269,7 @@ export default function AbsensiScreen() {
     </script></body></html>
   ` : '';
 
-  // ── MAIN SCREEN ──────────────────────────────────────────────────
+  // ── MAIN SCREEN ───────────────────────────────────────────────
   const canSubmit = !!location && !!photoUri && step !== 'submitting';
 
   return (
