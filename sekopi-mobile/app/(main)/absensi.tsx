@@ -8,18 +8,21 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import api from '../../lib/api';
 import { useAuthStore } from '../../stores/authStore';
-import { File } from 'expo-file-system/next';
+import * as FileSystem from 'expo-file-system';
 import { getTanggalWIB, getJamWIB, getLabelTanggalWIB } from '../../lib/dateUtils';
 
 const { width: SW } = Dimensions.get('window');
 
 type Step    = 'idle' | 'camera' | 'submitting' | 'done';
 type TabMode = 'masuk' | 'pulang';
+
+const MAX_PHOTO_BYTES = 1 * 1024 * 1024; // 1 MB
 
 interface AbsensiHariIni {
   id: number;
@@ -50,6 +53,49 @@ function parseError(e: any): string {
   return e?.message ?? 'Terjadi kesalahan. Coba lagi.';
 }
 
+/**
+ * Kompresi foto secara bertahap hingga ukuran < MAX_PHOTO_BYTES.
+ * Strategi: turunkan quality & resize secara iteratif.
+ * Mengembalikan base64 string (tanpa prefix data:...).
+ */
+async function compressPhotoToBase64(uri: string, onProgress?: (msg: string) => void): Promise<string> {
+  let currentUri = uri;
+  let quality    = 0.5;
+  let width      = 800; // mulai dari lebar max 800px
+
+  // Iterasi kompresi, maksimal 5x
+  for (let i = 0; i < 5; i++) {
+    onProgress?.(`Mengompres foto (percobaan ${i + 1})...`);
+
+    const result = await ImageManipulator.manipulateAsync(
+      currentUri,
+      [{ resize: { width } }],
+      { compress: quality, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+    );
+
+    const b64 = result.base64 ?? '';
+    // Base64 string length * 0.75 ≈ byte size
+    const estimatedBytes = Math.ceil(b64.length * 0.75);
+
+    if (estimatedBytes <= MAX_PHOTO_BYTES) {
+      return b64;
+    }
+
+    // Masih terlalu besar, turunkan lagi
+    currentUri = result.uri;
+    quality    = Math.max(quality - 0.1, 0.1);
+    width      = Math.max(Math.floor(width * 0.75), 400);
+  }
+
+  // Fallback: baca base64 dari uri hasil kompresi terakhir
+  const fallback = await ImageManipulator.manipulateAsync(
+    currentUri,
+    [{ resize: { width: 400 } }],
+    { compress: 0.1, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+  );
+  return fallback.base64 ?? '';
+}
+
 export default function AbsensiScreen() {
   const user = useAuthStore((s) => s.user);
 
@@ -78,7 +124,6 @@ export default function AbsensiScreen() {
     if (!user) return;
     setLoadingStatus(true);
     try {
-      // Gunakan tanggal WIB, bukan UTC
       const tanggal = getTanggalWIB();
       const res = await api.get(`/absensi/hari-ini?user_id=${user.id}&tanggal=${tanggal}`);
       setAbsensiHariIni(res.data ?? null);
@@ -124,8 +169,12 @@ export default function AbsensiScreen() {
     if (isTaking || !cameraRef.current) return;
     setIsTaking(true);
     try {
+      // quality rendah dari awal agar ukuran file kecil sejak capture
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.3, base64: false, exif: false, skipProcessing: true,
+        quality: 0.4,
+        base64: false,
+        exif: false,
+        skipProcessing: false,
       });
       if (!photo?.uri) throw new Error('URI kosong');
       setPhotoUri(photo.uri);
@@ -137,6 +186,35 @@ export default function AbsensiScreen() {
     }
   };
 
+  /**
+   * Siapkan foto untuk dikirim:
+   * 1. Cek ukuran file asli
+   * 2. Jika > 1MB → kompresi iteratif sampai <= 1MB
+   * 3. Jika <= 1MB → encode base64 langsung
+   */
+  const preparePhotoBase64 = async (
+    uri: string,
+    onProgress: (msg: string) => void
+  ): Promise<string> => {
+    onProgress('Memeriksa ukuran foto...');
+
+    const info = await FileSystem.getInfoAsync(uri, { size: true });
+    const fileSize = (info as any).size ?? 0;
+
+    if (fileSize > MAX_PHOTO_BYTES) {
+      onProgress(`Foto ${(fileSize / 1024 / 1024).toFixed(1)}MB, mulai kompresi...`);
+      const b64 = await compressPhotoToBase64(uri, onProgress);
+      return b64;
+    }
+
+    // Ukuran sudah <=1MB, langsung encode base64
+    onProgress('Menyiapkan foto...');
+    const b64 = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    return b64;
+  };
+
   const handleSubmitMasuk = async () => {
     if (!user || !location || !photoUri) {
       setErrorMsg('Pastikan lokasi dan foto sudah tersedia.');
@@ -144,13 +222,10 @@ export default function AbsensiScreen() {
     }
     setStep('submitting'); setErrorMsg(''); setUploadProgress('Menyiapkan foto...');
     try {
-      // Gunakan WIB untuk tanggal dan jam
       const tanggal   = getTanggalWIB();
       const jam_masuk = getJamWIB();
 
-      setUploadProgress('Mengompres foto...');
-      const file     = new File(photoUri);
-      const b64      = await file.base64();
+      const b64      = await preparePhotoBase64(photoUri, setUploadProgress);
       const foto_url = `data:image/jpeg;base64,${b64}`;
 
       setUploadProgress('Mengirim data absensi...');
@@ -181,12 +256,9 @@ export default function AbsensiScreen() {
     }
     setStep('submitting'); setErrorMsg(''); setUploadProgress('Menyiapkan foto...');
     try {
-      // Gunakan WIB untuk jam keluar
       const jam_keluar = getJamWIB();
 
-      setUploadProgress('Mengompres foto...');
-      const file     = new File(photoUri);
-      const b64      = await file.base64();
+      const b64      = await preparePhotoBase64(photoUri, setUploadProgress);
       const foto_url = `data:image/jpeg;base64,${b64}`;
 
       setUploadProgress('Mengirim data pulang...');
@@ -527,7 +599,6 @@ export default function AbsensiScreen() {
           </>
         )}
 
-        {/* Tanggal WIB di footer */}
         <Text style={{ color: 'rgba(255,255,255,0.15)', fontSize: 11, textAlign: 'center', letterSpacing: 1 }}>
           {getLabelTanggalWIB()}
         </Text>
