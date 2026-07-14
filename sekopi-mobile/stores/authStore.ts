@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 export type UserRole = 'admin' | 'produksi' | 'inventori' | 'driver' | 'shareholder';
 

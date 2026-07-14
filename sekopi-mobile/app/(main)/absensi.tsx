@@ -8,7 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -23,7 +23,6 @@ type TabMode = 'masuk' | 'pulang';
 
 const MAX_PHOTO_BYTES = 1 * 1024 * 1024; // 1 MB
 const QUALITY_STEPS  = [0.3, 0.2, 0.15, 0.1];
-// Delay setelah kamera siap sebelum capture — beri waktu sensor fokus
 const CAMERA_WARMUP_MS = 600;
 
 interface AbsensiHariIni {
@@ -135,12 +134,6 @@ export default function AbsensiScreen() {
     setStep('camera');
   };
 
-  /**
-   * Inti pengambilan foto.
-   * - Tunggu kamera siap (onCameraReady) + warmup delay
-   * - Jika foto > 1MB, turunkan quality dan retry otomatis
-   * - isRetryingRef mencegah finally mereset isTaking saat sedang retry
-   */
   const doCapture = async (quality: number): Promise<void> => {
     if (!cameraRef.current) throw new Error('Kamera tidak siap');
 
@@ -150,7 +143,6 @@ export default function AbsensiScreen() {
         : 'Mengambil foto...'
     );
 
-    // Warmup: beri sensor waktu fokus
     await sleep(CAMERA_WARMUP_MS);
 
     const photo = await cameraRef.current.takePictureAsync({
@@ -162,7 +154,6 @@ export default function AbsensiScreen() {
 
     if (!photo?.uri) throw new Error('Kamera mengembalikan URI kosong. Coba lagi.');
 
-    // Cek ukuran
     const info = await FileSystem.getInfoAsync(photo.uri, { size: true });
     const fileSize: number = (info as any).size ?? 0;
 
@@ -170,16 +161,13 @@ export default function AbsensiScreen() {
       const currentIdx = QUALITY_STEPS.indexOf(quality);
       const nextIdx    = currentIdx + 1;
       if (nextIdx < QUALITY_STEPS.length) {
-        // Masih ada quality lebih rendah — tandai sedang retry, lalu rekursi
         captureQualityRef.current = QUALITY_STEPS[nextIdx];
         isRetryingRef.current     = true;
         await doCapture(QUALITY_STEPS[nextIdx]);
         return;
       }
-      // Sudah quality terendah, tetap pakai
     }
 
-    // Sukses
     setPhotoUri(photo.uri);
     setCaptureStatus('');
     setStep('idle');
@@ -201,7 +189,6 @@ export default function AbsensiScreen() {
       Alert.alert('Gagal', `${msg}\n\nPastikan kamera tidak diblokir aplikasi lain, lalu coba lagi.`);
       setCaptureStatus('');
     } finally {
-      // Hanya reset isTaking jika tidak sedang di tengah retry rekursif
       if (!isRetryingRef.current) {
         setIsTaking(false);
       }
@@ -303,8 +290,6 @@ export default function AbsensiScreen() {
           facing={facing}
           onCameraReady={() => setCameraReady(true)}
         />
-
-        {/* Top bar */}
         <View style={styles.camTopBar}>
           <TouchableOpacity onPress={() => { setCameraReady(false); setStep('idle'); }} style={styles.camIconBtn}>
             <Ionicons name="close" size={26} color="#fff" />
@@ -325,7 +310,6 @@ export default function AbsensiScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Status capture */}
         {(isTaking || !cameraReady) && (
           <View style={styles.captureStatusBar}>
             <ActivityIndicator size="small" color="#fff" />
@@ -335,7 +319,6 @@ export default function AbsensiScreen() {
           </View>
         )}
 
-        {/* Tombol capture */}
         <View style={styles.cameraControls}>
           <TouchableOpacity
             onPress={takePhoto}
