@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system';
 
 export type UserRole = 'admin' | 'produksi' | 'inventori' | 'driver' | 'shareholder';
 
@@ -11,14 +11,14 @@ export interface AuthUser {
   is_active: boolean;
 }
 
-const AUTH_STORAGE_KEY = '@sekopi_auth';
+const AUTH_FILE_URI = FileSystem.documentDirectory + 'sekopi_auth.json';
 
 /**
  * Cek apakah session masih valid.
  * Session valid jika:
  * - Ada user & token tersimpan
- * - loginDate masih di hari yang sama (WIB)
- * - Jam sekarang (WIB) BELUM mencapai 21:00 (jam 9 malam)
+ * - loginDate masih di hari yang sama (WIB / Asia/Jakarta)
+ * - Jam sekarang (WIB) BELUM mencapai 21:00
  */
 export function isSessionValid(
   loginDateISO: string | null | undefined,
@@ -28,17 +28,16 @@ export function isSessionValid(
 
   const checkTime = now ?? new Date();
 
-  // Waktu sekarang dalam WIB (UTC+7)
-  const wibOffset = 7 * 60; // menit
+  // Konversi ke WIB (UTC+7)
+  const wibOffset = 7 * 60;
   const utcMs = checkTime.getTime() + checkTime.getTimezoneOffset() * 60000;
   const wibNow = new Date(utcMs + wibOffset * 60000);
 
-  // Waktu login dalam WIB
   const loginTime = new Date(loginDateISO);
   const loginUtcMs = loginTime.getTime() + loginTime.getTimezoneOffset() * 60000;
   const wibLogin = new Date(loginUtcMs + wibOffset * 60000);
 
-  // Harus hari yang sama
+  // Harus hari yang sama (WIB)
   const sameDay =
     wibNow.getFullYear() === wibLogin.getFullYear() &&
     wibNow.getMonth() === wibLogin.getMonth() &&
@@ -48,17 +47,37 @@ export function isSessionValid(
 
   // Belum jam 21:00 WIB
   const hour = wibNow.getHours();
-  const minute = wibNow.getMinutes();
-  const pastNinePM = hour > 21 || (hour === 21 && minute >= 0);
+  const pastNinePM = hour >= 21;
 
   return !pastNinePM;
+}
+
+async function saveAuthToFile(data: object): Promise<void> {
+  try {
+    await FileSystem.writeAsStringAsync(AUTH_FILE_URI, JSON.stringify(data), {
+      encoding: FileSystem.EncodingType.UTF8,
+    });
+  } catch {
+    // Abaikan error write
+  }
+}
+
+async function deleteAuthFile(): Promise<void> {
+  try {
+    const info = await FileSystem.getInfoAsync(AUTH_FILE_URI);
+    if (info.exists) {
+      await FileSystem.deleteAsync(AUTH_FILE_URI, { idempotent: true });
+    }
+  } catch {
+    // Abaikan error delete
+  }
 }
 
 interface AuthState {
   user: AuthUser | null;
   accessToken: string | null;
   refreshToken: string | null;
-  loginDate: string | null; // ISO string waktu login
+  loginDate: string | null;
   setAuth: (user: AuthUser, accessToken: string, refreshToken: string) => void;
   clearAuth: () => void;
   loadAuth: () => Promise<void>;
@@ -72,20 +91,23 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   setAuth: (user, accessToken, refreshToken) => {
     const loginDate = new Date().toISOString();
-    const data = { user, accessToken, refreshToken, loginDate };
-    AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data)).catch(() => {});
+    saveAuthToFile({ user, accessToken, refreshToken, loginDate });
     set({ user, accessToken, refreshToken, loginDate });
   },
 
   clearAuth: () => {
-    AsyncStorage.removeItem(AUTH_STORAGE_KEY).catch(() => {});
+    deleteAuthFile();
     set({ user: null, accessToken: null, refreshToken: null, loginDate: null });
   },
 
   loadAuth: async () => {
     try {
-      const raw = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
-      if (!raw) return;
+      const info = await FileSystem.getInfoAsync(AUTH_FILE_URI);
+      if (!info.exists) return;
+
+      const raw = await FileSystem.readAsStringAsync(AUTH_FILE_URI, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
       const parsed = JSON.parse(raw);
       if (!parsed?.user || !parsed?.accessToken) return;
 
@@ -98,8 +120,8 @@ export const useAuthStore = create<AuthState>((set) => ({
           loginDate: parsed.loginDate,
         });
       } else {
-        // Session kadaluarsa, hapus data tersimpan
-        await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+        // Session kadaluarsa, hapus file
+        await deleteAuthFile();
       }
     } catch {
       // Abaikan error parsing
