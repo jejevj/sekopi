@@ -8,13 +8,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
-import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import api from '../../lib/api';
 import { useAuthStore } from '../../stores/authStore';
-import * as FileSystem from 'expo-file-system';
 import { getTanggalWIB, getJamWIB, getLabelTanggalWIB } from '../../lib/dateUtils';
 
 const { width: SW } = Dimensions.get('window');
@@ -22,7 +21,11 @@ const { width: SW } = Dimensions.get('window');
 type Step    = 'idle' | 'camera' | 'submitting' | 'done';
 type TabMode = 'masuk' | 'pulang';
 
-const MAX_PHOTO_BYTES = 1 * 1024 * 1024; // 1 MB
+// Batas ukuran foto maksimal sebelum dikirim: 1 MB
+const MAX_PHOTO_BYTES = 1 * 1024 * 1024;
+
+// Quality bertahap untuk capture ulang otomatis
+const QUALITY_STEPS = [0.3, 0.2, 0.15, 0.1];
 
 interface AbsensiHariIni {
   id: number;
@@ -53,49 +56,6 @@ function parseError(e: any): string {
   return e?.message ?? 'Terjadi kesalahan. Coba lagi.';
 }
 
-/**
- * Kompresi foto secara bertahap hingga ukuran < MAX_PHOTO_BYTES.
- * Strategi: turunkan quality & resize secara iteratif.
- * Mengembalikan base64 string (tanpa prefix data:...).
- */
-async function compressPhotoToBase64(uri: string, onProgress?: (msg: string) => void): Promise<string> {
-  let currentUri = uri;
-  let quality    = 0.5;
-  let width      = 800; // mulai dari lebar max 800px
-
-  // Iterasi kompresi, maksimal 5x
-  for (let i = 0; i < 5; i++) {
-    onProgress?.(`Mengompres foto (percobaan ${i + 1})...`);
-
-    const result = await ImageManipulator.manipulateAsync(
-      currentUri,
-      [{ resize: { width } }],
-      { compress: quality, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-    );
-
-    const b64 = result.base64 ?? '';
-    // Base64 string length * 0.75 ≈ byte size
-    const estimatedBytes = Math.ceil(b64.length * 0.75);
-
-    if (estimatedBytes <= MAX_PHOTO_BYTES) {
-      return b64;
-    }
-
-    // Masih terlalu besar, turunkan lagi
-    currentUri = result.uri;
-    quality    = Math.max(quality - 0.1, 0.1);
-    width      = Math.max(Math.floor(width * 0.75), 400);
-  }
-
-  // Fallback: baca base64 dari uri hasil kompresi terakhir
-  const fallback = await ImageManipulator.manipulateAsync(
-    currentUri,
-    [{ resize: { width: 400 } }],
-    { compress: 0.1, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-  );
-  return fallback.base64 ?? '';
-}
-
 export default function AbsensiScreen() {
   const user = useAuthStore((s) => s.user);
 
@@ -111,6 +71,9 @@ export default function AbsensiScreen() {
   const [uploadProgress, setUploadProgress] = useState('');
   const [absensiHariIni, setAbsensiHariIni] = useState<AbsensiHariIni | null>(null);
   const [loadingStatus, setLoadingStatus]   = useState(true);
+
+  // Simpan quality yang dipakai saat capture agar bisa retry lebih rendah
+  const captureQualityRef = useRef<number>(QUALITY_STEPS[0]);
 
   const [camPerm, requestCamPerm] = useCameraPermissions();
   const cameraRef                 = useRef<CameraView>(null);
@@ -161,22 +124,52 @@ export default function AbsensiScreen() {
         return;
       }
     }
+    // Reset quality ke default setiap kali buka kamera
+    captureQualityRef.current = QUALITY_STEPS[0];
     setPhotoUri(null);
     setStep('camera');
   };
 
+  /**
+   * Ambil foto dengan quality saat ini.
+   * Setelah capture, cek ukuran file via FileSystem:
+   * - Jika <= 1MB  → simpan URI, tutup kamera
+   * - Jika  > 1MB  → turunkan quality, capture ulang otomatis (tanpa interaksi user)
+   * - Jika sudah di quality terendah dan masih besar → tetap pakai (sudah usaha terbaik)
+   */
   const takePhoto = async () => {
     if (isTaking || !cameraRef.current) return;
     setIsTaking(true);
     try {
-      // quality rendah dari awal agar ukuran file kecil sejak capture
+      const quality = captureQualityRef.current;
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.4,
+        quality,
         base64: false,
         exif: false,
         skipProcessing: false,
       });
       if (!photo?.uri) throw new Error('URI kosong');
+
+      // Cek ukuran hasil foto
+      const info = await FileSystem.getInfoAsync(photo.uri, { size: true });
+      const fileSize: number = (info as any).size ?? 0;
+
+      if (fileSize > MAX_PHOTO_BYTES) {
+        // Cari quality lebih rendah berikutnya
+        const currentIdx = QUALITY_STEPS.indexOf(quality);
+        const nextIdx    = currentIdx + 1;
+
+        if (nextIdx < QUALITY_STEPS.length) {
+          // Ada quality lebih rendah → capture ulang otomatis
+          captureQualityRef.current = QUALITY_STEPS[nextIdx];
+          setIsTaking(false);
+          // Langsung capture ulang tanpa user perlu tap lagi
+          setTimeout(() => takePhoto(), 100);
+          return;
+        }
+        // Sudah di quality terendah, tetap gunakan foto ini
+      }
+
       setPhotoUri(photo.uri);
       setStep('idle');
     } catch {
@@ -187,28 +180,20 @@ export default function AbsensiScreen() {
   };
 
   /**
-   * Siapkan foto untuk dikirim:
-   * 1. Cek ukuran file asli
-   * 2. Jika > 1MB → kompresi iteratif sampai <= 1MB
-   * 3. Jika <= 1MB → encode base64 langsung
+   * Baca foto sebagai base64 via FileSystem.
+   * Jika ukuran > 1MB, tampilkan progress "foto besar" tapi tetap kirim
+   * (quality sudah diturunkan semaksimal mungkin saat capture).
    */
   const preparePhotoBase64 = async (
     uri: string,
     onProgress: (msg: string) => void
   ): Promise<string> => {
     onProgress('Memeriksa ukuran foto...');
-
     const info = await FileSystem.getInfoAsync(uri, { size: true });
-    const fileSize = (info as any).size ?? 0;
+    const fileSize: number = (info as any).size ?? 0;
+    const sizeMB = (fileSize / 1024 / 1024).toFixed(1);
 
-    if (fileSize > MAX_PHOTO_BYTES) {
-      onProgress(`Foto ${(fileSize / 1024 / 1024).toFixed(1)}MB, mulai kompresi...`);
-      const b64 = await compressPhotoToBase64(uri, onProgress);
-      return b64;
-    }
-
-    // Ukuran sudah <=1MB, langsung encode base64
-    onProgress('Menyiapkan foto...');
+    onProgress(`Menyiapkan foto (${sizeMB}MB)...`);
     const b64 = await FileSystem.readAsStringAsync(uri, {
       encoding: FileSystem.EncodingType.Base64,
     });
