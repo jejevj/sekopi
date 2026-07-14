@@ -3,13 +3,15 @@ import { Animated, View, Text, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { router } from 'expo-router';
+import { useAuthStore, isSessionValid } from '../stores/authStore';
 
 export default function SplashScreen() {
   const fadeAnim  = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.75)).current;
+  const loadAuth  = useAuthStore((s) => s.loadAuth);
 
   useEffect(() => {
-    // Fade + scale masuk
+    // Animasi masuk
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -24,12 +26,25 @@ export default function SplashScreen() {
       }),
     ]).start();
 
-    // Redirect ke login setelah 2.8 detik
-    const timer = setTimeout(() => {
-      router.replace('/(auth)/login');
-    }, 2800);
+    // Load auth dari AsyncStorage lalu tentukan redirect
+    const bootstrap = async () => {
+      await loadAuth();
 
-    return () => clearTimeout(timer);
+      // Ambil state terbaru langsung dari store
+      const { user, accessToken, loginDate } = useAuthStore.getState();
+      const sessionOk = !!user && !!accessToken && isSessionValid(loginDate);
+
+      // Tunggu minimal 2.8 detik agar splash screen terlihat
+      await new Promise((r) => setTimeout(r, 2800));
+
+      if (sessionOk) {
+        router.replace('/(main)/dashboard');
+      } else {
+        router.replace('/(auth)/login');
+      }
+    };
+
+    bootstrap();
   }, []);
 
   return (
