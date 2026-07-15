@@ -58,6 +58,8 @@ class AbsensiRepository:
             jarak_meter=jarak_meter,
             dalam_radius=dalam_radius,
             foto_url=data.foto_url,
+            # foto_keluar_url tidak diisi saat create (hanya saat catat pulang)
+            foto_keluar_url=None,
             dicatat_oleh=dicatat_oleh,
         )
         self.db.add(obj)
@@ -66,6 +68,11 @@ class AbsensiRepository:
         return obj
 
     async def update(self, obj: Absensi, data: AbsensiUpdate) -> Absensi:
+        """
+        Update hanya field yang di-set (exclude_unset=True).
+        Field yang tidak dikirim dari payload tidak akan di-write ke DB,
+        sehingga foto_url (masuk) aman dari penimpaan saat catat_pulang.
+        """
         for field, val in data.model_dump(exclude_unset=True).items():
             setattr(obj, field, val)
         await self.db.commit()

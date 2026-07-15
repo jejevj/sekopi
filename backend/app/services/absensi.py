@@ -101,7 +101,12 @@ class AbsensiService:
         data: AbsensiPulangUpdate,
         current_user_id: int,
     ) -> AbsensiResponse:
-        """Update jam_keluar dan foto_keluar_url tanpa menimpa foto masuk (foto_url)."""
+        """
+        Update jam_keluar dan foto_keluar_url.
+        foto_url (masuk) TIDAK disentuh sama sekali.
+        Menggunakan model_dump(exclude_none=True) agar field None
+        tidak ikut di-write ke DB.
+        """
         obj = await self.repo.get_by_id(absensi_id)
         if not obj:
             raise HTTPException(404, "Absensi tidak ditemukan")
@@ -117,17 +122,16 @@ class AbsensiService:
             )
 
         # Hitung jarak pulang kalau ada koordinat
-        jarak_pulang = dalam_radius_pulang = None
         if data.latitude is not None and data.longitude is not None:
-            jarak_pulang, dalam_radius_pulang = await self._hitung_jarak(
-                data.latitude, data.longitude
-            )
+            await self._hitung_jarak(data.latitude, data.longitude)
 
-        # foto_url (masuk) TIDAK disentuh — hanya foto_keluar_url yang diisi
-        update_payload = AbsensiUpdate(
-            jam_keluar=data.jam_keluar,
-            foto_keluar_url=data.foto_keluar_url if data.foto_keluar_url else None,
-        )
+        # Bangun payload hanya dari field yang benar-benar di-set (bukan None)
+        # Ini mencegah foto_keluar_url = None menimpa nilai yang sudah ada
+        payload_dict: dict = {"jam_keluar": data.jam_keluar}
+        if data.foto_keluar_url is not None:
+            payload_dict["foto_keluar_url"] = data.foto_keluar_url
+
+        update_payload = AbsensiUpdate(**payload_dict)
         obj = await self.repo.update(obj, update_payload)
         return AbsensiResponse.from_orm_obj(obj)
 
