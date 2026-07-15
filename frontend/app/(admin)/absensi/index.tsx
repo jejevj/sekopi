@@ -80,11 +80,16 @@ interface AbsensiRecord {
   latitude?: number | null;
   longitude?: number | null;
   foto_url?: string | null;
+  foto_keluar_url?: string | null;
 }
 interface Rekap {
   tanggal: string; total: number; hadir: number; izin: number; sakit: number; alpha: number;
   records: AbsensiRecord[];
 }
+
+// ── helpers foto ──────────────────────────────────────────────────────────
+const toImgSrc = (raw: string) =>
+  raw.startsWith('data:') ? raw : `data:image/jpeg;base64,${raw}`;
 
 // ── Detail Modal ──────────────────────────────────────────────────────────
 function DetailModal({ record, onClose }: { record: AbsensiRecord; onClose: () => void }) {
@@ -96,6 +101,10 @@ function DetailModal({ record, onClose }: { record: AbsensiRecord; onClose: () =
   const mapsLink = hasLocation
     ? `https://www.google.com/maps?q=${record.latitude},${record.longitude}`
     : null;
+
+  const hasFotoMasuk  = !!record.foto_url;
+  const hasFotoKeluar = !!record.foto_keluar_url;
+  const showFotoGrid  = hasFotoMasuk || hasFotoKeluar;
 
   return (
     <div
@@ -153,17 +162,48 @@ function DetailModal({ record, onClose }: { record: AbsensiRecord; onClose: () =
             </div>
           )}
 
-          {/* Foto */}
-          {record.foto_url && (
-            <div>
-              <div style={{ color: '#666', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Foto Absensi</div>
-              <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-                <img
-                  src={record.foto_url.startsWith('data:') ? record.foto_url : `data:image/jpeg;base64,${record.foto_url}`}
-                  alt="Foto absensi"
-                  style={{ width: '100%', maxHeight: 240, objectFit: 'cover', display: 'block' }}
-                />
-              </div>
+          {/* Foto Masuk & Foto Keluar */}
+          {showFotoGrid && (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: hasFotoMasuk && hasFotoKeluar ? '1fr 1fr' : '1fr',
+              gap: 12,
+            }}>
+              {/* Foto Masuk */}
+              {hasFotoMasuk && (
+                <div>
+                  <div style={{ color: '#666', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Foto Masuk</div>
+                  <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                    <img
+                      src={toImgSrc(record.foto_url!)}
+                      alt="Foto masuk"
+                      style={{ width: '100%', maxHeight: 220, objectFit: 'cover', display: 'block' }}
+                    />
+                  </div>
+                </div>
+              )}
+              {/* Foto Keluar */}
+              {hasFotoKeluar && (
+                <div>
+                  <div style={{ color: '#666', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Foto Keluar</div>
+                  <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                    <img
+                      src={toImgSrc(record.foto_keluar_url!)}
+                      alt="Foto keluar"
+                      style={{ width: '100%', maxHeight: 220, objectFit: 'cover', display: 'block' }}
+                    />
+                  </div>
+                </div>
+              )}
+              {/* Placeholder jika masuk ada tapi keluar belum */}
+              {hasFotoMasuk && !hasFotoKeluar && (
+                <div>
+                  <div style={{ color: '#666', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Foto Keluar</div>
+                  <div style={{ borderRadius: 10, border: '1px dashed rgba(255,255,255,0.1)', height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ color: '#444', fontSize: 12 }}>Belum absen pulang</span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
