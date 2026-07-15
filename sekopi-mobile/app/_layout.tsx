@@ -25,6 +25,7 @@ export default function RootLayout() {
         <Stack.Screen name="(main)/dashboard" />
         <Stack.Screen name="(main)/absensi" />
         <Stack.Screen name="(main)/profil" />
+        <Stack.Screen name="(inventori)/loading" />
       </Stack>
     </>
   );
