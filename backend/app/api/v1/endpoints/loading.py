@@ -14,6 +14,9 @@ from app.services.loading import LoadingService
 
 router = APIRouter()
 
+# Role yang boleh membuat & mengelola loading (termasuk driver)
+LOADING_MANAGERS = (UserRole.ADMIN, UserRole.INVENTORI, UserRole.DRIVER)
+
 
 def _svc(db: AsyncSession = Depends(get_db)) -> LoadingService:
     return LoadingService(LoadingRepository(db), db)
@@ -23,7 +26,7 @@ def _svc(db: AsyncSession = Depends(get_db)) -> LoadingService:
 async def create_loading(
     data: LoadingOrderCreate,
     svc: LoadingService = Depends(_svc),
-    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.INVENTORI)),
+    current_user: User = Depends(require_roles(*LOADING_MANAGERS)),
 ):
     return await svc.create(data, current_user.id)
 
@@ -52,9 +55,7 @@ async def update_loading(
     loading_id: int,
     data: LoadingOrderUpdate,
     svc: LoadingService = Depends(_svc),
-    current_user: User = Depends(
-        require_roles(UserRole.ADMIN, UserRole.INVENTORI, UserRole.DRIVER)
-    ),
+    current_user: User = Depends(require_roles(*LOADING_MANAGERS)),
 ):
     return await svc.update_status(loading_id, data)
 
@@ -73,7 +74,7 @@ async def scan_item(
     loading_id: int,
     req: ScanItemRequest,
     svc: LoadingService = Depends(_svc),
-    _: User = Depends(require_roles(UserRole.ADMIN, UserRole.INVENTORI, UserRole.DRIVER)),
+    _: User = Depends(require_roles(*LOADING_MANAGERS)),
 ):
     return await svc.scan_item(loading_id, req)
 

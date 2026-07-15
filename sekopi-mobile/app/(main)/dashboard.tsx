@@ -27,41 +27,41 @@ type MenuItem = {
   color: string;
 };
 
-// Hanya 2 menu utama yang relevan untuk semua role
 const MENU_COMMON: MenuItem[] = [
-  { icon: 'calendar-outline',  label: 'Absensi',   route: '/(main)/absensi',   color: '#f44444' },
-  { icon: 'person-outline',    label: 'Profil',    route: '/(main)/profil',    color: '#3b82f6' },
+  { icon: 'calendar-outline', label: 'Absensi', route: '/(main)/absensi', color: '#f44444' },
+  { icon: 'person-outline',   label: 'Profil',  route: '/(main)/profil',  color: '#3b82f6' },
 ];
 
 const MENU_BY_ROLE: Record<UserRole, MenuItem[]> = {
   admin: [
-    { icon: 'people-outline',        label: 'Pengguna',      route: '/(admin)/users',         color: '#3b82f6' },
-    { icon: 'fast-food-outline',     label: 'Menu Produk',   route: '/(admin)/menu',          color: '#22c55e' },
-    { icon: 'car-outline',           label: 'Gerobak',       route: '/(admin)/gerobak',       color: '#eab308' },
-    { icon: 'cube-outline',          label: 'Inventori',     route: '/(inventori)/dashboard', color: '#f97316' },
-    { icon: 'hammer-outline',        label: 'Produksi',      route: '/(produksi)/dashboard',  color: '#a855f7' },
-    { icon: 'bar-chart-outline',     label: 'Laporan',       route: '/(admin)/laporan',       color: '#14b8a6' },
-    { icon: 'cash-outline',          label: 'Dividen',       route: '/(admin)/dividen',       color: '#f44444' },
+    { icon: 'people-outline',    label: 'Pengguna',    route: '/(admin)/users',         color: '#3b82f6' },
+    { icon: 'fast-food-outline', label: 'Menu Produk', route: '/(admin)/menu',          color: '#22c55e' },
+    { icon: 'car-outline',       label: 'Gerobak',     route: '/(admin)/gerobak',       color: '#eab308' },
+    { icon: 'cube-outline',      label: 'Inventori',   route: '/(inventori)/dashboard', color: '#f97316' },
+    { icon: 'hammer-outline',    label: 'Produksi',    route: '/(produksi)/dashboard',  color: '#a855f7' },
+    { icon: 'bar-chart-outline', label: 'Laporan',     route: '/(admin)/laporan',       color: '#14b8a6' },
+    { icon: 'cash-outline',      label: 'Dividen',     route: '/(admin)/dividen',       color: '#f44444' },
   ],
   produksi: [
-    { icon: 'hammer-outline',        label: 'Produksi',      route: '/(produksi)/dashboard',  color: '#a855f7' },
-    { icon: 'fast-food-outline',     label: 'Menu Produk',   route: '/(produksi)/menu',       color: '#22c55e' },
-    { icon: 'clipboard-outline',     label: 'Mfg Order',     route: '/(produksi)/mo',         color: '#f97316' },
+    { icon: 'hammer-outline',    label: 'Produksi',    route: '/(produksi)/dashboard',  color: '#a855f7' },
+    { icon: 'fast-food-outline', label: 'Menu Produk', route: '/(produksi)/menu',       color: '#22c55e' },
+    { icon: 'clipboard-outline', label: 'Mfg Order',   route: '/(produksi)/mo',         color: '#f97316' },
   ],
   inventori: [
-    { icon: 'cube-outline',          label: 'Stok',          route: '/(inventori)/dashboard', color: '#f97316' },
-    { icon: 'cart-outline',          label: 'Purchase Order',route: '/(inventori)/po',        color: '#3b82f6' },
-    { icon: 'refresh-outline',       label: 'Return',        route: '/(inventori)/return',    color: '#eab308' },
-    { icon: 'archive-outline',       label: 'Loading',       route: '/(inventori)/loading',   color: '#22c55e' },
+    { icon: 'cube-outline',      label: 'Stok',          route: '/(inventori)/dashboard', color: '#f97316' },
+    { icon: 'cart-outline',      label: 'Purchase Order',route: '/(inventori)/po',        color: '#3b82f6' },
+    { icon: 'refresh-outline',   label: 'Return',        route: '/(inventori)/return',    color: '#eab308' },
+    { icon: 'archive-outline',   label: 'Loading',       route: '/(inventori)/loading',   color: '#22c55e' },
   ],
   driver: [
-    { icon: 'car-outline',           label: 'Gerobak Saya',  route: '/(driver)/gerobak',      color: '#eab308' },
-    { icon: 'receipt-outline',       label: 'Penjualan',     route: '/(driver)/penjualan',    color: '#22c55e' },
-    { icon: 'cube-outline',          label: 'Stok Harian',   route: '/(driver)/stok',         color: '#f97316' },
+    { icon: 'archive-outline',   label: 'Loading',       route: '/(inventori)/loading',   color: '#22c55e' },
+    { icon: 'car-outline',       label: 'Gerobak Saya',  route: '/(driver)/gerobak',      color: '#eab308' },
+    { icon: 'receipt-outline',   label: 'Penjualan',     route: '/(driver)/penjualan',    color: '#22c55e' },
+    { icon: 'cube-outline',      label: 'Stok Harian',   route: '/(driver)/stok',         color: '#f97316' },
   ],
   shareholder: [
-    { icon: 'bar-chart-outline',     label: 'Laporan',       route: '/(shareholder)/laporan', color: '#3b82f6' },
-    { icon: 'cash-outline',          label: 'Dividen',       route: '/(shareholder)/dividen', color: '#f44444' },
+    { icon: 'bar-chart-outline', label: 'Laporan',  route: '/(shareholder)/laporan', color: '#3b82f6' },
+    { icon: 'cash-outline',      label: 'Dividen',  route: '/(shareholder)/dividen', color: '#f44444' },
   ],
 };
 
