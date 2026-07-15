@@ -14,11 +14,6 @@ from app.services.return_order_service import ReturnOrderService
 router = APIRouter()
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# GET /return/my-loading-today
-# ADMIN : semua loading dispatched/returned hari ini
-# DRIVER: hanya miliknya sendiri
-# ──────────────────────────────────────────────────────────────────────────────
 @router.get(
     "/my-loading-today",
     response_model=list[LoadingOrderForReturnResponse],
@@ -42,10 +37,7 @@ async def my_loading_today(
     ]
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# POST /return/
-# ──────────────────────────────────────────────────────────────────────────────
-@router.post("/", response_model=ReturnOrderResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ReturnOrderResponse, status_code=status.HTTP_201_CREATED)
 async def create_return(
     payload: ReturnOrderCreate,
     db: AsyncSession = Depends(get_db),
@@ -58,9 +50,6 @@ async def create_return(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# POST /return/{return_id}/submit
-# ──────────────────────────────────────────────────────────────────────────────
 @router.post("/{return_id}/submit", response_model=ReturnOrderResponse)
 async def submit_return(
     return_id: int,
@@ -74,9 +63,6 @@ async def submit_return(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# POST /return/{return_id}/review
-# ──────────────────────────────────────────────────────────────────────────────
 @router.post("/{return_id}/review", response_model=ReturnOrderResponse)
 async def review_return(
     return_id: int,
@@ -91,9 +77,6 @@ async def review_return(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# GET /return/{return_id}/summary
-# ──────────────────────────────────────────────────────────────────────────────
 @router.get("/{return_id}/summary")
 async def return_summary(
     return_id: int,
@@ -109,10 +92,7 @@ async def return_summary(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# GET /return/
-# ──────────────────────────────────────────────────────────────────────────────
-@router.get("/", response_model=list[ReturnOrderResponse])
+@router.get("", response_model=list[ReturnOrderResponse])
 async def list_returns(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(
@@ -129,9 +109,6 @@ async def list_returns(
     return orders
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# GET /return/{return_id}
-# ──────────────────────────────────────────────────────────────────────────────
 @router.get("/{return_id}", response_model=ReturnOrderResponse)
 async def get_return(
     return_id: int,

@@ -13,7 +13,7 @@ from app.schemas.user import UserResponse, UserProfileUpdate, ChangePasswordPayl
 router = APIRouter()
 
 
-@router.patch("/", response_model=UserResponse)
+@router.patch("", response_model=UserResponse)
 async def update_my_profile(
     payload: UserProfileUpdate,
     db: AsyncSession = Depends(get_db),

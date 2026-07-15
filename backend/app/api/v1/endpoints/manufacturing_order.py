@@ -65,13 +65,11 @@ def _build_line_response(line) -> MOLineResponse:
 def _build_response(mo) -> ManufacturingOrderResponse:
     lines = [_build_line_response(line) for line in (mo.lines or [])]
 
-    # Hitung estimasi total MO (None jika salah satu line tidak lengkap)
     estimasi_total: float | None = 0.0
     for lr in lines:
         if lr.estimasi_harga_modal is None:
             estimasi_total = None
             break
-        # estimasi total = sum(estimasi_per_unit * target_qty) per line
         estimasi_total += lr.estimasi_harga_modal * lr.target_qty  # type: ignore[operator]
     if estimasi_total is not None:
         estimasi_total = round(estimasi_total, 2)
@@ -98,7 +96,7 @@ def _build_response(mo) -> ManufacturingOrderResponse:
     )
 
 
-@router.get("/", response_model=list[ManufacturingOrderResponse])
+@router.get("", response_model=list[ManufacturingOrderResponse])
 async def list_mo(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*VIEW_ROLES)),
@@ -108,7 +106,7 @@ async def list_mo(
     return [_build_response(mo) for mo in mos]
 
 
-@router.post("/", response_model=ManufacturingOrderResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ManufacturingOrderResponse, status_code=status.HTTP_201_CREATED)
 async def create_mo(
     payload: ManufacturingOrderCreate,
     db: AsyncSession = Depends(get_db),

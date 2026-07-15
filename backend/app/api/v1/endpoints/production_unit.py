@@ -25,7 +25,7 @@ router = APIRouter()
 VIEW_ROLES = (UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI, UserRole.SHAREHOLDER)
 
 
-@router.get("/", response_model=PaginatedUnitResponse)
+@router.get("", response_model=PaginatedUnitResponse)
 async def list_all_units(
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=100, ge=1, le=500),

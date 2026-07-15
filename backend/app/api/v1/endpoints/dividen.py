@@ -28,16 +28,11 @@ class BayarInput(BaseModel):
     tanggal_bayar: date
 
 
-# ─── Helper: total pembelian (PurchaseOrder) dalam periode ─────────────────
 async def _total_pembelian(
     db: AsyncSession,
     dari: date,
     sampai: date,
 ) -> float:
-    """
-    Filter status pakai literal() string agar tidak di-cast ke ::statuspo
-    (kolom status di DB adalah VARCHAR, bukan native PostgreSQL enum).
-    """
     res = await db.execute(
         select(func.coalesce(func.sum(PurchaseOrder.total_amount), 0))
         .where(
@@ -49,7 +44,6 @@ async def _total_pembelian(
     return float(res.scalar())
 
 
-# ─── Helper: total pengeluaran manual dalam periode ─────────────────────
 async def _total_pengeluaran(
     db: AsyncSession,
     dari: date,
@@ -62,7 +56,6 @@ async def _total_pengeluaran(
     return float(res.scalar())
 
 
-# ─── Helper: total penjualan gerobak dalam periode ──────────────────────
 async def _total_penjualan_gerobak(
     db: AsyncSession,
     gerobak_ids: list[int],
@@ -82,7 +75,6 @@ async def _total_penjualan_gerobak(
     return float(res.scalar())
 
 
-# ─── Helper: hitung laba per grup ────────────────────────────────────────
 async def _hitung_laba_grup(
     db: AsyncSession,
     group_id: int,
@@ -105,8 +97,6 @@ async def _hitung_laba_grup(
         "laba_bersih":       laba,
     }
 
-
-# ─── Preview ────────────────────────────────────────────────────────────
 
 @router.post("/kalkulasi/preview")
 async def preview_dividen(
@@ -175,8 +165,6 @@ async def preview_dividen(
     }
 
 
-# ─── Konfirmasi & Simpan ───────────────────────────────────────────────
-
 @router.post("/kalkulasi/konfirmasi", status_code=status.HTTP_201_CREATED)
 async def konfirmasi_dividen(
     body: KalkulasiInput,
@@ -232,9 +220,7 @@ async def konfirmasi_dividen(
     return {"created": len(created), "periode_label": body.periode_label}
 
 
-# ─── List & Bayar ─────────────────────────────────────────────────────────
-
-@router.get("/")
+@router.get("")
 async def list_dividen(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),

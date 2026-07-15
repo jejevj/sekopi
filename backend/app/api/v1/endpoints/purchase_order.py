@@ -61,7 +61,7 @@ async def update_supplier(
 
 # ── Purchase Orders ───────────────────────────────────────────────
 
-@router.get("/", response_model=list[POResponse])
+@router.get("", response_model=list[POResponse])
 async def list_po(
     dari: date | None = Query(None),
     sampai: date | None = Query(None),
@@ -74,7 +74,7 @@ async def list_po(
     return await svc.list_po(dari, sampai, status, supplier_id)
 
 
-@router.post("/", response_model=POResponse, status_code=201)
+@router.post("", response_model=POResponse, status_code=201)
 async def create_po(
     payload: POCreate,
     db: AsyncSession = Depends(get_db),
@@ -137,7 +137,6 @@ async def update_po(
     current_user: User = Depends(require_roles(*INVENTORI_ROLES)),
 ):
     try:
-        # Teruskan user_id agar dicatat sebagai created_by di tabel stok
         return await PurchaseOrderService(db).update_po(po_id, payload, current_user.id)
     except ValueError as e:
         raise HTTPException(404, str(e))

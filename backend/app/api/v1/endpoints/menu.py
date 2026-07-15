@@ -55,7 +55,7 @@ def _build_menu_response(menu: Menu) -> MenuResponse:
 
 # ── MENU CRUD ────────────────────────────────────────────────
 
-@router.get("/", response_model=list[MenuResponse])
+@router.get("", response_model=list[MenuResponse])
 async def list_menu(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*VIEW_ROLES)),
@@ -65,7 +65,7 @@ async def list_menu(
     return [_build_menu_response(m) for m in menus]
 
 
-@router.post("/", response_model=MenuResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=MenuResponse, status_code=status.HTTP_201_CREATED)
 async def create_menu(
     payload: MenuCreate,
     db: AsyncSession = Depends(get_db),
@@ -81,7 +81,7 @@ async def create_menu(
         harga_jual=payload.harga_jual,
     )
     db.add(menu)
-    await db.flush()  # dapatkan menu.id
+    await db.flush()
 
     if payload.resep:
         resep = Resep(
@@ -173,7 +173,7 @@ async def tambah_resep(
         menu_id=menu_id,
         nama_versi=payload.nama_versi,
         catatan=payload.catatan,
-        is_active=False,  # harus aktifkan manual via endpoint aktivasi
+        is_active=False,
     )
     db.add(resep)
     await db.flush()
@@ -221,7 +221,6 @@ async def aktifkan_resep(
     if not resep or resep.menu_id != menu_id:
         raise HTTPException(status_code=404, detail="Resep tidak ditemukan")
 
-    # nonaktifkan semua resep lain di menu ini
     result = await db.execute(select(Resep).where(Resep.menu_id == menu_id, Resep.id != resep_id))
     for r in result.scalars().all():
         r.is_active = False

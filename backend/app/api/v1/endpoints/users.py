@@ -11,7 +11,7 @@ router = APIRouter()
 
 
 # ── Admin: list semua user
-@router.get("/", response_model=list[UserResponse])
+@router.get("", response_model=list[UserResponse])
 async def list_users(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_roles(UserRole.ADMIN)),
@@ -21,7 +21,7 @@ async def list_users(
 
 
 # ── Admin: buat user baru
-@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     payload: UserCreate,
     db: AsyncSession = Depends(get_db),

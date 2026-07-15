@@ -66,7 +66,7 @@ async def delete_setting(
 
 # ══ Absensi CRUD ═════════════════════════════════════════════════════════════════════════
 
-@router.post("/", response_model=AbsensiResponse, status_code=201)
+@router.post("", response_model=AbsensiResponse, status_code=201)
 async def catat_absensi(
     data: AbsensiCreate,
     enforce_radius: bool = Query(False),
@@ -92,7 +92,7 @@ async def get_absensi_hari_ini(
     return await svc.get_hari_ini(user_id, tanggal)
 
 
-@router.get("/", response_model=list[AbsensiResponse])
+@router.get("", response_model=list[AbsensiResponse])
 async def list_absensi(
     dari: date = Query(...),
     sampai: date = Query(...),

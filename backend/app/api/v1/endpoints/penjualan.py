@@ -14,7 +14,7 @@ from app.core.timezone import parse_datetime_wib, WIB
 router = APIRouter()
 
 
-@router.get("/", response_model=PenjualanListResponse)
+@router.get("", response_model=PenjualanListResponse)
 async def list_penjualan(
     dari: str | None = Query(None, description="Datetime awal WIB, format: 2026-07-04T00:00 atau 2026-07-04"),
     sampai: str | None = Query(None, description="Datetime akhir WIB, format: 2026-07-04T23:59 atau 2026-07-04"),
@@ -33,13 +33,11 @@ async def list_penjualan(
 
     if dari:
         dt_dari = parse_datetime_wib(dari)
-        # Kalau hanya tanggal (jam=00:00), defaultkan ke awal hari
         conds.append(Penjualan.sold_at >= dt_dari)
 
     if sampai:
         dt_sampai = parse_datetime_wib(sampai)
-        # Kalau hanya tanggal, defaultkan ke akhir hari
-        if len(sampai.strip()) == 10:  # format YYYY-MM-DD
+        if len(sampai.strip()) == 10:
             from datetime import timedelta
             dt_sampai = dt_sampai.replace(hour=23, minute=59, second=59)
         conds.append(Penjualan.sold_at <= dt_sampai)
@@ -47,7 +45,6 @@ async def list_penjualan(
     if gerobak_id:
         conds.append(Penjualan.gerobak_id == gerobak_id)
 
-    # Shareholder hanya bisa lihat gerobak di grupnya
     if current_user.role == UserRole.SHAREHOLDER:
         from app.models.gerobak import GroupMembership
         subq = (
@@ -60,11 +57,9 @@ async def list_penjualan(
 
     where_clause = and_(*conds) if conds else True
 
-    # Count total
     count_q = select(func.count(Penjualan.id)).where(where_clause)
     total = (await db.execute(count_q)).scalar() or 0
 
-    # Fetch page
     q = (
         select(Penjualan)
         .where(where_clause)

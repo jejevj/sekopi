@@ -28,7 +28,7 @@ class PengeluaranUpdate(BaseModel):
     catatan:   Optional[str] = None
 
 
-@router.get("/")
+@router.get("")
 async def list_pengeluaran(
     dari:   Optional[date] = None,
     sampai: Optional[date] = None,
@@ -56,7 +56,7 @@ async def list_pengeluaran(
     ]
 
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def create_pengeluaran(
     body:         PengeluaranCreate,
     db:           AsyncSession = Depends(get_db),
