@@ -78,6 +78,7 @@ class AbsensiUpdate(BaseModel):
     jam_keluar: Optional[time] = None
     keterangan: Optional[str] = None
     foto_url: Optional[str] = None
+    foto_keluar_url: Optional[str] = None
 
 
 # ── Schema khusus untuk catat jam pulang dari mobile ─────────────────────────
@@ -85,7 +86,8 @@ class AbsensiPulangUpdate(BaseModel):
     jam_keluar: time
     latitude: Optional[float] = None
     longitude: Optional[float] = None
-    foto_url: Optional[str] = None
+    # Gunakan foto_keluar_url agar tidak menimpa foto masuk
+    foto_keluar_url: Optional[str] = None
 
 
 class UserSnap(BaseModel):
@@ -109,6 +111,7 @@ class AbsensiResponse(BaseModel):
     jarak_meter: Optional[float]
     dalam_radius: Optional[bool]
     foto_url: Optional[str]
+    foto_keluar_url: Optional[str]
     user: UserSnap
     pencatat: Optional[UserSnap]
     created_at: str
@@ -127,6 +130,7 @@ class AbsensiResponse(BaseModel):
             jarak_meter=float(obj.jarak_meter) if obj.jarak_meter is not None else None,
             dalam_radius=obj.dalam_radius,
             foto_url=obj.foto_url,
+            foto_keluar_url=obj.foto_keluar_url,
             user=UserSnap.model_validate(obj.user),
             pencatat=UserSnap.model_validate(obj.pencatat) if obj.pencatat else None,
             created_at=obj.created_at.isoformat(),

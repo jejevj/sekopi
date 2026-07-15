@@ -44,8 +44,11 @@ class Absensi(Base):
     jarak_meter: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)
     dalam_radius: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
-    # FIX: ganti String(500) → Text agar bisa menampung base64 foto
+    # Foto saat absen MASUK
     foto_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Foto saat absen KELUAR (tidak menimpa foto masuk)
+    foto_keluar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     keterangan: Mapped[str | None]   = mapped_column(String(500), nullable=True)
     dicatat_oleh: Mapped[int | None] = mapped_column(

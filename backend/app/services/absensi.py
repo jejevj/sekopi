@@ -101,7 +101,7 @@ class AbsensiService:
         data: AbsensiPulangUpdate,
         current_user_id: int,
     ) -> AbsensiResponse:
-        """Update jam_keluar (dan opsional foto/lokasi pulang) pada record absensi."""
+        """Update jam_keluar dan foto_keluar_url tanpa menimpa foto masuk (foto_url)."""
         obj = await self.repo.get_by_id(absensi_id)
         if not obj:
             raise HTTPException(404, "Absensi tidak ditemukan")
@@ -123,10 +123,10 @@ class AbsensiService:
                 data.latitude, data.longitude
             )
 
+        # foto_url (masuk) TIDAK disentuh — hanya foto_keluar_url yang diisi
         update_payload = AbsensiUpdate(
             jam_keluar=data.jam_keluar,
-            # Timpa foto_url dengan foto pulang jika dikirim
-            foto_url=data.foto_url if data.foto_url else None,
+            foto_keluar_url=data.foto_keluar_url if data.foto_keluar_url else None,
         )
         obj = await self.repo.update(obj, update_payload)
         return AbsensiResponse.from_orm_obj(obj)
