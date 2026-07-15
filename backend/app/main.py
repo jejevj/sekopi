@@ -53,6 +53,9 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
+    # Nonaktifkan redirect otomatis trailing slash
+    # Tanpa ini: POST /auth/login/ → 307 → POST /auth/login kehilangan Authorization header
+    redirect_slashes=False,
 )
 
 # Ambil origins dari settings; kalau ["*"] gunakan wildcard langsung
@@ -74,7 +77,6 @@ else:
         allow_headers=["*"],
     )
 
-# FIX: tolak request body > 20MB dengan pesan yang jelas
 MAX_BODY_SIZE = 20 * 1024 * 1024  # 20 MB
 
 
