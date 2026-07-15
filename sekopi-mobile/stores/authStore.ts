@@ -16,7 +16,7 @@ const AUTH_FILE_URI = FileSystem.documentDirectory + 'sekopi_auth.json';
 /**
  * Cek apakah session masih valid.
  * Session valid jika:
- * - Ada user & token tersimpan
+ * - Ada loginDate tersimpan
  * - loginDate masih di hari yang sama (WIB / Asia/Jakarta)
  * - Jam sekarang (WIB) BELUM mencapai 21:00
  */
@@ -28,28 +28,26 @@ export function isSessionValid(
 
   const checkTime = now ?? new Date();
 
-  // Konversi ke WIB (UTC+7)
-  const wibOffset = 7 * 60;
-  const utcMs = checkTime.getTime() + checkTime.getTimezoneOffset() * 60000;
-  const wibNow = new Date(utcMs + wibOffset * 60000);
+  // Waktu sekarang dalam WIB (UTC+7) — gunakan getTime() langsung, tidak campur getTimezoneOffset
+  const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
+  const wibNowMs  = checkTime.getTime() + WIB_OFFSET_MS;
+  const wibNow    = new Date(wibNowMs);
 
-  const loginTime = new Date(loginDateISO);
-  const loginUtcMs = loginTime.getTime() + loginTime.getTimezoneOffset() * 60000;
-  const wibLogin = new Date(loginUtcMs + wibOffset * 60000);
+  // Waktu login dalam WIB
+  const loginMs   = new Date(loginDateISO).getTime(); // ISO string → UTC ms, langsung pakai
+  const wibLogin  = new Date(loginMs + WIB_OFFSET_MS);
 
   // Harus hari yang sama (WIB)
   const sameDay =
-    wibNow.getFullYear() === wibLogin.getFullYear() &&
-    wibNow.getMonth() === wibLogin.getMonth() &&
-    wibNow.getDate() === wibLogin.getDate();
+    wibNow.getUTCFullYear() === wibLogin.getUTCFullYear() &&
+    wibNow.getUTCMonth()    === wibLogin.getUTCMonth() &&
+    wibNow.getUTCDate()     === wibLogin.getUTCDate();
 
   if (!sameDay) return false;
 
   // Belum jam 21:00 WIB
-  const hour = wibNow.getHours();
-  const pastNinePM = hour >= 21;
-
-  return !pastNinePM;
+  const wibHour = wibNow.getUTCHours();
+  return wibHour < 21;
 }
 
 async function saveAuthToFile(data: object): Promise<void> {
@@ -78,10 +76,10 @@ interface AuthState {
   accessToken: string | null;
   refreshToken: string | null;
   loginDate: string | null;
+  hydrated: boolean; // true setelah loadAuth selesai
   setAuth: (user: AuthUser, accessToken: string, refreshToken: string) => void;
   clearAuth: () => void;
   loadAuth: () => Promise<void>;
-  // Perbarui data user di store + file (setelah update profil berhasil)
   updateUser: (partial: Partial<AuthUser>) => Promise<void>;
 }
 
@@ -90,6 +88,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   accessToken: null,
   refreshToken: null,
   loginDate: null,
+  hydrated: false,
 
   setAuth: (user, accessToken, refreshToken) => {
     const loginDate = new Date().toISOString();
@@ -118,28 +117,29 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   loadAuth: async () => {
     try {
       const info = await FileSystem.getInfoAsync(AUTH_FILE_URI);
-      if (!info.exists) return;
+      if (!info.exists) { set({ hydrated: true }); return; }
 
       const raw = await FileSystem.readAsStringAsync(AUTH_FILE_URI, {
         encoding: FileSystem.EncodingType.UTF8,
       });
       const parsed = JSON.parse(raw);
-      if (!parsed?.user || !parsed?.accessToken) return;
+      if (!parsed?.user || !parsed?.accessToken) { set({ hydrated: true }); return; }
 
-      // Validasi session — hanya restore jika masih valid
       if (isSessionValid(parsed.loginDate)) {
         set({
           user: parsed.user,
           accessToken: parsed.accessToken,
           refreshToken: parsed.refreshToken ?? null,
           loginDate: parsed.loginDate,
+          hydrated: true,
         });
       } else {
         // Session kadaluarsa, hapus file
         await deleteAuthFile();
+        set({ hydrated: true });
       }
     } catch {
-      // Abaikan error parsing
+      set({ hydrated: true });
     }
   },
 }));
