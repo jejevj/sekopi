@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import settings
@@ -45,6 +46,19 @@ async def lifespan(app: FastAPI):
     stop_scheduler()
 
 
+class StripTrailingSlashMiddleware(BaseHTTPMiddleware):
+    """
+    Normalise trailing slashes TANPA 307 redirect.
+    Strip slash langsung di request scope — Authorization header tidak hilang.
+    /gerobak/ dan /gerobak keduanya match ke route yang sama.
+    """
+    async def dispatch(self, request: Request, call_next):
+        path = request.scope["path"]
+        if path != "/" and path.endswith("/"):
+            request.scope["path"] = path.rstrip("/")
+        return await call_next(request)
+
+
 app = FastAPI(
     title="SekoPi API",
     description="Sistem Manajemen Kopi Gerobakan",
@@ -53,12 +67,12 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
-    # Nonaktifkan redirect otomatis trailing slash
-    # Tanpa ini: POST /auth/login/ → 307 → POST /auth/login kehilangan Authorization header
     redirect_slashes=False,
 )
 
-# Ambil origins dari settings; kalau ["*"] gunakan wildcard langsung
+# Middleware strip trailing slash (tanpa redirect) — harus sebelum CORSMiddleware
+app.add_middleware(StripTrailingSlashMiddleware)
+
 _origins = settings.BACKEND_CORS_ORIGINS
 if _origins == ["*"] or _origins == "*":
     app.add_middleware(
