@@ -22,7 +22,6 @@ function parseError(e: any): string {
   return e?.message ?? 'Terjadi kesalahan. Coba lagi.';
 }
 
-// ─── Label Role ──────────────────────────────────────────────────────────────
 const ROLE_LABEL: Record<string, string> = {
   admin: 'Administrator',
   produksi: 'Produksi',
@@ -46,14 +45,12 @@ export default function ProfilScreen() {
 
   const [section, setSection] = useState<Section>('menu');
 
-  // ── State edit profil
   const [fullName, setFullName] = useState(user?.full_name ?? '');
   const [email, setEmail]       = useState(user?.email ?? '');
   const [saving, setSaving]     = useState(false);
-  const [profError, setProfError] = useState('');
+  const [profError, setProfError]   = useState('');
   const [profSuccess, setProfSuccess] = useState(false);
 
-  // ── State ganti password
   const [curPass, setCurPass]   = useState('');
   const [newPass, setNewPass]   = useState('');
   const [confPass, setConfPass] = useState('');
@@ -69,29 +66,25 @@ export default function ProfilScreen() {
   const roleColor = ROLE_COLOR[user.role] ?? '#94a3b8';
   const roleLabel = ROLE_LABEL[user.role] ?? user.role;
 
-  // ── Avatar initials
   const initials = user.full_name
     .split(' ')
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase() ?? '')
     .join('');
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // SUBMIT: Update Profil
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ── Submit: Update Profil — POST ke /profile/
   const handleSaveProfil = async () => {
     setProfError(''); setProfSuccess(false);
     const trimName  = fullName.trim();
     const trimEmail = email.trim();
-    if (!trimName) { setProfError('Nama lengkap tidak boleh kosong.'); return; }
+    if (!trimName)  { setProfError('Nama lengkap tidak boleh kosong.'); return; }
     if (!trimEmail) { setProfError('Email tidak boleh kosong.'); return; }
-    // Tidak ada perubahan
     if (trimName === user.full_name && trimEmail === user.email) {
       setProfError('Tidak ada perubahan yang disimpan.'); return;
     }
     setSaving(true);
     try {
-      const res = await api.patch('/users/me/profile', {
+      const res = await api.patch('/profile/', {
         full_name: trimName !== user.full_name ? trimName : undefined,
         email: trimEmail !== user.email ? trimEmail : undefined,
       });
@@ -104,17 +97,15 @@ export default function ProfilScreen() {
     }
   };
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // SUBMIT: Ganti Password
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ── Submit: Ganti Password — POST ke /profile/change-password
   const handleChangePassword = async () => {
     setPassError(''); setPassSuccess(false);
-    if (!curPass)           { setPassError('Password saat ini wajib diisi.'); return; }
-    if (newPass.length < 6) { setPassError('Password baru minimal 6 karakter.'); return; }
+    if (!curPass)             { setPassError('Password saat ini wajib diisi.'); return; }
+    if (newPass.length < 6)   { setPassError('Password baru minimal 6 karakter.'); return; }
     if (newPass !== confPass) { setPassError('Konfirmasi password tidak cocok.'); return; }
     setPassLoading(true);
     try {
-      await api.post('/users/me/change-password', {
+      await api.post('/profile/change-password', {
         current_password: curPass,
         new_password: newPass,
       });
@@ -127,9 +118,6 @@ export default function ProfilScreen() {
     }
   };
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // LOGOUT
-  // ─────────────────────────────────────────────────────────────────────────────
   const handleLogout = () => {
     Alert.alert('Konfirmasi Logout', 'Yakin ingin keluar dari akun ini?', [
       { text: 'Batal', style: 'cancel' },
@@ -140,9 +128,6 @@ export default function ProfilScreen() {
     ]);
   };
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // RENDER HELPER: Input field
-  // ─────────────────────────────────────────────────────────────────────────────
   const renderInput = ({
     label, value, onChange, placeholder, keyboardType, secure, showToggle, onToggle, autoCapitalize,
   }: {
@@ -165,16 +150,17 @@ export default function ProfilScreen() {
         />
         {showToggle && onToggle && (
           <TouchableOpacity onPress={onToggle} style={styles.eyeBtn}>
-            <Ionicons name={secure ? 'eye-off-outline' : 'eye-outline'} size={18} color="rgba(255,255,255,0.4)" />
+            <Ionicons
+              name={secure ? 'eye-off-outline' : 'eye-outline'}
+              size={18}
+              color="rgba(255,255,255,0.4)"
+            />
           </TouchableOpacity>
         )}
       </View>
     </View>
   );
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // RENDER: Header (avatar + nama + role)
-  // ─────────────────────────────────────────────────────────────────────────────
   const renderHeader = () => (
     <BlurView intensity={15} tint="dark" style={styles.avatarCard}>
       <View style={[styles.avatarCircle, { borderColor: `${roleColor}66` }]}>
@@ -190,9 +176,6 @@ export default function ProfilScreen() {
     </BlurView>
   );
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // RENDER: Section Menu utama
-  // ─────────────────────────────────────────────────────────────────────────────
   const renderMenu = () => (
     <View style={{ gap: 10 }}>
       {[
@@ -225,7 +208,6 @@ export default function ProfilScreen() {
         </TouchableOpacity>
       ))}
 
-      {/* Logout */}
       <TouchableOpacity onPress={handleLogout} activeOpacity={0.8} style={{ marginTop: 8 }}>
         <BlurView intensity={12} tint="dark" style={[styles.menuItem, { borderColor: 'rgba(244,68,68,0.2)' }]}>
           <View style={[styles.menuIcon, { backgroundColor: 'rgba(244,68,68,0.12)' }]}>
@@ -240,9 +222,6 @@ export default function ProfilScreen() {
     </View>
   );
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // RENDER: Form Edit Profil
-  // ─────────────────────────────────────────────────────────────────────────────
   const renderEditProfil = () => (
     <BlurView intensity={15} tint="dark" style={styles.formCard}>
       {profSuccess && (
@@ -264,12 +243,14 @@ export default function ProfilScreen() {
         keyboardType: 'email-address', autoCapitalize: 'none',
       })}
 
-      {/* Role — read only */}
       <View style={{ marginBottom: 14 }}>
         <Text style={styles.inputLabel}>Role</Text>
         <View style={[styles.inputWrapper, { opacity: 0.5 }]}>
           <Text style={[styles.input, { lineHeight: 44, color: roleColor }]}>{roleLabel}</Text>
-          <Ionicons name="lock-closed-outline" size={15} color="rgba(255,255,255,0.25)" style={{ marginRight: 12 }} />
+          <Ionicons
+            name="lock-closed-outline" size={15}
+            color="rgba(255,255,255,0.25)" style={{ marginRight: 12 }}
+          />
         </View>
         <Text style={{ color: 'rgba(255,255,255,0.2)', fontSize: 10, marginTop: 4 }}>
           Role hanya bisa diubah oleh admin
@@ -295,9 +276,6 @@ export default function ProfilScreen() {
     </BlurView>
   );
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // RENDER: Form Ganti Password
-  // ─────────────────────────────────────────────────────────────────────────────
   const renderGantiPassword = () => (
     <BlurView intensity={15} tint="dark" style={styles.formCard}>
       {passSuccess && (
@@ -329,7 +307,6 @@ export default function ProfilScreen() {
         autoCapitalize: 'none',
       })}
 
-      {/* Kekuatan password */}
       {newPass.length > 0 && (
         <View style={{ flexDirection: 'row', gap: 4, marginBottom: 16, marginTop: -6 }}>
           {[6, 10, 14].map((threshold, i) => (
@@ -368,9 +345,6 @@ export default function ProfilScreen() {
     </BlurView>
   );
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // MAIN RENDER
-  // ─────────────────────────────────────────────────────────────────────────────
   const sectionTitle: Record<Section, string> = {
     menu: 'Profil',
     profil: 'Edit Profil',
@@ -379,12 +353,11 @@ export default function ProfilScreen() {
 
   return (
     <LinearGradient colors={['#0f1117', '#13151e', '#0f1117']} style={{ flex: 1 }}>
-      {/* Header */}
       <BlurView intensity={15} tint="dark" style={styles.header}>
         <TouchableOpacity
           onPress={() => {
-            if (section !== 'menu') { setSection('menu'); }
-            else { router.back(); }
+            if (section !== 'menu') setSection('menu');
+            else router.back();
           }}
         >
           <Ionicons name="arrow-back" size={22} color="rgba(255,255,255,0.7)" />
@@ -399,7 +372,6 @@ export default function ProfilScreen() {
         keyboardShouldPersistTaps="handled"
       >
         {renderHeader()}
-
         {section === 'menu'     && renderMenu()}
         {section === 'profil'   && renderEditProfil()}
         {section === 'password' && renderGantiPassword()}

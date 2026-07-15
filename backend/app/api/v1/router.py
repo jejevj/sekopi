@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1.endpoints import auth
 from app.api.v1.endpoints import users
+from app.api.v1.endpoints import profile
 from app.api.v1.endpoints import inventori
 from app.api.v1.endpoints import menu
 from app.api.v1.endpoints import manufacturing_order
@@ -22,6 +23,7 @@ from app.api.v1.endpoints import produksi
 api_router = APIRouter()
 
 api_router.include_router(auth.router,                prefix="/auth",                tags=["Auth"])
+api_router.include_router(profile.router,             prefix="/profile",             tags=["Profile"])
 api_router.include_router(users.router,               prefix="/users",               tags=["Users"])
 api_router.include_router(inventori.router,           prefix="/inventori",            tags=["Inventori & Bahan Baku"])
 api_router.include_router(menu.router,                prefix="/menu",                tags=["Menu & Resep"])
