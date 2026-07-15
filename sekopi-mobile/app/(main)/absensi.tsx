@@ -248,12 +248,16 @@ export default function AbsensiScreen() {
     }
     setStep('submitting'); setErrorMsg(''); setUploadProgress('Menyiapkan foto...');
     try {
-      const jam_keluar = getJamWIB();
-      const b64        = await preparePhotoBase64(photoUri, setUploadProgress);
-      const foto_url   = `data:image/jpeg;base64,${b64}`;
+      const jam_keluar      = getJamWIB();
+      const b64             = await preparePhotoBase64(photoUri, setUploadProgress);
+      // Gunakan foto_keluar_url agar foto masuk (foto_url) tidak tertimpa
+      const foto_keluar_url = `data:image/jpeg;base64,${b64}`;
       setUploadProgress('Mengirim data pulang...');
       const res = await api.patch(`/absensi/${absensiHariIni.id}/pulang`, {
-        jam_keluar, latitude: location.lat, longitude: location.lng, foto_url,
+        jam_keluar,
+        latitude: location.lat,
+        longitude: location.lng,
+        foto_keluar_url,
       });
       setSuccessData({ ...res.data, mode: 'pulang' });
       setAbsensiHariIni(res.data);
