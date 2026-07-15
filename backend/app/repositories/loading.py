@@ -1,6 +1,6 @@
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.loading import LoadingItem, LoadingOrder, StatusLoading
@@ -17,12 +17,26 @@ class LoadingRepository:
         result = await self.db.execute(select(LoadingOrder).where(LoadingOrder.nomor_loading == nomor))
         return result.scalar_one_or_none()
 
-    async def list_all(self, gerobak_id: Optional[int] = None, status: Optional[StatusLoading] = None) -> list[LoadingOrder]:
+    async def list_all(
+        self,
+        gerobak_id: Optional[int] = None,
+        status: Optional[StatusLoading] = None,
+        driver_id: Optional[int] = None,
+        dibuat_oleh: Optional[int] = None,
+    ) -> list[LoadingOrder]:
         q = select(LoadingOrder)
         if gerobak_id:
             q = q.where(LoadingOrder.gerobak_id == gerobak_id)
         if status:
             q = q.where(LoadingOrder.status == status)
+        # Filter berdasarkan user: tampilkan order yang dibuat oleh ATAU ditugaskan ke user ini
+        if driver_id is not None or dibuat_oleh is not None:
+            conditions = []
+            if driver_id is not None:
+                conditions.append(LoadingOrder.driver_id == driver_id)
+            if dibuat_oleh is not None:
+                conditions.append(LoadingOrder.dibuat_oleh == dibuat_oleh)
+            q = q.where(or_(*conditions))
         q = q.order_by(LoadingOrder.id.desc())
         result = await self.db.execute(q)
         return list(result.scalars().all())

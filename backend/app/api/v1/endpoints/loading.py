@@ -14,7 +14,6 @@ from app.services.loading import LoadingService
 
 router = APIRouter()
 
-# Role yang boleh membuat & mengelola loading (termasuk driver)
 LOADING_MANAGERS = (UserRole.ADMIN, UserRole.INVENTORI, UserRole.DRIVER)
 
 
@@ -36,9 +35,14 @@ async def list_loading(
     gerobak_id: Optional[int] = Query(None),
     status: Optional[StatusLoading] = Query(None),
     svc: LoadingService = Depends(_svc),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    return await svc.list_all(gerobak_id=gerobak_id, status=status)
+    return await svc.list_all(
+        gerobak_id=gerobak_id,
+        status=status,
+        current_user_id=current_user.id,
+        current_user_role=current_user.role,
+    )
 
 
 @router.get("/{loading_id}", response_model=LoadingOrderResponse)

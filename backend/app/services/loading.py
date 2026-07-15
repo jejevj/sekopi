@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.loading import LoadingItem, LoadingOrder, StatusLoading
 from app.models.production_unit import ProductionUnit, StatusUnit
+from app.models.user import UserRole
 from app.repositories.loading import LoadingRepository
 from app.schemas.loading import (
     LoadingOrderCreate, LoadingOrderResponse, LoadingOrderUpdate, ScanItemRequest,
@@ -45,8 +46,24 @@ class LoadingService:
             raise HTTPException(status_code=404, detail="Loading order tidak ditemukan")
         return LoadingOrderResponse.from_orm_obj(obj)
 
-    async def list_all(self, gerobak_id=None, status=None) -> list[LoadingOrderResponse]:
-        objs = await self.repo.list_all(gerobak_id=gerobak_id, status=status)
+    async def list_all(
+        self,
+        gerobak_id=None,
+        status=None,
+        current_user_id: int | None = None,
+        current_user_role: str | None = None,
+    ) -> list[LoadingOrderResponse]:
+        # Admin & inventori bisa lihat semua
+        if current_user_role in (UserRole.ADMIN, UserRole.INVENTORI):
+            objs = await self.repo.list_all(gerobak_id=gerobak_id, status=status)
+        else:
+            # Driver & role lain hanya lihat loading yang terkait dengan mereka
+            objs = await self.repo.list_all(
+                gerobak_id=gerobak_id,
+                status=status,
+                driver_id=current_user_id,
+                dibuat_oleh=current_user_id,
+            )
         return [LoadingOrderResponse.from_orm_obj(o) for o in objs]
 
     async def update_status(self, loading_id: int, data: LoadingOrderUpdate) -> LoadingOrderResponse:
@@ -55,9 +72,9 @@ class LoadingService:
             raise HTTPException(status_code=404, detail="Loading order tidak ditemukan")
 
         transitions = {
-            StatusLoading.DRAFT:     [StatusLoading.CONFIRMED],
-            StatusLoading.CONFIRMED: [StatusLoading.DISPATCHED],
-            StatusLoading.DISPATCHED:[StatusLoading.RETURNED],
+            StatusLoading.DRAFT:      [StatusLoading.CONFIRMED],
+            StatusLoading.CONFIRMED:  [StatusLoading.DISPATCHED],
+            StatusLoading.DISPATCHED: [StatusLoading.RETURNED],
         }
         if data.status and data.status not in transitions.get(obj.status, []):
             raise HTTPException(
