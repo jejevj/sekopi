@@ -30,7 +30,7 @@ type MenuItem = {
 // Hanya 2 menu utama yang relevan untuk semua role
 const MENU_COMMON: MenuItem[] = [
   { icon: 'calendar-outline',  label: 'Absensi',   route: '/(main)/absensi',   color: '#f44444' },
-  { icon: 'person-outline',    label: 'Profil',    route: '/(main)/profile',   color: '#3b82f6' },
+  { icon: 'person-outline',    label: 'Profil',    route: '/(main)/profil',    color: '#3b82f6' },
 ];
 
 const MENU_BY_ROLE: Record<UserRole, MenuItem[]> = {
