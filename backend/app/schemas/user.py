@@ -18,6 +18,18 @@ class UserUpdate(BaseModel):
     is_active: bool | None = None
 
 
+# Schema khusus untuk user memperbarui profilnya sendiri
+class UserProfileUpdate(BaseModel):
+    full_name: str | None = None
+    email: EmailStr | None = None
+
+
+# Schema untuk ganti password sendiri (bukan reset oleh admin)
+class ChangePasswordPayload(BaseModel):
+    current_password: str
+    new_password: str
+
+
 class UserResponse(UserBase):
     id: int
     is_active: bool

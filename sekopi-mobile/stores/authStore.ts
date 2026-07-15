@@ -81,9 +81,11 @@ interface AuthState {
   setAuth: (user: AuthUser, accessToken: string, refreshToken: string) => void;
   clearAuth: () => void;
   loadAuth: () => Promise<void>;
+  // Perbarui data user di store + file (setelah update profil berhasil)
+  updateUser: (partial: Partial<AuthUser>) => Promise<void>;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   accessToken: null,
   refreshToken: null,
@@ -98,6 +100,19 @@ export const useAuthStore = create<AuthState>((set) => ({
   clearAuth: () => {
     deleteAuthFile();
     set({ user: null, accessToken: null, refreshToken: null, loginDate: null });
+  },
+
+  updateUser: async (partial) => {
+    const state = get();
+    if (!state.user) return;
+    const updatedUser = { ...state.user, ...partial };
+    await saveAuthToFile({
+      user: updatedUser,
+      accessToken: state.accessToken,
+      refreshToken: state.refreshToken,
+      loginDate: state.loginDate,
+    });
+    set({ user: updatedUser });
   },
 
   loadAuth: async () => {
