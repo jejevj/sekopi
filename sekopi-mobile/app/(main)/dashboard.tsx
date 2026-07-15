@@ -124,11 +124,17 @@ export default function DashboardScreen() {
   const clearAuth = useAuthStore((s) => s.clearAuth);
   const fadeAnim  = useRef(new Animated.Value(0)).current;
 
+  // Pindahkan redirect ke useEffect — tidak boleh navigate saat render
+  useEffect(() => {
+    if (!user) router.replace('/(auth)/login');
+  }, [user]);
+
   useEffect(() => {
     Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }).start();
   }, []);
 
-  if (!user) { router.replace('/(auth)/login'); return null; }
+  // Render kosong sementara sebelum redirect selesai
+  if (!user) return null;
 
   const role     = user.role as UserRole;
   const allMenus = [...MENU_COMMON, ...(MENU_BY_ROLE[role] ?? [])];
