@@ -18,23 +18,25 @@ import { getTanggalWIB, getJamWIB, getLabelTanggalWIB } from '../../lib/dateUtil
 
 const { width: SW } = Dimensions.get('window');
 
-type Step     = 'idle' | 'camera' | 'submitting' | 'done';
-type TabMode  = 'masuk' | 'pulang' | 'non-hadir';
-type StatusNonHadir = 'izin' | 'sakit' | 'alpha';
+type Step            = 'idle' | 'camera' | 'submitting' | 'done';
+type TabMode         = 'masuk' | 'pulang' | 'non-hadir';
+type StatusNonHadir  = 'izin' | 'sakit' | 'alpha';
+
+const NON_HADIR_STATUS: StatusNonHadir[] = ['izin', 'sakit', 'alpha'];
 
 const NON_HADIR_OPTIONS: { value: StatusNonHadir; label: string; icon: string; color: string; desc: string }[] = [
-  { value: 'izin',  label: 'Izin',  icon: 'calendar-outline',      color: '#60a5fa', desc: 'Tidak hadir dengan izin resmi' },
-  { value: 'sakit', label: 'Sakit', icon: 'medkit-outline',         color: '#fbbf24', desc: 'Tidak hadir karena sakit' },
-  { value: 'alpha', label: 'Alpha', icon: 'close-circle-outline',   color: '#f87171', desc: 'Tidak hadir tanpa keterangan' },
+  { value: 'izin',  label: 'Izin',  icon: 'calendar-outline',    color: '#60a5fa', desc: 'Tidak hadir dengan izin resmi' },
+  { value: 'sakit', label: 'Sakit', icon: 'medkit-outline',       color: '#fbbf24', desc: 'Tidak hadir karena sakit' },
+  { value: 'alpha', label: 'Alpha', icon: 'close-circle-outline', color: '#f87171', desc: 'Tidak hadir tanpa keterangan' },
 ];
 
-const MAX_PHOTO_BYTES  = 1 * 1024 * 1024;
-const QUALITY_STEPS   = [0.3, 0.2, 0.15, 0.1];
-const CAMERA_WARMUP_MS = 600;
+const MAX_PHOTO_BYTES   = 1 * 1024 * 1024;
+const QUALITY_STEPS     = [0.3, 0.2, 0.15, 0.1];
+const CAMERA_WARMUP_MS  = 600;
 
 interface AbsensiHariIni {
   id: number;
-  jam_masuk: string;
+  jam_masuk: string | null;
   jam_keluar: string | null;
   status: string;
   dalam_radius: boolean | null;
@@ -81,8 +83,7 @@ export default function AbsensiScreen() {
   const [loadingStatus, setLoadingStatus]   = useState(true);
   const [captureStatus, setCaptureStatus]   = useState('');
 
-  // ── State untuk Non-Hadir (Izin/Sakit/Alpha)
-  const [selectedNonHadir, setSelectedNonHadir] = useState<StatusNonHadir>('izin');
+  const [selectedNonHadir, setSelectedNonHadir]     = useState<StatusNonHadir>('izin');
   const [keteranganNonHadir, setKeteranganNonHadir] = useState('');
 
   const captureQualityRef = useRef<number>(QUALITY_STEPS[0]);
@@ -102,8 +103,19 @@ export default function AbsensiScreen() {
     try {
       const tanggal = getTanggalWIB();
       const res = await api.get(`/absensi/hari-ini?user_id=${user.id}&tanggal=${tanggal}`);
-      setAbsensiHariIni(res.data ?? null);
-      if (res.data?.jam_masuk && !res.data?.jam_keluar) setTab('pulang');
+      const data: AbsensiHariIni | null = res.data ?? null;
+      setAbsensiHariIni(data);
+      // Arahkan ke tab yang relevan:
+      // - sudah hadir masuk tapi belum pulang → tab pulang
+      // - sudah izin/sakit/alpha → tab non-hadir (read-only)
+      if (data) {
+        const isNH = NON_HADIR_STATUS.includes(data.status as StatusNonHadir);
+        if (isNH) {
+          setTab('non-hadir');
+        } else if (data.jam_masuk && !data.jam_keluar) {
+          setTab('pulang');
+        }
+      }
     } catch {
       setAbsensiHariIni(null);
     } finally {
@@ -264,7 +276,6 @@ export default function AbsensiScreen() {
     }
   };
 
-  // ── Submit Non-Hadir (Izin / Sakit / Alpha)
   const handleSubmitNonHadir = async () => {
     if (!user) return;
     if (selectedNonHadir !== 'alpha' && !keteranganNonHadir.trim()) {
@@ -376,13 +387,9 @@ export default function AbsensiScreen() {
         }}>
           <View style={{
             width: 72, height: 72, borderRadius: 36,
-            backgroundColor: isNonHadir
-              ? `${statusColor}26`
-              : isPulang ? 'rgba(99,102,241,0.15)' : 'rgba(34,197,94,0.15)',
+            backgroundColor: isNonHadir ? `${statusColor}26` : isPulang ? 'rgba(99,102,241,0.15)' : 'rgba(34,197,94,0.15)',
             borderWidth: 1.5,
-            borderColor: isNonHadir
-              ? `${statusColor}66`
-              : isPulang ? 'rgba(99,102,241,0.4)' : 'rgba(34,197,94,0.4)',
+            borderColor: isNonHadir ? `${statusColor}66` : isPulang ? 'rgba(99,102,241,0.4)' : 'rgba(34,197,94,0.4)',
             alignItems: 'center', justifyContent: 'center', marginBottom: 16,
           }}>
             <Ionicons
@@ -425,10 +432,7 @@ export default function AbsensiScreen() {
               </Text>
             </View>
           )}
-          <TouchableOpacity
-            onPress={() => router.replace('/(main)/dashboard')}
-            style={{ marginTop: 24, width: '100%' }}
-          >
+          <TouchableOpacity onPress={() => router.replace('/(main)/dashboard')} style={{ marginTop: 24, width: '100%' }}>
             <LinearGradient
               colors={isNonHadir ? [statusColor, statusColor] : isPulang ? ['#6366f1', '#4f46e5'] : ['#f44444', '#d92b2b']}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
@@ -464,13 +468,19 @@ export default function AbsensiScreen() {
     </script></body></html>
   ` : '';
 
-  const sudahMasuk    = !!absensiHariIni?.jam_masuk;
-  const sudahPulang   = !!absensiHariIni?.jam_keluar;
-  const sudahAbsen    = !!absensiHariIni; // sudah ada record hari ini
+  const sudahMasuk       = !!absensiHariIni?.jam_masuk;
+  const sudahPulang      = !!absensiHariIni?.jam_keluar;
+  const sudahAbsen       = !!absensiHariIni;
+  // Sudah tercatat izin/sakit/alpha — tab masuk & pulang TIDAK aktif
+  const isNonHadirStatus = sudahAbsen && NON_HADIR_STATUS.includes(absensiHariIni!.status as StatusNonHadir);
+  const nonHadirMeta     = isNonHadirStatus
+    ? NON_HADIR_OPTIONS.find(o => o.value === absensiHariIni!.status) ?? null
+    : null;
+
   const isPulangTab   = tab === 'pulang';
   const isNonHadirTab = tab === 'non-hadir';
   const accentColor   = isNonHadirTab
-    ? (NON_HADIR_OPTIONS.find(o => o.value === selectedNonHadir)?.color ?? '#fbbf24')
+    ? (nonHadirMeta?.color ?? NON_HADIR_OPTIONS.find(o => o.value === selectedNonHadir)?.color ?? '#fbbf24')
     : isPulangTab ? '#6366f1' : '#f44444';
 
   const canSubmit = step !== 'submitting' && (
@@ -478,7 +488,7 @@ export default function AbsensiScreen() {
       ? !sudahAbsen
       : isPulangTab
         ? !!location && !!photoUri && sudahMasuk && !sudahPulang
-        : !!location && !!photoUri && !sudahMasuk
+        : !!location && !!photoUri && !sudahMasuk && !isNonHadirStatus
   );
 
   return (
@@ -500,24 +510,44 @@ export default function AbsensiScreen() {
 
       {/* Tab */}
       <View style={styles.tabWrapper}>
-        {/* Tab Jam Masuk */}
+        {/* Tab Masuk — disabled jika sudah izin/sakit/alpha */}
         <TouchableOpacity
-          style={[styles.tabBtn, tab === 'masuk' && { borderBottomColor: '#f44444', borderBottomWidth: 2 }]}
-          onPress={() => { setTab('masuk'); setErrorMsg(''); setPhotoUri(null); }}
+          style={[
+            styles.tabBtn,
+            tab === 'masuk' && { borderBottomColor: '#f44444', borderBottomWidth: 2 },
+            isNonHadirStatus && { opacity: 0.3 },
+          ]}
+          onPress={() => {
+            if (isNonHadirStatus) {
+              Alert.alert(
+                'Tidak Bisa Absen Masuk',
+                `Sudah tercatat ${nonHadirMeta?.label ?? absensiHariIni?.status} untuk hari ini.`
+              );
+              return;
+            }
+            setTab('masuk'); setErrorMsg(''); setPhotoUri(null);
+          }}
         >
           <Ionicons name="log-in-outline" size={16} color={tab === 'masuk' ? '#f44444' : 'rgba(255,255,255,0.35)'} />
           <Text style={[styles.tabText, { color: tab === 'masuk' ? '#f44444' : 'rgba(255,255,255,0.35)' }]}>Masuk</Text>
           {sudahMasuk && <View style={styles.tabBadgeDone}><Ionicons name="checkmark" size={10} color="#22c55e" /></View>}
         </TouchableOpacity>
 
-        {/* Tab Jam Pulang */}
+        {/* Tab Pulang — disabled jika non-hadir ATAU belum masuk */}
         <TouchableOpacity
           style={[
             styles.tabBtn,
             tab === 'pulang' && { borderBottomColor: '#6366f1', borderBottomWidth: 2 },
-            !sudahMasuk && { opacity: 0.4 },
+            (!sudahMasuk || isNonHadirStatus) && { opacity: 0.3 },
           ]}
           onPress={() => {
+            if (isNonHadirStatus) {
+              Alert.alert(
+                'Tidak Bisa Absen Pulang',
+                `Sudah tercatat ${nonHadirMeta?.label ?? absensiHariIni?.status} untuk hari ini.`
+              );
+              return;
+            }
             if (!sudahMasuk) {
               Alert.alert('Belum Absen Masuk', 'Lakukan absensi masuk terlebih dahulu.');
               return;
@@ -530,30 +560,47 @@ export default function AbsensiScreen() {
           {sudahPulang && <View style={styles.tabBadgeDone}><Ionicons name="checkmark" size={10} color="#22c55e" /></View>}
         </TouchableOpacity>
 
-        {/* Tab Non-Hadir — hanya tampil jika BELUM absen hari ini */}
-        {!sudahAbsen && (
-          <TouchableOpacity
-            style={[
-              styles.tabBtn,
-              tab === 'non-hadir' && { borderBottomColor: '#fbbf24', borderBottomWidth: 2 },
-            ]}
-            onPress={() => { setTab('non-hadir'); setErrorMsg(''); setPhotoUri(null); }}
-          >
-            <Ionicons name="document-text-outline" size={16} color={tab === 'non-hadir' ? '#fbbf24' : 'rgba(255,255,255,0.35)'} />
-            <Text style={[styles.tabText, { color: tab === 'non-hadir' ? '#fbbf24' : 'rgba(255,255,255,0.35)' }]}>Izin/Sakit</Text>
-          </TouchableOpacity>
-        )}
+        {/* Tab Izin/Sakit — selalu tampil, konten read-only jika sudah tercatat */}
+        <TouchableOpacity
+          style={[
+            styles.tabBtn,
+            tab === 'non-hadir' && { borderBottomColor: nonHadirMeta?.color ?? '#fbbf24', borderBottomWidth: 2 },
+            sudahMasuk && { opacity: 0.3 },
+          ]}
+          onPress={() => {
+            if (sudahMasuk) {
+              Alert.alert('Sudah Absen Masuk', 'Tidak bisa mengajukan izin/sakit karena sudah absen masuk hari ini.');
+              return;
+            }
+            setTab('non-hadir'); setErrorMsg(''); setPhotoUri(null);
+          }}
+        >
+          <Ionicons
+            name="document-text-outline"
+            size={16}
+            color={tab === 'non-hadir' ? (nonHadirMeta?.color ?? '#fbbf24') : 'rgba(255,255,255,0.35)'}
+          />
+          <Text style={[styles.tabText, { color: tab === 'non-hadir' ? (nonHadirMeta?.color ?? '#fbbf24') : 'rgba(255,255,255,0.35)' }]}>
+            Izin/Sakit
+          </Text>
+          {isNonHadirStatus && (
+            <View style={[styles.tabBadgeDone, { backgroundColor: `${nonHadirMeta?.color}26` }]}>
+              <Ionicons name="checkmark" size={10} color={nonHadirMeta?.color ?? '#fbbf24'} />
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} showsVerticalScrollIndicator={false}>
+        {/* Status bar */}
         {loadingStatus ? (
           <ActivityIndicator color={accentColor} style={{ marginVertical: 8 }} />
         ) : (
           <BlurView intensity={12} tint="dark" style={styles.statusCard}>
             <Ionicons
-              name={sudahMasuk ? 'time-outline' : sudahAbsen ? 'document-text-outline' : 'alert-circle-outline'}
+              name={sudahMasuk ? 'time-outline' : isNonHadirStatus ? 'document-text-outline' : 'alert-circle-outline'}
               size={14}
-              color={sudahMasuk ? '#22c55e' : sudahAbsen ? '#fbbf24' : 'rgba(255,255,255,0.4)'}
+              color={sudahMasuk ? '#22c55e' : isNonHadirStatus ? (nonHadirMeta?.color ?? '#fbbf24') : 'rgba(255,255,255,0.4)'}
             />
             <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>
               {sudahMasuk
@@ -562,9 +609,19 @@ export default function AbsensiScreen() {
                       ? `  ·  Pulang: ${absensiHariIni?.jam_keluar?.slice(0, 5)}`
                       : '  ·  Belum pulang'
                   }`
-                : sudahAbsen
-                  ? `Status: ${absensiHariIni?.status?.charAt(0).toUpperCase()}${absensiHariIni?.status?.slice(1)}`
+                : isNonHadirStatus
+                  ? `Status hari ini: ${nonHadirMeta?.label ?? absensiHariIni?.status}`
                   : 'Belum absen hari ini'}
+            </Text>
+          </BlurView>
+        )}
+
+        {/* Banner: sudah izin/sakit/alpha, tab masuk & pulang dikunci */}
+        {isNonHadirStatus && (tab === 'masuk' || tab === 'pulang') && (
+          <BlurView intensity={12} tint="dark" style={[styles.statusCard, { borderColor: `${nonHadirMeta?.color}50` }]}>
+            <Ionicons name="lock-closed-outline" size={16} color={nonHadirMeta?.color ?? '#fbbf24'} />
+            <Text style={{ color: nonHadirMeta?.color ?? '#fbbf24', fontSize: 13, fontWeight: '600', flex: 1 }}>
+              Sudah tercatat {nonHadirMeta?.label} hari ini. Absen masuk & pulang tidak tersedia.
             </Text>
           </BlurView>
         )}
@@ -596,126 +653,146 @@ export default function AbsensiScreen() {
           </BlurView>
         )}
 
-        {/* ══ KONTEN: NON-HADIR (Izin / Sakit / Alpha) ══ */}
-        {isNonHadirTab && !sudahAbsen && (
-          <BlurView intensity={15} tint="dark" style={{
-            borderRadius: 16, overflow: 'hidden', padding: 16,
-            borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
-            gap: 14,
-          }}>
-            <Text style={{
-              color: 'rgba(255,255,255,0.5)', fontSize: 10,
-              letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2,
-            }}>Pilih Status</Text>
+        {/* ══ KONTEN: NON-HADIR TAB ══ */}
+        {isNonHadirTab && (
+          isNonHadirStatus ? (
+            // ─ Read-only: sudah tercatat
+            <BlurView intensity={15} tint="dark" style={{
+              borderRadius: 16, overflow: 'hidden', padding: 20,
+              borderWidth: 1.5, borderColor: `${nonHadirMeta?.color}40`,
+              gap: 12, alignItems: 'center',
+            }}>
+              <View style={{
+                width: 56, height: 56, borderRadius: 28,
+                backgroundColor: `${nonHadirMeta?.color}20`,
+                alignItems: 'center', justifyContent: 'center',
+              }}>
+                <Ionicons name={nonHadirMeta?.icon as any ?? 'document-text-outline'} size={28} color={nonHadirMeta?.color ?? '#fbbf24'} />
+              </View>
+              <Text style={{ color: nonHadirMeta?.color ?? '#fbbf24', fontWeight: '700', fontSize: 16 }}>
+                {nonHadirMeta?.label ?? absensiHariIni?.status} — Sudah Tercatat
+              </Text>
+              {absensiHariIni?.keterangan ? (
+                <View style={{
+                  backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 10,
+                  padding: 12, width: '100%',
+                }}>
+                  <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}>Keterangan</Text>
+                  <Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13 }}>{absensiHariIni.keterangan}</Text>
+                </View>
+              ) : (
+                <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>Tidak ada keterangan</Text>
+              )}
+              <Text style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, marginTop: 4 }}>
+                Hubungi admin jika perlu koreksi
+              </Text>
+            </BlurView>
+          ) : (
+            // ─ Form: belum tercatat
+            <BlurView intensity={15} tint="dark" style={{
+              borderRadius: 16, overflow: 'hidden', padding: 16,
+              borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
+              gap: 14,
+            }}>
+              <Text style={{
+                color: 'rgba(255,255,255,0.5)', fontSize: 10,
+                letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2,
+              }}>Pilih Status</Text>
 
-            {/* Pilihan opsi */}
-            {NON_HADIR_OPTIONS.map((opt) => {
-              const isActive = selectedNonHadir === opt.value;
-              return (
-                <TouchableOpacity
-                  key={opt.value}
-                  onPress={() => { setSelectedNonHadir(opt.value); setErrorMsg(''); }}
-                  activeOpacity={0.8}
+              {NON_HADIR_OPTIONS.map((opt) => {
+                const isActive = selectedNonHadir === opt.value;
+                return (
+                  <TouchableOpacity
+                    key={opt.value}
+                    onPress={() => { setSelectedNonHadir(opt.value); setErrorMsg(''); }}
+                    activeOpacity={0.8}
+                    style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 14,
+                      borderRadius: 12, padding: 14,
+                      borderWidth: 1.5,
+                      borderColor: isActive ? opt.color : 'rgba(255,255,255,0.08)',
+                      backgroundColor: isActive ? `${opt.color}18` : 'rgba(255,255,255,0.02)',
+                    }}
+                  >
+                    <View style={{
+                      width: 40, height: 40, borderRadius: 20,
+                      backgroundColor: isActive ? `${opt.color}26` : 'rgba(255,255,255,0.06)',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <Ionicons name={opt.icon as any} size={20} color={isActive ? opt.color : 'rgba(255,255,255,0.35)'} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: isActive ? opt.color : 'rgba(255,255,255,0.75)', fontWeight: '700', fontSize: 14 }}>
+                        {opt.label}
+                      </Text>
+                      <Text style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, marginTop: 2 }}>
+                        {opt.desc}
+                      </Text>
+                    </View>
+                    {isActive && <Ionicons name="checkmark-circle" size={20} color={opt.color} />}
+                  </TouchableOpacity>
+                );
+              })}
+
+              <View style={{ marginTop: 4 }}>
+                <Text style={{
+                  color: 'rgba(255,255,255,0.45)', fontSize: 10,
+                  letterSpacing: 2, textTransform: 'uppercase', marginBottom: 8,
+                }}>
+                  Keterangan {selectedNonHadir !== 'alpha' ? '(Wajib)' : '(Opsional)'}
+                </Text>
+                <TextInput
+                  value={keteranganNonHadir}
+                  onChangeText={setKeteranganNonHadir}
+                  placeholder={
+                    selectedNonHadir === 'izin'
+                      ? 'Contoh: Ada keperluan keluarga'
+                      : selectedNonHadir === 'sakit'
+                        ? 'Contoh: Demam dan istirahat dokter'
+                        : 'Keterangan (opsional)'
+                  }
+                  placeholderTextColor="rgba(255,255,255,0.2)"
+                  multiline
+                  numberOfLines={3}
                   style={{
-                    flexDirection: 'row', alignItems: 'center', gap: 14,
-                    borderRadius: 12, padding: 14,
-                    borderWidth: 1.5,
-                    borderColor: isActive ? opt.color : 'rgba(255,255,255,0.08)',
-                    backgroundColor: isActive ? `${opt.color}18` : 'rgba(255,255,255,0.02)',
+                    backgroundColor: 'rgba(255,255,255,0.05)',
+                    borderWidth: 1,
+                    borderColor: keteranganNonHadir.trim() ? `${accentColor}80` : 'rgba(255,255,255,0.1)',
+                    borderRadius: 10, padding: 12,
+                    color: '#fff', fontSize: 13, lineHeight: 20,
+                    minHeight: 80, textAlignVertical: 'top',
+                  }}
+                />
+              </View>
+
+              <TouchableOpacity onPress={handleSubmitNonHadir} disabled={!canSubmit} activeOpacity={0.82}>
+                <LinearGradient
+                  colors={canSubmit ? [accentColor, accentColor] : ['#1a1a2e', '#12121e']}
+                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                  style={{
+                    borderRadius: 12, height: 52, alignItems: 'center',
+                    justifyContent: 'center', flexDirection: 'row', gap: 8,
+                    opacity: canSubmit ? 1 : 0.5,
                   }}
                 >
-                  <View style={{
-                    width: 40, height: 40, borderRadius: 20,
-                    backgroundColor: isActive ? `${opt.color}26` : 'rgba(255,255,255,0.06)',
-                    alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <Ionicons name={opt.icon as any} size={20} color={isActive ? opt.color : 'rgba(255,255,255,0.35)'} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: isActive ? opt.color : 'rgba(255,255,255,0.75)', fontWeight: '700', fontSize: 14 }}>
-                      {opt.label}
-                    </Text>
-                    <Text style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, marginTop: 2 }}>
-                      {opt.desc}
-                    </Text>
-                  </View>
-                  {isActive && (
-                    <Ionicons name="checkmark-circle" size={20} color={opt.color} />
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-
-            {/* Form Keterangan */}
-            <View style={{ marginTop: 4 }}>
-              <Text style={{
-                color: 'rgba(255,255,255,0.45)', fontSize: 10,
-                letterSpacing: 2, textTransform: 'uppercase', marginBottom: 8,
-              }}>
-                Keterangan {selectedNonHadir !== 'alpha' ? '(Wajib)' : '(Opsional)'}
-              </Text>
-              <TextInput
-                value={keteranganNonHadir}
-                onChangeText={setKeteranganNonHadir}
-                placeholder={
-                  selectedNonHadir === 'izin'
-                    ? 'Contoh: Ada keperluan keluarga'
-                    : selectedNonHadir === 'sakit'
-                      ? 'Contoh: Demam dan istirahat dokter'
-                      : 'Keterangan (opsional)'
-                }
-                placeholderTextColor="rgba(255,255,255,0.2)"
-                multiline
-                numberOfLines={3}
-                style={{
-                  backgroundColor: 'rgba(255,255,255,0.05)',
-                  borderWidth: 1,
-                  borderColor: keteranganNonHadir.trim()
-                    ? `${accentColor}80`
-                    : 'rgba(255,255,255,0.1)',
-                  borderRadius: 10,
-                  padding: 12,
-                  color: '#fff',
-                  fontSize: 13,
-                  lineHeight: 20,
-                  minHeight: 80,
-                  textAlignVertical: 'top',
-                }}
-              />
-            </View>
-
-            {/* Tombol Submit */}
-            <TouchableOpacity
-              onPress={handleSubmitNonHadir}
-              disabled={!canSubmit}
-              activeOpacity={0.82}
-            >
-              <LinearGradient
-                colors={canSubmit ? [accentColor, accentColor] : ['#1a1a2e', '#12121e']}
-                start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-                style={{
-                  borderRadius: 12, height: 52, alignItems: 'center',
-                  justifyContent: 'center', flexDirection: 'row', gap: 8,
-                  opacity: canSubmit ? 1 : 0.5,
-                }}
-              >
-                {step === 'submitting'
-                  ? <ActivityIndicator color="#fff" />
-                  : (
-                    <>
-                      <Ionicons name="document-text-outline" size={20} color="#fff" />
-                      <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700', letterSpacing: 2 }}>
-                        KIRIM {selectedNonHadir.toUpperCase()}
-                      </Text>
-                    </>
-                  )}
-              </LinearGradient>
-            </TouchableOpacity>
-          </BlurView>
+                  {step === 'submitting'
+                    ? <ActivityIndicator color="#fff" />
+                    : (
+                      <>
+                        <Ionicons name="document-text-outline" size={20} color="#fff" />
+                        <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700', letterSpacing: 2 }}>
+                          KIRIM {selectedNonHadir.toUpperCase()}
+                        </Text>
+                      </>
+                    )}
+                </LinearGradient>
+              </TouchableOpacity>
+            </BlurView>
+          )
         )}
 
-        {/* ══ KONTEN: MASUK / PULANG (dengan peta & foto) ══ */}
-        {!isNonHadirTab && (
+        {/* ══ KONTEN: MASUK / PULANG ══ */}
+        {!isNonHadirTab && !isNonHadirStatus && (
           <>
             {/* Peta */}
             <BlurView intensity={15} tint="dark" style={{
