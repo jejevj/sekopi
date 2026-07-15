@@ -21,7 +21,7 @@ def _svc(db: AsyncSession = Depends(get_db)) -> LoadingService:
     return LoadingService(LoadingRepository(db), db)
 
 
-@router.post("/", response_model=LoadingOrderResponse, status_code=201)
+@router.post("", response_model=LoadingOrderResponse, status_code=201)
 async def create_loading(
     data: LoadingOrderCreate,
     svc: LoadingService = Depends(_svc),
@@ -30,7 +30,7 @@ async def create_loading(
     return await svc.create(data, current_user.id)
 
 
-@router.get("/", response_model=list[LoadingOrderResponse])
+@router.get("", response_model=list[LoadingOrderResponse])
 async def list_loading(
     gerobak_id: Optional[int] = Query(None),
     status: Optional[StatusLoading] = Query(None),
