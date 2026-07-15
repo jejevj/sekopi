@@ -13,7 +13,6 @@ export default function RootLayout() {
   const loadAuth = useAuthStore((s) => s.loadAuth);
   const hydrated = useAuthStore((s) => s.hydrated);
 
-  // Muat session tersimpan saat pertama kali app dibuka
   useEffect(() => {
     loadAuth();
   }, []);
@@ -22,7 +21,6 @@ export default function RootLayout() {
     if (loaded && hydrated) SplashScreen.hideAsync();
   }, [loaded, hydrated]);
 
-  // Tunggu font + auth selesai dimuat sebelum render navigator
   if (!loaded || !hydrated) return null;
 
   return (
@@ -34,7 +32,23 @@ export default function RootLayout() {
         <Stack.Screen name="(main)/dashboard" />
         <Stack.Screen name="(main)/absensi" />
         <Stack.Screen name="(main)/profil" />
+        <Stack.Screen name="(admin)/users" />
+        <Stack.Screen name="(admin)/menu" />
+        <Stack.Screen name="(admin)/gerobak" />
+        <Stack.Screen name="(admin)/laporan" />
+        <Stack.Screen name="(admin)/dividen" />
+        <Stack.Screen name="(inventori)/dashboard" />
+        <Stack.Screen name="(inventori)/po" />
+        <Stack.Screen name="(inventori)/return" />
         <Stack.Screen name="(inventori)/loading" />
+        <Stack.Screen name="(produksi)/dashboard" />
+        <Stack.Screen name="(produksi)/menu" />
+        <Stack.Screen name="(produksi)/mo" />
+        <Stack.Screen name="(driver)/gerobak" />
+        <Stack.Screen name="(driver)/penjualan" />
+        <Stack.Screen name="(driver)/stok" />
+        <Stack.Screen name="(shareholder)/laporan" />
+        <Stack.Screen name="(shareholder)/dividen" />
       </Stack>
     </>
   );
