@@ -14,6 +14,7 @@ from app.schemas.absensi import (
     AbsensiUpdate,
 )
 from app.services.absensi import AbsensiService, AbsensiSettingService
+from app.services.r2_service import r2_service
 
 router = APIRouter()
 
@@ -73,6 +74,11 @@ async def catat_absensi(
     svc: AbsensiService = Depends(_svc),
     current_user: User = Depends(get_current_user),
 ):
+    # Jika foto_url berisi base64, upload ke R2 dan ganti dengan URL publik
+    if data.foto_url and data.foto_url.startswith("data:image"):
+        data.foto_url = await r2_service.upload_base64_image(
+            data.foto_url, folder="absensi"
+        )
     return await svc.catat(data, current_user.id, enforce_radius=enforce_radius)
 
 
@@ -134,6 +140,11 @@ async def catat_jam_pulang(
     Catat jam pulang user. Hanya bisa dilakukan oleh user pemilik absensi.
     Akan ditolak jika jam_keluar sudah terisi sebelumnya (HTTP 409).
     """
+    # Jika foto_keluar_url berisi base64, upload ke R2
+    if data.foto_keluar_url and data.foto_keluar_url.startswith("data:image"):
+        data.foto_keluar_url = await r2_service.upload_base64_image(
+            data.foto_keluar_url, folder="absensi"
+        )
     return await svc.catat_pulang(absensi_id, data, current_user.id)
 
 
