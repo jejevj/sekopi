@@ -19,6 +19,7 @@ from app.api.v1.endpoints import driver
 from app.api.v1.endpoints import admin
 from app.api.v1.endpoints import pengeluaran
 from app.api.v1.endpoints import produksi
+from app.api.v1.endpoints import upload
 
 api_router = APIRouter()
 
@@ -41,3 +42,4 @@ api_router.include_router(driver.router,              prefix="/driver",         
 api_router.include_router(admin.router,               prefix="/admin",                tags=["Admin"])
 api_router.include_router(pengeluaran.router,         prefix="/pengeluaran",          tags=["Pengeluaran"])
 api_router.include_router(produksi.router,            prefix="/produksi",             tags=["Produksi"])
+api_router.include_router(upload.router,              prefix="/upload",               tags=["Upload"])

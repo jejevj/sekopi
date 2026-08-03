@@ -15,6 +15,13 @@ class Settings(BaseSettings):
 
     BACKEND_CORS_ORIGINS: Union[List[str], str] = ["*"]
 
+    # === Cloudflare R2 ===
+    R2_ACCOUNT_ID: str = ""
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_BUCKET_NAME: str = "sekopi-media"
+    R2_PUBLIC_URL: str = ""  # e.g. https://pub-xxx.r2.dev atau custom domain
+
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v):
