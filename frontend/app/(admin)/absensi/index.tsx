@@ -17,7 +17,6 @@ const today = (): string => toISOWIB(new Date());
 
 /** Tambah/kurangi n hari dari string 'YYYY-MM-DD', tetap dalam WIB */
 const addDays = (iso: string, n: number): string => {
-  // parse tanggal sebagai waktu lokal WIB tengah hari supaya DST-safe
   const d = new Date(`${iso}T12:00:00+07:00`);
   d.setDate(d.getDate() + n);
   return toISOWIB(d);
@@ -88,8 +87,17 @@ interface Rekap {
 }
 
 // ── helpers foto ──────────────────────────────────────────────────────────
-const toImgSrc = (raw: string) =>
-  raw.startsWith('data:') ? raw : `data:image/jpeg;base64,${raw}`;
+/**
+ * Deteksi tipe foto_url dan kembalikan src yang tepat untuk <img>:
+ * 1. Sudah URL (http/https) → langsung pakai (misal URL dari Cloudflare R2)
+ * 2. Sudah data URI (data:image/...) → langsung pakai
+ * 3. Plain string lain → anggap base64 legacy, tambah prefix data URI
+ */
+const toImgSrc = (raw: string): string => {
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+  if (raw.startsWith('data:')) return raw;
+  return `data:image/jpeg;base64,${raw}`;
+};
 
 // ── Detail Modal ──────────────────────────────────────────────────────────
 function DetailModal({ record, onClose }: { record: AbsensiRecord; onClose: () => void }) {
@@ -141,11 +149,10 @@ function DetailModal({ record, onClose }: { record: AbsensiRecord; onClose: () =
           {/* Info grid */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {[
-              // ✅ Gunakan formatTanggalWIB agar tanggal tidak mundur 1 hari
               { label: 'Tanggal', value: formatTanggalWIB(record.tanggal) },
-              { label: 'Dicatat Oleh', value: record.pencatat?.full_name ?? '—' },
-              { label: 'Jam Masuk', value: record.jam_masuk ? record.jam_masuk.slice(0, 5) : '—' },
-              { label: 'Jam Keluar', value: record.jam_keluar ? record.jam_keluar.slice(0, 5) : '—' },
+              { label: 'Dicatat Oleh', value: record.pencatat?.full_name ?? '\u2014' },
+              { label: 'Jam Masuk', value: record.jam_masuk ? record.jam_masuk.slice(0, 5) : '\u2014' },
+              { label: 'Jam Keluar', value: record.jam_keluar ? record.jam_keluar.slice(0, 5) : '\u2014' },
             ].map(({ label, value }) => (
               <div key={label} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '12px 14px' }}>
                 <div style={{ color: '#666', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>{label}</div>
