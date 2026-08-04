@@ -24,6 +24,9 @@ router = APIRouter()
 
 VIEW_ROLES = (UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI, UserRole.SHAREHOLDER)
 
+# Role yang boleh akses FEFO (termasuk driver untuk loading)
+FEFO_ROLES = (UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI, UserRole.DRIVER, UserRole.SHAREHOLDER)
+
 
 @router.get("", response_model=PaginatedUnitResponse)
 async def list_all_units(
@@ -130,13 +133,13 @@ async def get_units_by_mo(
 async def get_ready_fefo(
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=50, ge=1, le=200),
+    search: str | None = Query(default=None, description="Cari nama produk atau barcode"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(
-        UserRole.ADMIN, UserRole.PRODUKSI, UserRole.DRIVER, UserRole.SHAREHOLDER
-    )),
+    current_user: User = Depends(require_roles(*FEFO_ROLES)),
 ):
+    """List unit status=ready diurutkan FEFO (expiry_date asc). Accessible oleh semua role operasional."""
     service = ProductionUnitService(db)
-    return await service.get_ready_fefo_paginated(page, per_page)
+    return await service.get_ready_fefo_paginated(page, per_page, search=search)
 
 
 @router.get("/barcode/{barcode}", response_model=ProductionUnitResponse)
