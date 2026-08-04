@@ -155,9 +155,12 @@ class ProductionUnitService:
         )
 
     async def get_ready_fefo_paginated(
-        self, page: int = 1, per_page: int = 50
+        self,
+        page: int = 1,
+        per_page: int = 50,
+        search: str | None = None,
     ) -> PaginatedUnitResponse:
-        items, total = await self.repo.get_ready_fefo(page, per_page)
+        items, total = await self.repo.get_ready_fefo(page, per_page, search=search)
         return PaginatedUnitResponse(
             total=total,
             page=page,

@@ -1,5 +1,5 @@
 from datetime import datetime, date, timezone, timedelta
-from sqlalchemy import select, func, and_, text
+from sqlalchemy import select, func, and_, text, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.production_unit import ProductionUnit, StatusUnit
@@ -46,16 +46,29 @@ class ProductionUnitRepository(BaseRepository[ProductionUnit]):
         return list(result.scalars().all()), total
 
     async def get_ready_fefo(
-        self, page: int = 1, per_page: int = 50
+        self,
+        page: int = 1,
+        per_page: int = 50,
+        search: str | None = None,
     ) -> tuple[list[ProductionUnit], int]:
         base_where = ProductionUnit.status.in_([StatusUnit.READY, StatusUnit.DELIVERED])
+        conditions = [base_where]
+        if search:
+            like = f"%{search}%"
+            conditions.append(
+                or_(
+                    ProductionUnit.nama_produk.ilike(like),
+                    ProductionUnit.barcode.ilike(like),
+                )
+            )
+        where_clause = and_(*conditions)
         count_result = await self.db.execute(
-            select(func.count(ProductionUnit.id)).where(base_where)
+            select(func.count(ProductionUnit.id)).where(where_clause)
         )
         total = count_result.scalar() or 0
         result = await self.db.execute(
             select(ProductionUnit)
-            .where(base_where)
+            .where(where_clause)
             .order_by(ProductionUnit.expiry_date.asc())
             .offset((page - 1) * per_page)
             .limit(per_page)
