@@ -70,6 +70,16 @@ function isToday(dateStr: string): boolean {
   );
 }
 
+/** Cek apakah gerobak sudah punya loading aktif (bukan returned) hari ini */
+const ACTIVE_STATUSES: StatusLoading[] = ['draft', 'confirmed', 'dispatched'];
+function hasActiveLoadingToday(gerobakId: number, orders: LoadingOrder[]): LoadingOrder | null {
+  return (
+    orders.find(
+      (o) => o.gerobak.id === gerobakId && ACTIVE_STATUSES.includes(o.status) && isToday(o.created_at),
+    ) ?? null
+  );
+}
+
 const ALL_STATUSES: StatusLoading[] = ['draft', 'confirmed', 'dispatched', 'returned'];
 
 const STATUS_LABEL: Record<StatusLoading, string> = {
@@ -220,9 +230,23 @@ export default function LoadingScreen() {
     } catch (_) {}
   }, []);
 
+  // ── Cek gerobak terpilih apakah sudah punya loading aktif hari ini
+  const blockedOrder = selGerobak ? hasActiveLoadingToday(selGerobak.id, orders) : null;
+
   const handleCreate = async () => {
     if (!selGerobak) { setCreateError('Pilih gerobak terlebih dahulu.'); return; }
     if (!selDriver)  { setCreateError('Pilih driver terlebih dahulu.'); return; }
+
+    // Pengecekan sisi mobile: 1x loading per gerobak per hari
+    if (blockedOrder) {
+      setCreateError(
+        `Gerobak "${selGerobak.nama}" sudah memiliki loading aktif hari ini` +
+        ` (${blockedOrder.nomor_loading} — ${STATUS_LABEL[blockedOrder.status]}).` +
+        ` Selesaikan atau kembalikan loading tersebut terlebih dahulu.`,
+      );
+      return;
+    }
+
     setCreating(true); setCreateError('');
     try {
       const res = await api.post('/loading/', {
@@ -487,89 +511,134 @@ export default function LoadingScreen() {
 
   // ────────────────────────────────────────────────────────────────────────────
   // SECTION: Create
-  const renderCreate = () => (
-    <LinearGradient colors={['#0f1117', '#13151e', '#0f1117']} style={{ flex: 1 }}>
-      <View style={styles.glowTR} />
-      {renderHeader(() => setSection('list'))}
-      <ScrollView contentContainerStyle={{ padding: 20, gap: 14 }} keyboardShouldPersistTaps="handled">
-        {!!createError && (
-          <View style={styles.errorBox}>
-            <Ionicons name="warning-outline" size={16} color="#f44444" />
-            <Text style={{ color: '#f44444', fontSize: 12, flex: 1 }}>{createError}</Text>
-          </View>
-        )}
-
-        <Text style={styles.sectionLabel}>Pilih Gerobak</Text>
-        {gerobaks.length === 0 ? <ActivityIndicator color="#f44444" /> : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              {gerobaks.map((g) => {
-                const active = selGerobak?.id === g.id;
-                return (
-                  <TouchableOpacity key={g.id} onPress={() => setSelGerobak(g)} activeOpacity={0.8}>
-                    <BlurView intensity={12} tint="dark"
-                      style={[styles.pickChip, active && { borderColor: '#f4444480', backgroundColor: '#f4444415' }]}>
-                      <Ionicons name="storefront-outline" size={14} color={active ? '#f44444' : 'rgba(255,255,255,0.4)'} />
-                      <Text style={[styles.pickChipText, active && { color: '#f44444' }]}>{g.nama}</Text>
-                      <Text style={styles.pickChipSub}>{g.kode}</Text>
-                    </BlurView>
-                  </TouchableOpacity>
-                );
-              })}
+  const renderCreate = () => {
+    const submitDisabled = creating || !!blockedOrder;
+    return (
+      <LinearGradient colors={['#0f1117', '#13151e', '#0f1117']} style={{ flex: 1 }}>
+        <View style={styles.glowTR} />
+        {renderHeader(() => setSection('list'))}
+        <ScrollView contentContainerStyle={{ padding: 20, gap: 14 }} keyboardShouldPersistTaps="handled">
+          {!!createError && (
+            <View style={styles.errorBox}>
+              <Ionicons name="warning-outline" size={16} color="#f44444" />
+              <Text style={{ color: '#f44444', fontSize: 12, flex: 1 }}>{createError}</Text>
             </View>
-          </ScrollView>
-        )}
+          )}
 
-        <Text style={styles.sectionLabel}>{role === 'driver' ? 'Driver (Anda)' : 'Pilih Driver'}</Text>
-        {drivers.length === 0 ? <ActivityIndicator color="#f44444" /> : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              {drivers.map((d) => {
-                const active = selDriver?.id === d.id;
-                const locked = role === 'driver';
-                return (
-                  <TouchableOpacity key={d.id} onPress={() => !locked && setSelDriver(d)} activeOpacity={locked ? 1 : 0.8}>
-                    <BlurView intensity={12} tint="dark"
-                      style={[
-                        styles.pickChip,
-                        active && { borderColor: '#34d39980', backgroundColor: '#34d39915' },
-                        locked && { opacity: 0.75 },
-                      ]}>
-                      <Ionicons name={locked ? 'lock-closed-outline' : 'person-outline'} size={14}
-                        color={active ? '#34d399' : 'rgba(255,255,255,0.4)'} />
-                      <Text style={[styles.pickChipText, active && { color: '#34d399' }]}>{d.full_name}</Text>
-                      {locked && <Text style={styles.pickChipSub}>Otomatis</Text>}
-                    </BlurView>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </ScrollView>
-        )}
+          <Text style={styles.sectionLabel}>Pilih Gerobak</Text>
+          {gerobaks.length === 0 ? <ActivityIndicator color="#f44444" /> : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {gerobaks.map((g) => {
+                  const active   = selGerobak?.id === g.id;
+                  const blocked  = hasActiveLoadingToday(g.id, orders) !== null;
+                  return (
+                    <TouchableOpacity key={g.id} onPress={() => { setSelGerobak(g); setCreateError(''); }} activeOpacity={0.8}>
+                      <BlurView intensity={12} tint="dark"
+                        style={[
+                          styles.pickChip,
+                          active   && { borderColor: '#f4444480', backgroundColor: '#f4444415' },
+                          blocked  && { borderColor: 'rgba(251,191,36,0.40)', backgroundColor: 'rgba(251,191,36,0.08)', opacity: 0.75 },
+                        ]}>
+                        <Ionicons
+                          name={blocked ? 'lock-closed-outline' : 'storefront-outline'}
+                          size={14}
+                          color={blocked ? '#fbbf24' : active ? '#f44444' : 'rgba(255,255,255,0.4)'}
+                        />
+                        <Text style={[
+                          styles.pickChipText,
+                          active  && { color: '#f44444' },
+                          blocked && { color: '#fbbf24' },
+                        ]}>{g.nama}</Text>
+                        {blocked && <Text style={[styles.pickChipSub, { color: '#fbbf24' }]}>Sudah loading</Text>}
+                      </BlurView>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          )}
 
-        <Text style={styles.sectionLabel}>Catatan (opsional)</Text>
-        <BlurView intensity={10} tint="dark" style={styles.textAreaWrap}>
-          <TextInput
-            value={catatan} onChangeText={setCatatan}
-            placeholder="Catatan tambahan..." placeholderTextColor="rgba(255,255,255,0.2)"
-            multiline numberOfLines={3} style={styles.textArea}
-          />
-        </BlurView>
+          {/* Warning banner jika gerobak terpilih sudah ada loading aktif hari ini */}
+          {!!blockedOrder && (
+            <BlurView intensity={12} tint="dark" style={styles.warningBanner}>
+              <Ionicons name="warning-outline" size={16} color="#fbbf24" />
+              <Text style={styles.warningBannerText}>
+                Gerobak ini sudah memiliki loading aktif hari ini:{' '}
+                <Text style={{ fontWeight: '700' }}>{blockedOrder.nomor_loading}</Text>
+                {' '}({STATUS_LABEL[blockedOrder.status]}).{' '}
+                Selesaikan atau kembalikan loading tersebut terlebih dahulu.
+              </Text>
+            </BlurView>
+          )}
 
-        <TouchableOpacity onPress={handleCreate} disabled={creating} activeOpacity={0.82}>
-          <LinearGradient
-            colors={creating ? ['#4a1f1f', '#3a1515'] : ['#f44444', '#d92b2b']}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-            style={styles.submitBtn}
-          >
-            {creating
-              ? <ActivityIndicator color="rgba(255,255,255,0.75)" />
-              : <><Ionicons name="add-circle-outline" size={18} color="#fff" /><Text style={styles.submitText}>BUAT LOADING ORDER</Text></>}
-          </LinearGradient>
-        </TouchableOpacity>
-      </ScrollView>
-    </LinearGradient>
-  );
+          <Text style={styles.sectionLabel}>{role === 'driver' ? 'Driver (Anda)' : 'Pilih Driver'}</Text>
+          {drivers.length === 0 ? <ActivityIndicator color="#f44444" /> : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {drivers.map((d) => {
+                  const active = selDriver?.id === d.id;
+                  const locked = role === 'driver';
+                  return (
+                    <TouchableOpacity key={d.id} onPress={() => !locked && setSelDriver(d)} activeOpacity={locked ? 1 : 0.8}>
+                      <BlurView intensity={12} tint="dark"
+                        style={[
+                          styles.pickChip,
+                          active && { borderColor: '#34d39980', backgroundColor: '#34d39915' },
+                          locked && { opacity: 0.75 },
+                        ]}>
+                        <Ionicons name={locked ? 'lock-closed-outline' : 'person-outline'} size={14}
+                          color={active ? '#34d399' : 'rgba(255,255,255,0.4)'} />
+                        <Text style={[styles.pickChipText, active && { color: '#34d399' }]}>{d.full_name}</Text>
+                        {locked && <Text style={styles.pickChipSub}>Otomatis</Text>}
+                      </BlurView>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          )}
+
+          <Text style={styles.sectionLabel}>Catatan (opsional)</Text>
+          <BlurView intensity={10} tint="dark" style={styles.textAreaWrap}>
+            <TextInput
+              value={catatan} onChangeText={setCatatan}
+              placeholder="Catatan tambahan..." placeholderTextColor="rgba(255,255,255,0.2)"
+              multiline numberOfLines={3} style={styles.textArea}
+            />
+          </BlurView>
+
+          <TouchableOpacity onPress={handleCreate} disabled={submitDisabled} activeOpacity={0.82}>
+            <LinearGradient
+              colors={
+                !!blockedOrder
+                  ? ['#3a3010', '#2a2008']
+                  : creating
+                  ? ['#4a1f1f', '#3a1515']
+                  : ['#f44444', '#d92b2b']
+              }
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+              style={[styles.submitBtn, { opacity: submitDisabled ? 0.55 : 1 }]}
+            >
+              {creating ? (
+                <ActivityIndicator color="rgba(255,255,255,0.75)" />
+              ) : !!blockedOrder ? (
+                <>
+                  <Ionicons name="lock-closed-outline" size={18} color="#fbbf24" />
+                  <Text style={[styles.submitText, { color: '#fbbf24' }]}>GEROBAK SUDAH LOADING HARI INI</Text>
+                </>
+              ) : (
+                <>
+                  <Ionicons name="add-circle-outline" size={18} color="#fff" />
+                  <Text style={styles.submitText}>BUAT LOADING ORDER</Text>
+                </>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+        </ScrollView>
+      </LinearGradient>
+    );
+  };
 
   // ────────────────────────────────────────────────────────────────────────────
   // SECTION: Detail
@@ -865,7 +934,7 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.18)', fontSize: 11, textAlign: 'center', maxWidth: 240,
   },
 
-  // warning banner for history draft
+  // warning banner
   warningBanner: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 8,
     borderRadius: 12, overflow: 'hidden', padding: 12,
