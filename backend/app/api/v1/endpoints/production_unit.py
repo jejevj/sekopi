@@ -22,7 +22,7 @@ from app.services.production_unit_service import ProductionUnitService, _enrich_
 
 router = APIRouter()
 
-VIEW_ROLES = (UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI, UserRole.SHAREHOLDER)
+VIEW_ROLES = (UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI, UserRole.SHAREHOLDER, UserRole.DRIVER)
 
 # Role yang boleh akses FEFO (termasuk driver untuk loading)
 FEFO_ROLES = (UserRole.ADMIN, UserRole.PRODUKSI, UserRole.INVENTORI, UserRole.DRIVER, UserRole.SHAREHOLDER)
