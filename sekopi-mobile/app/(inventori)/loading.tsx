@@ -70,14 +70,12 @@ function isToday(dateStr: string): boolean {
   );
 }
 
-/** Cek apakah gerobak sudah punya loading aktif (bukan returned) hari ini */
-const ACTIVE_STATUSES: StatusLoading[] = ['draft', 'confirmed', 'dispatched'];
-function hasActiveLoadingToday(gerobakId: number, orders: LoadingOrder[]): LoadingOrder | null {
-  return (
-    orders.find(
-      (o) => o.gerobak.id === gerobakId && ACTIVE_STATUSES.includes(o.status) && isToday(o.created_at),
-    ) ?? null
-  );
+/**
+ * Cek apakah sudah ada loading berstatus 'draft' yang dibuat hari ini.
+ * Jika ada, draft baru tidak boleh dibuat.
+ */
+function getExistingDraftToday(orders: LoadingOrder[]): LoadingOrder | null {
+  return orders.find((o) => o.status === 'draft' && isToday(o.created_at)) ?? null;
 }
 
 const ALL_STATUSES: StatusLoading[] = ['draft', 'confirmed', 'dispatched', 'returned'];
@@ -230,19 +228,19 @@ export default function LoadingScreen() {
     } catch (_) {}
   }, []);
 
-  // ── Cek gerobak terpilih apakah sudah punya loading aktif hari ini
-  const blockedOrder = selGerobak ? hasActiveLoadingToday(selGerobak.id, orders) : null;
+  // ── Cek: apakah sudah ada draft hari ini (global, tidak per-gerobak)
+  const existingDraftToday = getExistingDraftToday(orders);
 
   const handleCreate = async () => {
     if (!selGerobak) { setCreateError('Pilih gerobak terlebih dahulu.'); return; }
     if (!selDriver)  { setCreateError('Pilih driver terlebih dahulu.'); return; }
 
-    // Pengecekan sisi mobile: 1x loading per gerobak per hari
-    if (blockedOrder) {
+    // Pengecekan sisi mobile: hanya boleh 1 draft aktif per hari
+    if (existingDraftToday) {
       setCreateError(
-        `Gerobak "${selGerobak.nama}" sudah memiliki loading aktif hari ini` +
-        ` (${blockedOrder.nomor_loading} — ${STATUS_LABEL[blockedOrder.status]}).` +
-        ` Selesaikan atau kembalikan loading tersebut terlebih dahulu.`,
+        `Sudah ada draft loading hari ini (${existingDraftToday.nomor_loading} — ` +
+        `${existingDraftToday.gerobak.nama}). Selesaikan draft tersebut terlebih dahulu ` +
+        `sebelum membuat loading baru.`,
       );
       return;
     }
@@ -332,7 +330,6 @@ export default function LoadingScreen() {
   const todayOrders   = orders.filter((o) => isToday(o.created_at));
   const historyOrders = orders.filter((o) => !isToday(o.created_at));
 
-  // Selalu tampilkan section "Hari Ini" (bisa kosong) dan "History" jika ada
   const sectionData = [
     {
       title: 'Hari Ini',
@@ -374,7 +371,6 @@ export default function LoadingScreen() {
   const renderOrderCard = (o: LoadingOrder) => (
     <TouchableOpacity activeOpacity={0.85} onPress={() => { setSelected(o); setSection('detail'); }}>
       <BlurView intensity={12} tint="dark" style={styles.card}>
-        {/* Accent bar kiri sesuai status */}
         <View style={[styles.cardAccent, { backgroundColor: STATUS_COLOR[o.status] }]} />
         <View style={{ flex: 1 }}>
           <View style={styles.cardRow}>
@@ -399,7 +395,6 @@ export default function LoadingScreen() {
     </TouchableOpacity>
   );
 
-  // ─── Render section kosong "Hari Ini"
   const renderTodayEmpty = () => (
     <BlurView intensity={10} tint="dark" style={styles.sectionEmptyBox}>
       <Ionicons name="time-outline" size={32} color="rgba(255,255,255,0.1)" />
@@ -414,16 +409,13 @@ export default function LoadingScreen() {
   // SECTION: List
   const renderList = () => (
     <LinearGradient colors={['#0f1117', '#13151e', '#0f1117']} style={{ flex: 1 }}>
-      {/* Decorative glow */}
       <View style={styles.glowTR} />
       <View style={styles.glowBL} />
 
       {renderHeader()}
 
-      {/* Status Tabs */}
       <Animated.View style={{ opacity: fadeAnim }}>
         <BlurView intensity={12} tint="dark" style={styles.tabContainer}>
-          {/* "Semua" tab */}
           <StatusTab
             label="Semua"
             color="#f44444"
@@ -467,13 +459,9 @@ export default function LoadingScreen() {
             />
           }
           renderSectionHeader={({ section: sec }) => (
-            <ListSectionHeader
-              title={sec.title}
-              count={sec.data.length}
-            />
+            <ListSectionHeader title={sec.title} count={sec.data.length} />
           )}
           renderItem={({ item, section: sec }) => {
-            // Section "Hari Ini" kosong: tampilkan placeholder di renderSectionFooter
             if (sec.isEmpty) return null;
             return renderOrderCard(item);
           }}
@@ -498,10 +486,7 @@ export default function LoadingScreen() {
             setSection('create');
           }}
         >
-          <LinearGradient
-            colors={['#f44444', '#d92b2b']}
-            style={styles.fabGrad}
-          >
+          <LinearGradient colors={['#f44444', '#d92b2b']} style={styles.fabGrad}>
             <Ionicons name="add" size={26} color="#fff" />
           </LinearGradient>
         </TouchableOpacity>
@@ -512,12 +497,26 @@ export default function LoadingScreen() {
   // ────────────────────────────────────────────────────────────────────────────
   // SECTION: Create
   const renderCreate = () => {
-    const submitDisabled = creating || !!blockedOrder;
+    const submitDisabled = creating || !!existingDraftToday;
     return (
       <LinearGradient colors={['#0f1117', '#13151e', '#0f1117']} style={{ flex: 1 }}>
         <View style={styles.glowTR} />
         {renderHeader(() => setSection('list'))}
         <ScrollView contentContainerStyle={{ padding: 20, gap: 14 }} keyboardShouldPersistTaps="handled">
+
+          {/* Banner global: sudah ada draft hari ini */}
+          {!!existingDraftToday && (
+            <BlurView intensity={12} tint="dark" style={styles.warningBanner}>
+              <Ionicons name="warning-outline" size={16} color="#fbbf24" />
+              <Text style={styles.warningBannerText}>
+                Sudah ada draft loading hari ini:{' '}
+                <Text style={{ fontWeight: '700' }}>{existingDraftToday.nomor_loading}</Text>
+                {' '}({existingDraftToday.gerobak.nama}).{' '}
+                Selesaikan draft tersebut sebelum membuat loading baru.
+              </Text>
+            </BlurView>
+          )}
+
           {!!createError && (
             <View style={styles.errorBox}>
               <Ionicons name="warning-outline" size={16} color="#f44444" />
@@ -530,46 +529,34 @@ export default function LoadingScreen() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 {gerobaks.map((g) => {
-                  const active   = selGerobak?.id === g.id;
-                  const blocked  = hasActiveLoadingToday(g.id, orders) !== null;
+                  const active = selGerobak?.id === g.id;
                   return (
-                    <TouchableOpacity key={g.id} onPress={() => { setSelGerobak(g); setCreateError(''); }} activeOpacity={0.8}>
+                    <TouchableOpacity
+                      key={g.id}
+                      onPress={() => { if (!existingDraftToday) { setSelGerobak(g); setCreateError(''); } }}
+                      activeOpacity={existingDraftToday ? 1 : 0.8}
+                    >
                       <BlurView intensity={12} tint="dark"
                         style={[
                           styles.pickChip,
-                          active   && { borderColor: '#f4444480', backgroundColor: '#f4444415' },
-                          blocked  && { borderColor: 'rgba(251,191,36,0.40)', backgroundColor: 'rgba(251,191,36,0.08)', opacity: 0.75 },
+                          active && !existingDraftToday && { borderColor: '#f4444480', backgroundColor: '#f4444415' },
+                          !!existingDraftToday && { opacity: 0.4 },
                         ]}>
                         <Ionicons
-                          name={blocked ? 'lock-closed-outline' : 'storefront-outline'}
+                          name="storefront-outline"
                           size={14}
-                          color={blocked ? '#fbbf24' : active ? '#f44444' : 'rgba(255,255,255,0.4)'}
+                          color={active && !existingDraftToday ? '#f44444' : 'rgba(255,255,255,0.4)'}
                         />
                         <Text style={[
                           styles.pickChipText,
-                          active  && { color: '#f44444' },
-                          blocked && { color: '#fbbf24' },
+                          active && !existingDraftToday && { color: '#f44444' },
                         ]}>{g.nama}</Text>
-                        {blocked && <Text style={[styles.pickChipSub, { color: '#fbbf24' }]}>Sudah loading</Text>}
                       </BlurView>
                     </TouchableOpacity>
                   );
                 })}
               </View>
             </ScrollView>
-          )}
-
-          {/* Warning banner jika gerobak terpilih sudah ada loading aktif hari ini */}
-          {!!blockedOrder && (
-            <BlurView intensity={12} tint="dark" style={styles.warningBanner}>
-              <Ionicons name="warning-outline" size={16} color="#fbbf24" />
-              <Text style={styles.warningBannerText}>
-                Gerobak ini sudah memiliki loading aktif hari ini:{' '}
-                <Text style={{ fontWeight: '700' }}>{blockedOrder.nomor_loading}</Text>
-                {' '}({STATUS_LABEL[blockedOrder.status]}).{' '}
-                Selesaikan atau kembalikan loading tersebut terlebih dahulu.
-              </Text>
-            </BlurView>
           )}
 
           <Text style={styles.sectionLabel}>{role === 'driver' ? 'Driver (Anda)' : 'Pilih Driver'}</Text>
@@ -580,16 +567,22 @@ export default function LoadingScreen() {
                   const active = selDriver?.id === d.id;
                   const locked = role === 'driver';
                   return (
-                    <TouchableOpacity key={d.id} onPress={() => !locked && setSelDriver(d)} activeOpacity={locked ? 1 : 0.8}>
+                    <TouchableOpacity
+                      key={d.id}
+                      onPress={() => !locked && !existingDraftToday && setSelDriver(d)}
+                      activeOpacity={locked || !!existingDraftToday ? 1 : 0.8}
+                    >
                       <BlurView intensity={12} tint="dark"
                         style={[
                           styles.pickChip,
-                          active && { borderColor: '#34d39980', backgroundColor: '#34d39915' },
-                          locked && { opacity: 0.75 },
+                          active && !existingDraftToday && { borderColor: '#34d39980', backgroundColor: '#34d39915' },
+                          (locked || !!existingDraftToday) && { opacity: 0.4 },
                         ]}>
                         <Ionicons name={locked ? 'lock-closed-outline' : 'person-outline'} size={14}
-                          color={active ? '#34d399' : 'rgba(255,255,255,0.4)'} />
-                        <Text style={[styles.pickChipText, active && { color: '#34d399' }]}>{d.full_name}</Text>
+                          color={active && !existingDraftToday ? '#34d399' : 'rgba(255,255,255,0.4)'} />
+                        <Text style={[styles.pickChipText, active && !existingDraftToday && { color: '#34d399' }]}>
+                          {d.full_name}
+                        </Text>
                         {locked && <Text style={styles.pickChipSub}>Otomatis</Text>}
                       </BlurView>
                     </TouchableOpacity>
@@ -605,13 +598,14 @@ export default function LoadingScreen() {
               value={catatan} onChangeText={setCatatan}
               placeholder="Catatan tambahan..." placeholderTextColor="rgba(255,255,255,0.2)"
               multiline numberOfLines={3} style={styles.textArea}
+              editable={!existingDraftToday}
             />
           </BlurView>
 
           <TouchableOpacity onPress={handleCreate} disabled={submitDisabled} activeOpacity={0.82}>
             <LinearGradient
               colors={
-                !!blockedOrder
+                !!existingDraftToday
                   ? ['#3a3010', '#2a2008']
                   : creating
                   ? ['#4a1f1f', '#3a1515']
@@ -622,10 +616,10 @@ export default function LoadingScreen() {
             >
               {creating ? (
                 <ActivityIndicator color="rgba(255,255,255,0.75)" />
-              ) : !!blockedOrder ? (
+              ) : !!existingDraftToday ? (
                 <>
                   <Ionicons name="lock-closed-outline" size={18} color="#fbbf24" />
-                  <Text style={[styles.submitText, { color: '#fbbf24' }]}>GEROBAK SUDAH LOADING HARI INI</Text>
+                  <Text style={[styles.submitText, { color: '#fbbf24' }]}>DRAFT HARI INI SUDAH ADA</Text>
                 </>
               ) : (
                 <>
@@ -635,6 +629,25 @@ export default function LoadingScreen() {
               )}
             </LinearGradient>
           </TouchableOpacity>
+
+          {/* Shortcut ke draft yang sudah ada */}
+          {!!existingDraftToday && (
+            <TouchableOpacity
+              onPress={() => {
+                setSelected(existingDraftToday);
+                setSection('detail');
+              }}
+              activeOpacity={0.85}
+            >
+              <BlurView intensity={12} tint="dark" style={styles.gotoExistingDraft}>
+                <Ionicons name="document-text-outline" size={16} color="#60a5fa" />
+                <Text style={styles.gotoExistingDraftText}>
+                  Buka draft {existingDraftToday.nomor_loading}
+                </Text>
+                <Ionicons name="chevron-forward" size={16} color="rgba(96,165,250,0.6)" />
+              </BlurView>
+            </TouchableOpacity>
+          )}
         </ScrollView>
       </LinearGradient>
     );
@@ -650,8 +663,6 @@ export default function LoadingScreen() {
     const isDraft       = selected.status === 'draft';
     const accentColor   = STATUS_COLOR[selected.status];
 
-    // Draft dari hari ini → scan & konfirmasi aktif
-    // Draft dari hari sebelumnya (history) → scan & konfirmasi dinonaktifkan
     const isHistoryDraft = isDraft && !isToday(selected.created_at);
     const canScan        = isDraft && !isHistoryDraft;
     const canConfirm     = canAdvance && !!next && !isHistoryDraft;
@@ -676,7 +687,6 @@ export default function LoadingScreen() {
             </View>
           </BlurView>
 
-          {/* Banner peringatan draft lama */}
           {isHistoryDraft && (
             <BlurView intensity={12} tint="dark" style={styles.warningBanner}>
               <Ionicons name="warning-outline" size={16} color="#fbbf24" />
@@ -742,7 +752,6 @@ export default function LoadingScreen() {
           </View>
         </ScrollView>
 
-        {/* Action bar: tampilkan selalu jika ada next status, tapi disable jika history draft */}
         {canAdvance && next && (
           <View style={styles.actionBar}>
             <TouchableOpacity
@@ -862,7 +871,6 @@ function InfoRow({ icon, label, value }: { icon: any; label: string; value: stri
 
 // ─── Styles
 const styles = StyleSheet.create({
-  // decorative
   glowTR: { position: 'absolute', width: 280, height: 280, borderRadius: 140, top: -60, right: -60, backgroundColor: 'rgba(244,68,68,0.07)' },
   glowBL: { position: 'absolute', width: 200, height: 200, borderRadius: 100, bottom: 40, left: -50, backgroundColor: 'rgba(244,68,68,0.05)' },
 
@@ -874,7 +882,6 @@ const styles = StyleSheet.create({
   },
   headerTitle: { color: '#fff', fontSize: 16, fontWeight: '700', flex: 1, textAlign: 'center' },
 
-  // status tabs
   tabContainer: {
     flexDirection: 'row', flexWrap: 'wrap', gap: 8,
     paddingHorizontal: 16, paddingVertical: 12,
@@ -894,7 +901,6 @@ const styles = StyleSheet.create({
   },
   tabText: { fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' },
 
-  // section header for SectionList
   sectionHeader: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     paddingHorizontal: 16, paddingVertical: 10,
@@ -902,10 +908,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)',
     backgroundColor: 'rgba(15,17,23,0.85)',
   },
-  sectionHeaderDot: {
-    width: 6, height: 6, borderRadius: 3,
-    backgroundColor: '#f44444',
-  },
+  sectionHeaderDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#f44444' },
   sectionHeaderText: {
     color: 'rgba(255,255,255,0.65)', fontSize: 11,
     fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', flex: 1,
@@ -915,35 +918,33 @@ const styles = StyleSheet.create({
     borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2,
     borderWidth: 1, borderColor: 'rgba(244,68,68,0.35)',
   },
-  sectionHeaderBadgeText: {
-    color: '#f44444', fontSize: 11, fontWeight: '700',
-  },
+  sectionHeaderBadgeText: { color: '#f44444', fontSize: 11, fontWeight: '700' },
 
-  // empty state for "Hari Ini" section
   sectionEmptyBox: {
     borderRadius: 14, overflow: 'hidden', padding: 28,
     alignItems: 'center', gap: 8,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)',
-    borderStyle: 'dashed',
-    marginBottom: 8,
+    borderStyle: 'dashed', marginBottom: 8,
   },
-  sectionEmptyTitle: {
-    color: 'rgba(255,255,255,0.3)', fontSize: 13, fontWeight: '600', textAlign: 'center',
-  },
-  sectionEmptySubtitle: {
-    color: 'rgba(255,255,255,0.18)', fontSize: 11, textAlign: 'center', maxWidth: 240,
-  },
+  sectionEmptyTitle:    { color: 'rgba(255,255,255,0.3)', fontSize: 13, fontWeight: '600', textAlign: 'center' },
+  sectionEmptySubtitle: { color: 'rgba(255,255,255,0.18)', fontSize: 11, textAlign: 'center', maxWidth: 240 },
 
-  // warning banner
   warningBanner: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 8,
     borderRadius: 12, overflow: 'hidden', padding: 12,
     borderWidth: 1, borderColor: 'rgba(251,191,36,0.25)',
     backgroundColor: 'rgba(251,191,36,0.06)',
   },
-  warningBannerText: {
-    color: '#fbbf24', fontSize: 12, flex: 1, lineHeight: 18,
+  warningBannerText: { color: '#fbbf24', fontSize: 12, flex: 1, lineHeight: 18 },
+
+  // shortcut ke existing draft
+  gotoExistingDraft: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderRadius: 12, overflow: 'hidden', padding: 14,
+    borderWidth: 1, borderColor: 'rgba(96,165,250,0.25)',
+    backgroundColor: 'rgba(96,165,250,0.06)',
   },
+  gotoExistingDraftText: { color: '#60a5fa', fontSize: 13, fontWeight: '600', flex: 1 },
 
   centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40, gap: 10 },
   errorText: { color: '#f44444', fontSize: 13, textAlign: 'center' },
@@ -974,7 +975,7 @@ const styles = StyleSheet.create({
   textAreaWrap: { borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
   textArea:     { color: '#fff', fontSize: 14, padding: 12, minHeight: 80, textAlignVertical: 'top' },
 
-  submitBtn:  {
+  submitBtn: {
     borderRadius: 12, height: 50,
     alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8,
     shadowColor: '#f44444', shadowOffset: { width: 0, height: 4 },
