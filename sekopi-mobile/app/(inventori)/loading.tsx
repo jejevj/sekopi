@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView, FlatList,
+  View, Text, TouchableOpacity, ScrollView, SectionList,
   TextInput, ActivityIndicator, Alert, StyleSheet, RefreshControl,
   Modal, Dimensions, Animated,
 } from 'react-native';
@@ -60,6 +60,16 @@ function parseError(e: any): string {
   return e?.message ?? 'Terjadi kesalahan.';
 }
 
+function isToday(dateStr: string): boolean {
+  const date = new Date(dateStr);
+  const now = new Date();
+  return (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  );
+}
+
 const ALL_STATUSES: StatusLoading[] = ['draft', 'confirmed', 'dispatched', 'returned'];
 
 const STATUS_LABEL: Record<StatusLoading, string> = {
@@ -110,6 +120,19 @@ function StatusTab({
         )}
       </TouchableOpacity>
     </Animated.View>
+  );
+}
+
+// ─── Section Header for SectionList
+function ListSectionHeader({ title, count }: { title: string; count: number }) {
+  return (
+    <BlurView intensity={18} tint="dark" style={styles.sectionHeader}>
+      <View style={styles.sectionHeaderDot} />
+      <Text style={styles.sectionHeaderText}>{title}</Text>
+      <View style={styles.sectionHeaderBadge}>
+        <Text style={styles.sectionHeaderBadgeText}>{count}</Text>
+      </View>
+    </BlurView>
   );
 }
 
@@ -281,6 +304,19 @@ export default function LoadingScreen() {
     setScanOpen(true);
   };
 
+  // ── Pisahkan orders: hari ini vs history
+  const todayOrders   = orders.filter((o) => isToday(o.created_at));
+  const historyOrders = orders.filter((o) => !isToday(o.created_at));
+
+  const sectionData = [
+    ...(todayOrders.length > 0
+      ? [{ title: 'Hari Ini', data: todayOrders }]
+      : []),
+    ...(historyOrders.length > 0
+      ? [{ title: 'History', data: historyOrders }]
+      : []),
+  ];
+
   // ────────────────────────────────────────────────────────────────────────────
   // Render helpers
   const SECTION_TITLE: Record<Section, string> = {
@@ -308,6 +344,34 @@ export default function LoadingScreen() {
     </View>
   );
 
+  const renderOrderCard = (o: LoadingOrder) => (
+    <TouchableOpacity activeOpacity={0.85} onPress={() => { setSelected(o); setSection('detail'); }}>
+      <BlurView intensity={12} tint="dark" style={styles.card}>
+        {/* Accent bar kiri sesuai status */}
+        <View style={[styles.cardAccent, { backgroundColor: STATUS_COLOR[o.status] }]} />
+        <View style={{ flex: 1 }}>
+          <View style={styles.cardRow}>
+            <Text style={styles.cardTitle}>{o.nomor_loading}</Text>
+            <StatusBadge status={o.status} />
+          </View>
+          <View style={styles.cardRow}>
+            <Ionicons name="storefront-outline" size={13} color="rgba(255,255,255,0.35)" />
+            <Text style={styles.cardMeta}>{o.gerobak.nama}</Text>
+            <Ionicons name="person-outline" size={13} color="rgba(255,255,255,0.35)" style={{ marginLeft: 10 }} />
+            <Text style={styles.cardMeta}>{o.driver.full_name}</Text>
+          </View>
+          <View style={styles.cardRow}>
+            <Ionicons name="cube-outline" size={13} color="rgba(255,255,255,0.35)" />
+            <Text style={styles.cardMeta}>{o.total_unit} unit</Text>
+            <Text style={[styles.cardMeta, { marginLeft: 'auto' }]}>
+              {new Date(o.created_at).toLocaleDateString('id-ID')}
+            </Text>
+          </View>
+        </View>
+      </BlurView>
+    </TouchableOpacity>
+  );
+
   // ────────────────────────────────────────────────────────────────────────────
   // SECTION: List
   const renderList = () => (
@@ -318,7 +382,7 @@ export default function LoadingScreen() {
 
       {renderHeader()}
 
-      {/* Status Tabs — style konsisten dengan login */}
+      {/* Status Tabs */}
       <Animated.View style={{ opacity: fadeAnim }}>
         <BlurView intensity={12} tint="dark" style={styles.tabContainer}>
           {/* "Semua" tab */}
@@ -338,7 +402,6 @@ export default function LoadingScreen() {
             />
           ))}
         </BlurView>
-        {/* Active indicator line — mirip garis merah di login */}
         <View style={styles.tabUnderline} />
       </Animated.View>
 
@@ -352,11 +415,17 @@ export default function LoadingScreen() {
             <Text style={{ color: '#f44444', fontSize: 13 }}>Coba lagi</Text>
           </TouchableOpacity>
         </View>
+      ) : orders.length === 0 ? (
+        <View style={styles.centerBox}>
+          <Ionicons name="cube-outline" size={48} color="rgba(255,255,255,0.12)" />
+          <Text style={styles.emptyText}>Belum ada loading order</Text>
+        </View>
       ) : (
-        <FlatList
-          data={orders}
+        <SectionList
+          sections={sectionData}
           keyExtractor={(o) => String(o.id)}
           contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 100 }}
+          stickySectionHeadersEnabled={true}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -364,39 +433,15 @@ export default function LoadingScreen() {
               tintColor="#f44444"
             />
           }
-          ListEmptyComponent={
-            <View style={styles.centerBox}>
-              <Ionicons name="cube-outline" size={48} color="rgba(255,255,255,0.12)" />
-              <Text style={styles.emptyText}>Belum ada loading order</Text>
-            </View>
-          }
-          renderItem={({ item: o }) => (
-            <TouchableOpacity activeOpacity={0.85} onPress={() => { setSelected(o); setSection('detail'); }}>
-              <BlurView intensity={12} tint="dark" style={styles.card}>
-                {/* Accent bar kiri sesuai status */}
-                <View style={[styles.cardAccent, { backgroundColor: STATUS_COLOR[o.status] }]} />
-                <View style={{ flex: 1 }}>
-                  <View style={styles.cardRow}>
-                    <Text style={styles.cardTitle}>{o.nomor_loading}</Text>
-                    <StatusBadge status={o.status} />
-                  </View>
-                  <View style={styles.cardRow}>
-                    <Ionicons name="storefront-outline" size={13} color="rgba(255,255,255,0.35)" />
-                    <Text style={styles.cardMeta}>{o.gerobak.nama}</Text>
-                    <Ionicons name="person-outline" size={13} color="rgba(255,255,255,0.35)" style={{ marginLeft: 10 }} />
-                    <Text style={styles.cardMeta}>{o.driver.full_name}</Text>
-                  </View>
-                  <View style={styles.cardRow}>
-                    <Ionicons name="cube-outline" size={13} color="rgba(255,255,255,0.35)" />
-                    <Text style={styles.cardMeta}>{o.total_unit} unit</Text>
-                    <Text style={[styles.cardMeta, { marginLeft: 'auto' }]}>
-                      {new Date(o.created_at).toLocaleDateString('id-ID')}
-                    </Text>
-                  </View>
-                </View>
-              </BlurView>
-            </TouchableOpacity>
+          renderSectionHeader={({ section: sec }) => (
+            <ListSectionHeader
+              title={sec.title}
+              count={sec.data.length}
+            />
           )}
+          renderItem={({ item }) => renderOrderCard(item)}
+          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+          SectionSeparatorComponent={() => <View style={{ height: 6 }} />}
         />
       )}
 
@@ -694,7 +739,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: { color: '#fff', fontSize: 16, fontWeight: '700', flex: 1, textAlign: 'center' },
 
-  // status tabs — style seperti login
+  // status tabs
   tabContainer: {
     flexDirection: 'row', flexWrap: 'wrap', gap: 8,
     paddingHorizontal: 16, paddingVertical: 12,
@@ -713,6 +758,31 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
   },
   tabText: { fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' },
+
+  // section header for SectionList
+  sectionHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 16, paddingVertical: 10,
+    marginBottom: 4,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: 'rgba(15,17,23,0.85)',
+  },
+  sectionHeaderDot: {
+    width: 6, height: 6, borderRadius: 3,
+    backgroundColor: '#f44444',
+  },
+  sectionHeaderText: {
+    color: 'rgba(255,255,255,0.65)', fontSize: 11,
+    fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', flex: 1,
+  },
+  sectionHeaderBadge: {
+    backgroundColor: 'rgba(244,68,68,0.18)',
+    borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2,
+    borderWidth: 1, borderColor: 'rgba(244,68,68,0.35)',
+  },
+  sectionHeaderBadgeText: {
+    color: '#f44444', fontSize: 11, fontWeight: '700',
+  },
 
   centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40, gap: 10 },
   errorText: { color: '#f44444', fontSize: 13, textAlign: 'center' },
