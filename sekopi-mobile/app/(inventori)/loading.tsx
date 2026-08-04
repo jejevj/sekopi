@@ -308,12 +308,15 @@ export default function LoadingScreen() {
   const todayOrders   = orders.filter((o) => isToday(o.created_at));
   const historyOrders = orders.filter((o) => !isToday(o.created_at));
 
+  // Selalu tampilkan section "Hari Ini" (bisa kosong) dan "History" jika ada
   const sectionData = [
-    ...(todayOrders.length > 0
-      ? [{ title: 'Hari Ini', data: todayOrders }]
-      : []),
+    {
+      title: 'Hari Ini',
+      data: todayOrders,
+      isEmpty: todayOrders.length === 0,
+    },
     ...(historyOrders.length > 0
-      ? [{ title: 'History', data: historyOrders }]
+      ? [{ title: 'History', data: historyOrders, isEmpty: false }]
       : []),
   ];
 
@@ -372,6 +375,17 @@ export default function LoadingScreen() {
     </TouchableOpacity>
   );
 
+  // ─── Render section kosong "Hari Ini"
+  const renderTodayEmpty = () => (
+    <BlurView intensity={10} tint="dark" style={styles.sectionEmptyBox}>
+      <Ionicons name="time-outline" size={32} color="rgba(255,255,255,0.1)" />
+      <Text style={styles.sectionEmptyTitle}>Belum ada loading hari ini</Text>
+      <Text style={styles.sectionEmptySubtitle}>
+        Loading order yang dibuat hari ini akan muncul di sini.
+      </Text>
+    </BlurView>
+  );
+
   // ────────────────────────────────────────────────────────────────────────────
   // SECTION: List
   const renderList = () => (
@@ -415,11 +429,6 @@ export default function LoadingScreen() {
             <Text style={{ color: '#f44444', fontSize: 13 }}>Coba lagi</Text>
           </TouchableOpacity>
         </View>
-      ) : orders.length === 0 ? (
-        <View style={styles.centerBox}>
-          <Ionicons name="cube-outline" size={48} color="rgba(255,255,255,0.12)" />
-          <Text style={styles.emptyText}>Belum ada loading order</Text>
-        </View>
       ) : (
         <SectionList
           sections={sectionData}
@@ -439,7 +448,15 @@ export default function LoadingScreen() {
               count={sec.data.length}
             />
           )}
-          renderItem={({ item }) => renderOrderCard(item)}
+          renderItem={({ item, section: sec }) => {
+            // Section "Hari Ini" kosong: tampilkan placeholder di renderSectionFooter
+            if (sec.isEmpty) return null;
+            return renderOrderCard(item);
+          }}
+          renderSectionFooter={({ section: sec }) => {
+            if (sec.isEmpty) return renderTodayEmpty();
+            return null;
+          }}
           ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
           SectionSeparatorComponent={() => <View style={{ height: 6 }} />}
         />
@@ -564,6 +581,12 @@ export default function LoadingScreen() {
     const isDraft       = selected.status === 'draft';
     const accentColor   = STATUS_COLOR[selected.status];
 
+    // Draft dari hari ini → scan & konfirmasi aktif
+    // Draft dari hari sebelumnya (history) → scan & konfirmasi dinonaktifkan
+    const isHistoryDraft = isDraft && !isToday(selected.created_at);
+    const canScan        = isDraft && !isHistoryDraft;
+    const canConfirm     = canAdvance && !!next && !isHistoryDraft;
+
     return (
       <LinearGradient colors={['#0f1117', '#13151e', '#0f1117']} style={{ flex: 1 }}>
         <View style={styles.glowTR} />
@@ -584,14 +607,31 @@ export default function LoadingScreen() {
             </View>
           </BlurView>
 
+          {/* Banner peringatan draft lama */}
+          {isHistoryDraft && (
+            <BlurView intensity={12} tint="dark" style={styles.warningBanner}>
+              <Ionicons name="warning-outline" size={16} color="#fbbf24" />
+              <Text style={styles.warningBannerText}>
+                Draft ini dibuat sebelum hari ini. Scan dan konfirmasi tidak dapat dilakukan.
+              </Text>
+            </BlurView>
+          )}
+
           <View style={{ gap: 8 }}>
             <View style={styles.sectionRow}>
               <Text style={styles.sectionLabel2}>Item ({selected.total_unit} unit)</Text>
               {isDraft && (
-                <TouchableOpacity onPress={openScanner} style={styles.scanBtn} activeOpacity={0.85}>
-                  <Ionicons name="scan-outline" size={15} color="#fff" />
-                  <Text style={styles.scanBtnText}>Scan Barcode</Text>
-                </TouchableOpacity>
+                canScan ? (
+                  <TouchableOpacity onPress={openScanner} style={styles.scanBtn} activeOpacity={0.85}>
+                    <Ionicons name="scan-outline" size={15} color="#fff" />
+                    <Text style={styles.scanBtnText}>Scan Barcode</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={[styles.scanBtn, styles.scanBtnDisabled]}>
+                    <Ionicons name="scan-outline" size={15} color="rgba(255,255,255,0.3)" />
+                    <Text style={[styles.scanBtnText, { color: 'rgba(255,255,255,0.3)' }]}>Scan Barcode</Text>
+                  </View>
+                )
               )}
             </View>
 
@@ -619,7 +659,7 @@ export default function LoadingScreen() {
                       Rp {item.harga_modal_snapshot.toLocaleString('id-ID')}
                     </Text>
                   </View>
-                  {isDraft && canDeleteItem && (
+                  {isDraft && canDeleteItem && !isHistoryDraft && (
                     <TouchableOpacity onPress={() => handleDeleteItem(item.id)}
                       disabled={deletingItem === item.id} style={{ padding: 8 }}>
                       {deletingItem === item.id
@@ -633,20 +673,46 @@ export default function LoadingScreen() {
           </View>
         </ScrollView>
 
+        {/* Action bar: tampilkan selalu jika ada next status, tapi disable jika history draft */}
         {canAdvance && next && (
           <View style={styles.actionBar}>
-            <TouchableOpacity onPress={handleAdvance} disabled={advancing} activeOpacity={0.82} style={{ flex: 1 }}>
+            <TouchableOpacity
+              onPress={canConfirm ? handleAdvance : undefined}
+              disabled={advancing || !canConfirm}
+              activeOpacity={canConfirm ? 0.82 : 1}
+              style={{ flex: 1 }}
+            >
               <LinearGradient
-                colors={advancing ? ['#4a1f1f', '#3a1515'] : [next.color, next.color + 'cc']}
+                colors={
+                  !canConfirm
+                    ? ['#2a2a2a', '#1e1e1e']
+                    : advancing
+                    ? ['#4a1f1f', '#3a1515']
+                    : [next.color, next.color + 'cc']
+                }
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                 style={[styles.actionBtn, {
-                  shadowColor: next.color, shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: advancing ? 0.1 : 0.45, shadowRadius: 14, elevation: 8,
+                  shadowColor: canConfirm ? next.color : 'transparent',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: advancing || !canConfirm ? 0 : 0.45,
+                  shadowRadius: 14, elevation: canConfirm ? 8 : 0,
+                  opacity: canConfirm ? 1 : 0.45,
                 }]}
               >
                 {advancing
                   ? <ActivityIndicator color="rgba(255,255,255,0.75)" />
-                  : <><Ionicons name="checkmark-circle-outline" size={20} color="#fff" /><Text style={styles.actionBtnText}>{next.label.toUpperCase()}</Text></>}
+                  : (
+                    <>
+                      <Ionicons
+                        name={canConfirm ? 'checkmark-circle-outline' : 'lock-closed-outline'}
+                        size={20} color="#fff"
+                      />
+                      <Text style={styles.actionBtnText}>
+                        {canConfirm ? next.label.toUpperCase() : `${next.label.toUpperCase()} (TIDAK TERSEDIA)`}
+                      </Text>
+                    </>
+                  )
+                }
               </LinearGradient>
             </TouchableOpacity>
           </View>
@@ -784,6 +850,32 @@ const styles = StyleSheet.create({
     color: '#f44444', fontSize: 11, fontWeight: '700',
   },
 
+  // empty state for "Hari Ini" section
+  sectionEmptyBox: {
+    borderRadius: 14, overflow: 'hidden', padding: 28,
+    alignItems: 'center', gap: 8,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)',
+    borderStyle: 'dashed',
+    marginBottom: 8,
+  },
+  sectionEmptyTitle: {
+    color: 'rgba(255,255,255,0.3)', fontSize: 13, fontWeight: '600', textAlign: 'center',
+  },
+  sectionEmptySubtitle: {
+    color: 'rgba(255,255,255,0.18)', fontSize: 11, textAlign: 'center', maxWidth: 240,
+  },
+
+  // warning banner for history draft
+  warningBanner: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    borderRadius: 12, overflow: 'hidden', padding: 12,
+    borderWidth: 1, borderColor: 'rgba(251,191,36,0.25)',
+    backgroundColor: 'rgba(251,191,36,0.06)',
+  },
+  warningBannerText: {
+    color: '#fbbf24', fontSize: 12, flex: 1, lineHeight: 18,
+  },
+
   centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40, gap: 10 },
   errorText: { color: '#f44444', fontSize: 13, textAlign: 'center' },
   emptyText: { color: 'rgba(255,255,255,0.25)', fontSize: 13, textAlign: 'center' },
@@ -825,8 +917,9 @@ const styles = StyleSheet.create({
   itemName: { color: '#fff', fontSize: 13, fontWeight: '600' },
   itemSub:  { color: 'rgba(255,255,255,0.35)', fontSize: 11, marginTop: 1 },
 
-  scanBtn:     { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#f44444', borderRadius: 9, paddingHorizontal: 12, paddingVertical: 7, shadowColor: '#f44444', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.4, shadowRadius: 6, elevation: 4 },
-  scanBtnText: { color: '#fff', fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
+  scanBtn:         { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#f44444', borderRadius: 9, paddingHorizontal: 12, paddingVertical: 7, shadowColor: '#f44444', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.4, shadowRadius: 6, elevation: 4 },
+  scanBtnDisabled: { backgroundColor: 'rgba(255,255,255,0.07)', shadowOpacity: 0, elevation: 0 },
+  scanBtnText:     { color: '#fff', fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
 
   actionBar: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
