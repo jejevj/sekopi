@@ -274,7 +274,9 @@ export default function LoadingScreen() {
     } catch (_) {}
   }, []);
 
-  // ── FEFO: fetch production units siap pakai, diurutkan FEFO (expiry_date asc)
+  // ── FEFO: gunakan endpoint /ready-fefo agar driver bisa akses (FEFO_ROLES)
+  // Endpoint /production-units/ hanya untuk VIEW_ROLES (tanpa driver).
+  // Endpoint /production-units/ready-fefo mengizinkan FEFO_ROLES termasuk driver.
   const fetchFefo = useCallback(async (page: number, search: string, replace: boolean) => {
     if (replace) setFefoLoading(true);
     else setFefoLoadingMore(true);
@@ -282,14 +284,11 @@ export default function LoadingScreen() {
     try {
       const params: any = {
         page,
-        size: FEFO_PAGE_SIZE,
-        status: 'ready',
-        order_by: 'expiry_date',
-        order_dir: 'asc',
+        per_page: FEFO_PAGE_SIZE,
       };
       if (search.trim()) params.search = search.trim();
-      // Endpoint: GET /production-units/ dengan filter status=ready, diurutkan expiry asc
-      const res = await api.get('/production-units/', { params });
+      // Endpoint khusus FEFO — mengizinkan role driver
+      const res = await api.get('/production-units/ready-fefo', { params });
       const data: FefoPage = res.data;
       setFefoItems((prev) => replace ? data.items : [...prev, ...data.items]);
       setFefoPage(data.page);
