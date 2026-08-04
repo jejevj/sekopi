@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView, SectionList,
+  View, Text, TouchableOpacity, ScrollView, SectionList, FlatList,
   TextInput, ActivityIndicator, Alert, StyleSheet, RefreshControl,
   Modal, Dimensions, Animated,
 } from 'react-native';
@@ -50,6 +50,25 @@ interface UserResponse {
   id: number; full_name: string; role: string; is_active: boolean;
 }
 
+// ─── FEFO Types
+interface ProductionUnitFefo {
+  id: number;
+  barcode: string;
+  nama_menu: string;
+  expiry_date: string;       // "YYYY-MM-DD"
+  harga_modal: number;
+  batch_code?: string | null;
+  status: string;
+}
+
+interface FefoPage {
+  items: ProductionUnitFefo[];
+  total: number;
+  page: number;
+  size: number;
+  pages: number;
+}
+
 // ─── Helpers
 function parseError(e: any): string {
   const detail = e?.response?.data?.detail;
@@ -70,12 +89,25 @@ function isToday(dateStr: string): boolean {
   );
 }
 
-/**
- * Cek apakah sudah ada loading berstatus 'draft' yang dibuat hari ini.
- * Jika ada, draft baru tidak boleh dibuat.
- */
 function getExistingDraftToday(orders: LoadingOrder[]): LoadingOrder | null {
   return orders.find((o) => o.status === 'draft' && isToday(o.created_at)) ?? null;
+}
+
+/** Sisa hari hingga kadaluwarsa (negatif = sudah lewat) */
+function daysUntilExpiry(expiryDateStr: string): number {
+  const expiry = new Date(expiryDateStr);
+  const today  = new Date();
+  expiry.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  return Math.round((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+/** Warna badge berdasarkan kedekatan kadaluwarsa */
+function getExpiryBadgeStyle(days: number): { bg: string; border: string; text: string; label: string } {
+  if (days < 0)  return { bg: 'rgba(244,68,68,0.18)',   border: 'rgba(244,68,68,0.5)',   text: '#f87171', label: 'Kadaluwarsa' };
+  if (days <= 3) return { bg: 'rgba(244,68,68,0.14)',   border: 'rgba(244,68,68,0.4)',   text: '#f87171', label: `${days}h lagi` };
+  if (days <= 7) return { bg: 'rgba(251,191,36,0.14)',  border: 'rgba(251,191,36,0.4)',  text: '#fbbf24', label: `${days}h lagi` };
+  return              { bg: 'rgba(52,211,153,0.12)',  border: 'rgba(52,211,153,0.35)', text: '#34d399', label: `${days}h lagi` };
 }
 
 const ALL_STATUSES: StatusLoading[] = ['draft', 'confirmed', 'dispatched', 'returned'];
@@ -95,6 +127,8 @@ const NEXT_STATUS: Partial<Record<StatusLoading, { to: StatusLoading; label: str
 const CAN_CREATE      = ['admin', 'inventori', 'driver'];
 const CAN_ADVANCE     = ['admin', 'inventori', 'driver'];
 const CAN_DELETE_ITEM = ['admin', 'inventori'];
+
+const FEFO_PAGE_SIZE = 20;
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -183,7 +217,19 @@ export default function LoadingScreen() {
   const [advancing, setAdvancing]       = useState(false);
   const [deletingItem, setDeletingItem] = useState<number | null>(null);
 
-  // ── Fetch list — backend sudah filter by user role
+  // ── FEFO Modal state
+  const [fefoOpen, setFefoOpen]             = useState(false);
+  const [fefoItems, setFefoItems]           = useState<ProductionUnitFefo[]>([]);
+  const [fefoLoading, setFefoLoading]       = useState(false);
+  const [fefoLoadingMore, setFefoLoadingMore] = useState(false);
+  const [fefoSearch, setFefoSearch]         = useState('');
+  const [fefoPage, setFefoPage]             = useState(1);
+  const [fefoTotalPages, setFefoTotalPages] = useState(1);
+  const [fefoError, setFefoError]           = useState('');
+  const [addingUnit, setAddingUnit]         = useState<number | null>(null);
+  const fefoSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Fetch list
   const fetchOrders = useCallback(async (silent = false) => {
     if (!silent) setListLoading(true);
     setListError('');
@@ -228,14 +274,95 @@ export default function LoadingScreen() {
     } catch (_) {}
   }, []);
 
-  // ── Cek: apakah sudah ada draft hari ini (global, tidak per-gerobak)
+  // ── FEFO: fetch production units siap pakai, diurutkan FEFO (expiry_date asc)
+  const fetchFefo = useCallback(async (page: number, search: string, replace: boolean) => {
+    if (replace) setFefoLoading(true);
+    else setFefoLoadingMore(true);
+    setFefoError('');
+    try {
+      const params: any = {
+        page,
+        size: FEFO_PAGE_SIZE,
+        status: 'ready',
+        order_by: 'expiry_date',
+        order_dir: 'asc',
+      };
+      if (search.trim()) params.search = search.trim();
+      // Endpoint: GET /production-units/ dengan filter status=ready, diurutkan expiry asc
+      const res = await api.get('/production-units/', { params });
+      const data: FefoPage = res.data;
+      setFefoItems((prev) => replace ? data.items : [...prev, ...data.items]);
+      setFefoPage(data.page);
+      setFefoTotalPages(data.pages);
+    } catch (e) {
+      setFefoError(parseError(e));
+    } finally {
+      setFefoLoading(false);
+      setFefoLoadingMore(false);
+    }
+  }, []);
+
+  const openFefoModal = useCallback(() => {
+    setFefoOpen(true);
+    setFefoItems([]);
+    setFefoSearch('');
+    setFefoPage(1);
+    setFefoTotalPages(1);
+    setFefoError('');
+    fetchFefo(1, '', true);
+  }, [fetchFefo]);
+
+  const handleFefoSearchChange = useCallback((text: string) => {
+    setFefoSearch(text);
+    if (fefoSearchTimer.current) clearTimeout(fefoSearchTimer.current);
+    fefoSearchTimer.current = setTimeout(() => {
+      setFefoItems([]);
+      fetchFefo(1, text, true);
+    }, 400);
+  }, [fetchFefo]);
+
+  const handleFefoLoadMore = useCallback(() => {
+    if (fefoLoadingMore || fefoLoading || fefoPage >= fefoTotalPages) return;
+    const nextPage = fefoPage + 1;
+    fetchFefo(nextPage, fefoSearch, false);
+  }, [fefoLoadingMore, fefoLoading, fefoPage, fefoTotalPages, fefoSearch, fetchFefo]);
+
+  const handleAddFromFefo = useCallback(async (unit: ProductionUnitFefo) => {
+    if (!selected) return;
+    setAddingUnit(unit.id);
+    try {
+      // Gunakan endpoint scan dengan barcode unit — sama persis dengan scan fisik
+      await api.post(`/loading/${selected.id}/scan`, { barcode: unit.barcode });
+      await refreshDetail(selected.id);
+      Alert.alert('Berhasil', `${unit.nama_menu} berhasil ditambahkan ke loading.`);
+    } catch (e) {
+      Alert.alert('Gagal', parseError(e));
+    } finally {
+      setAddingUnit(null);
+    }
+  }, [selected, refreshDetail]);
+
+  // ── Pisahkan orders: hari ini vs history
+  const todayOrders   = orders.filter((o) => isToday(o.created_at));
+  const historyOrders = orders.filter((o) => !isToday(o.created_at));
+
+  const sectionData = [
+    {
+      title: 'Hari Ini',
+      data: todayOrders,
+      isEmpty: todayOrders.length === 0,
+    },
+    ...(historyOrders.length > 0
+      ? [{ title: 'History', data: historyOrders, isEmpty: false }]
+      : []),
+  ];
+
+  // ── Cek: apakah sudah ada draft hari ini
   const existingDraftToday = getExistingDraftToday(orders);
 
   const handleCreate = async () => {
     if (!selGerobak) { setCreateError('Pilih gerobak terlebih dahulu.'); return; }
     if (!selDriver)  { setCreateError('Pilih driver terlebih dahulu.'); return; }
-
-    // Pengecekan sisi mobile: hanya boleh 1 draft aktif per hari
     if (existingDraftToday) {
       setCreateError(
         `Sudah ada draft loading hari ini (${existingDraftToday.nomor_loading} — ` +
@@ -244,7 +371,6 @@ export default function LoadingScreen() {
       );
       return;
     }
-
     setCreating(true); setCreateError('');
     try {
       const res = await api.post('/loading/', {
@@ -326,23 +452,7 @@ export default function LoadingScreen() {
     setScanOpen(true);
   };
 
-  // ── Pisahkan orders: hari ini vs history
-  const todayOrders   = orders.filter((o) => isToday(o.created_at));
-  const historyOrders = orders.filter((o) => !isToday(o.created_at));
-
-  const sectionData = [
-    {
-      title: 'Hari Ini',
-      data: todayOrders,
-      isEmpty: todayOrders.length === 0,
-    },
-    ...(historyOrders.length > 0
-      ? [{ title: 'History', data: historyOrders, isEmpty: false }]
-      : []),
-  ];
-
   // ────────────────────────────────────────────────────────────────────────────
-  // Render helpers
   const SECTION_TITLE: Record<Section, string> = {
     list:   'Loading Order',
     create: 'Buat Loading',
@@ -504,7 +614,6 @@ export default function LoadingScreen() {
         {renderHeader(() => setSection('list'))}
         <ScrollView contentContainerStyle={{ padding: 20, gap: 14 }} keyboardShouldPersistTaps="handled">
 
-          {/* Banner global: sudah ada draft hari ini */}
           {!!existingDraftToday && (
             <BlurView intensity={12} tint="dark" style={styles.warningBanner}>
               <Ionicons name="warning-outline" size={16} color="#fbbf24" />
@@ -630,7 +739,6 @@ export default function LoadingScreen() {
             </LinearGradient>
           </TouchableOpacity>
 
-          {/* Shortcut ke draft yang sudah ada */}
           {!!existingDraftToday && (
             <TouchableOpacity
               onPress={() => {
@@ -697,27 +805,35 @@ export default function LoadingScreen() {
           )}
 
           <View style={{ gap: 8 }}>
+            {/* ── Header row: label + tombol aksi */}
             <View style={styles.sectionRow}>
               <Text style={styles.sectionLabel2}>Item ({selected.total_unit} unit)</Text>
-              {isDraft && (
-                canScan ? (
+              {isDraft && canScan && (
+                <View style={styles.draftBtnRow}>
+                  {/* Tombol Scan Barcode */}
                   <TouchableOpacity onPress={openScanner} style={styles.scanBtn} activeOpacity={0.85}>
                     <Ionicons name="scan-outline" size={15} color="#fff" />
-                    <Text style={styles.scanBtnText}>Scan Barcode</Text>
+                    <Text style={styles.scanBtnText}>Scan</Text>
                   </TouchableOpacity>
-                ) : (
-                  <View style={[styles.scanBtn, styles.scanBtnDisabled]}>
-                    <Ionicons name="scan-outline" size={15} color="rgba(255,255,255,0.3)" />
-                    <Text style={[styles.scanBtnText, { color: 'rgba(255,255,255,0.3)' }]}>Scan Barcode</Text>
-                  </View>
-                )
+                  {/* Tombol Pilih Stok (FEFO) */}
+                  <TouchableOpacity onPress={openFefoModal} style={styles.fefoBtn} activeOpacity={0.85}>
+                    <Ionicons name="layers-outline" size={15} color="#fff" />
+                    <Text style={styles.fefoBtnText}>Pilih Stok</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              {isDraft && !canScan && (
+                <View style={[styles.scanBtn, styles.scanBtnDisabled]}>
+                  <Ionicons name="scan-outline" size={15} color="rgba(255,255,255,0.3)" />
+                  <Text style={[styles.scanBtnText, { color: 'rgba(255,255,255,0.3)' }]}>Scan Barcode</Text>
+                </View>
               )}
             </View>
 
             {selected.items.length === 0 ? (
               <BlurView intensity={10} tint="dark" style={[styles.card, { alignItems: 'center', paddingVertical: 28 }]}>
                 <Ionicons name="cube-outline" size={38} color="rgba(255,255,255,0.1)" />
-                <Text style={[styles.emptyText, { marginTop: 8 }]}>Belum ada item. Scan barcode untuk menambah.</Text>
+                <Text style={[styles.emptyText, { marginTop: 8 }]}>Belum ada item. Scan barcode atau pilih stok untuk menambah.</Text>
               </BlurView>
             ) : (
               selected.items.map((item) => (
@@ -800,6 +916,146 @@ export default function LoadingScreen() {
   };
 
   // ────────────────────────────────────────────────────────────────────────────
+  // FEFO Modal
+  const renderFefoModal = () => (
+    <Modal visible={fefoOpen} animationType="slide" statusBarTranslucent onRequestClose={() => setFefoOpen(false)}>
+      <LinearGradient colors={['#0a0c12', '#0f1117', '#0a0c12']} style={{ flex: 1 }}>
+        {/* Header */}
+        <BlurView intensity={20} tint="dark" style={styles.fefoHeader}>
+          <TouchableOpacity onPress={() => setFefoOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Ionicons name="close" size={22} color="rgba(255,255,255,0.7)" />
+          </TouchableOpacity>
+          <View style={{ flex: 1, alignItems: 'center' }}>
+            <Text style={styles.fefoHeaderTitle}>Pilih Stok</Text>
+            <Text style={styles.fefoHeaderSub}>Diurutkan: kadaluwarsa terdekat dahulu</Text>
+          </View>
+          <View style={{ width: 22 }} />
+        </BlurView>
+
+        {/* Search */}
+        <BlurView intensity={12} tint="dark" style={styles.fefoSearchWrap}>
+          <Ionicons name="search-outline" size={16} color="rgba(255,255,255,0.3)" />
+          <TextInput
+            value={fefoSearch}
+            onChangeText={handleFefoSearchChange}
+            placeholder="Cari nama produk atau barcode..."
+            placeholderTextColor="rgba(255,255,255,0.2)"
+            style={styles.fefoSearchInput}
+            returnKeyType="search"
+            clearButtonMode="while-editing"
+          />
+          {fefoLoading && <ActivityIndicator size="small" color="#2dd4bf" style={{ marginLeft: 6 }} />}
+        </BlurView>
+
+        {/* Legend */}
+        <View style={styles.fefoLegend}>
+          <View style={styles.fefoLegendItem}>
+            <View style={[styles.fefoLegendDot, { backgroundColor: '#f87171' }]} />
+            <Text style={styles.fefoLegendText}>≤ 3 hari</Text>
+          </View>
+          <View style={styles.fefoLegendItem}>
+            <View style={[styles.fefoLegendDot, { backgroundColor: '#fbbf24' }]} />
+            <Text style={styles.fefoLegendText}>4–7 hari</Text>
+          </View>
+          <View style={styles.fefoLegendItem}>
+            <View style={[styles.fefoLegendDot, { backgroundColor: '#34d399' }]} />
+            <Text style={styles.fefoLegendText}>&gt; 7 hari</Text>
+          </View>
+        </View>
+
+        {/* Error */}
+        {!!fefoError && (
+          <View style={[styles.errorBox, { margin: 16 }]}>
+            <Ionicons name="warning-outline" size={15} color="#f44444" />
+            <Text style={{ color: '#f44444', fontSize: 12, flex: 1 }}>{fefoError}</Text>
+            <TouchableOpacity onPress={() => fetchFefo(1, fefoSearch, true)}>
+              <Text style={{ color: '#f44444', fontSize: 12, fontWeight: '700' }}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* List */}
+        {fefoLoading && fefoItems.length === 0 ? (
+          <View style={styles.centerBox}>
+            <ActivityIndicator color="#2dd4bf" size="large" />
+            <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, marginTop: 8 }}>Memuat stok...</Text>
+          </View>
+        ) : !fefoLoading && fefoItems.length === 0 && !fefoError ? (
+          <View style={styles.centerBox}>
+            <Ionicons name="archive-outline" size={44} color="rgba(255,255,255,0.1)" />
+            <Text style={styles.emptyText}>Tidak ada stok tersedia</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={fefoItems}
+            keyExtractor={(item) => String(item.id)}
+            contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 40 }}
+            renderItem={({ item }) => {
+              const days    = daysUntilExpiry(item.expiry_date);
+              const badge   = getExpiryBadgeStyle(days);
+              const isAdding = addingUnit === item.id;
+              return (
+                <BlurView intensity={10} tint="dark" style={styles.fefoCard}>
+                  {/* Indikator warna kiri */}
+                  <View style={[styles.fefoCardAccent, { backgroundColor: badge.text }]} />
+                  <View style={{ flex: 1, padding: 12 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.fefoItemName} numberOfLines={2}>{item.nama_menu}</Text>
+                        <Text style={styles.fefoItemBarcode}>{item.barcode}</Text>
+                        {item.batch_code ? (
+                          <Text style={styles.fefoItemBatch}>Batch: {item.batch_code}</Text>
+                        ) : null}
+                        <Text style={[styles.fefoItemBarcode, { color: '#fbbf24', marginTop: 2 }]}>
+                          Rp {item.harga_modal.toLocaleString('id-ID')}
+                        </Text>
+                      </View>
+                      {/* Badge kadaluwarsa */}
+                      <View style={[styles.fefoExpBadge, { backgroundColor: badge.bg, borderColor: badge.border }]}>
+                        <Ionicons name="time-outline" size={11} color={badge.text} />
+                        <Text style={[styles.fefoExpBadgeText, { color: badge.text }]}>{badge.label}</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.fefoExpDate}>
+                      Exp: {new Date(item.expiry_date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </Text>
+                  </View>
+                  {/* Tombol Tambah */}
+                  <TouchableOpacity
+                    onPress={() => handleAddFromFefo(item)}
+                    disabled={isAdding}
+                    style={[styles.fefoAddBtn, isAdding && { opacity: 0.55 }]}
+                    activeOpacity={0.8}
+                  >
+                    {isAdding
+                      ? <ActivityIndicator size="small" color="#fff" />
+                      : <Ionicons name="add" size={20} color="#fff" />}
+                  </TouchableOpacity>
+                </BlurView>
+              );
+            }}
+            ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+            onEndReached={handleFefoLoadMore}
+            onEndReachedThreshold={0.3}
+            ListFooterComponent={() =>
+              fefoLoadingMore ? (
+                <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+                  <ActivityIndicator color="#2dd4bf" />
+                  <Text style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, marginTop: 6 }}>Memuat lebih banyak...</Text>
+                </View>
+              ) : fefoPage >= fefoTotalPages && fefoItems.length > 0 ? (
+                <Text style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11, textAlign: 'center', paddingVertical: 16 }}>
+                  — Semua stok sudah ditampilkan —
+                </Text>
+              ) : null
+            }
+          />
+        )}
+      </LinearGradient>
+    </Modal>
+  );
+
+  // ────────────────────────────────────────────────────────────────────────────
   // Scanner Modal
   const renderScanner = () => (
     <Modal visible={scanOpen} animationType="slide" statusBarTranslucent>
@@ -854,6 +1110,7 @@ export default function LoadingScreen() {
       {section === 'create' && renderCreate()}
       {section === 'detail' && renderDetail()}
       {renderScanner()}
+      {renderFefoModal()}
     </>
   );
 }
@@ -937,7 +1194,6 @@ const styles = StyleSheet.create({
   },
   warningBannerText: { color: '#fbbf24', fontSize: 12, flex: 1, lineHeight: 18 },
 
-  // shortcut ke existing draft
   gotoExistingDraft: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     borderRadius: 12, overflow: 'hidden', padding: 14,
@@ -987,9 +1243,16 @@ const styles = StyleSheet.create({
   itemName: { color: '#fff', fontSize: 13, fontWeight: '600' },
   itemSub:  { color: 'rgba(255,255,255,0.35)', fontSize: 11, marginTop: 1 },
 
+  // ── Draft action buttons row
+  draftBtnRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+
   scanBtn:         { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#f44444', borderRadius: 9, paddingHorizontal: 12, paddingVertical: 7, shadowColor: '#f44444', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.4, shadowRadius: 6, elevation: 4 },
   scanBtnDisabled: { backgroundColor: 'rgba(255,255,255,0.07)', shadowOpacity: 0, elevation: 0 },
   scanBtnText:     { color: '#fff', fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
+
+  // ── FEFO button (teal)
+  fefoBtn:     { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#0d9488', borderRadius: 9, paddingHorizontal: 12, paddingVertical: 7, shadowColor: '#2dd4bf', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.35, shadowRadius: 6, elevation: 4 },
+  fefoBtnText: { color: '#fff', fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
 
   actionBar: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
@@ -1035,4 +1298,51 @@ const styles = StyleSheet.create({
 
   scanHint:   { color: 'rgba(255,255,255,0.5)', fontSize: 13, textAlign: 'center' },
   scanMsgBox: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: 10, padding: 10, marginTop: 12, backgroundColor: 'rgba(0,0,0,0.4)', width: '100%' },
+
+  // ── FEFO Modal styles
+  fefoHeader: {
+    paddingTop: 52, paddingBottom: 14, paddingHorizontal: 20,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)',
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: 'rgba(10,12,18,0.8)',
+  },
+  fefoHeaderTitle: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  fefoHeaderSub:   { color: 'rgba(45,212,191,0.7)', fontSize: 10, letterSpacing: 0.5, marginTop: 1 },
+
+  fefoSearchWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    margin: 16, marginBottom: 8,
+    paddingHorizontal: 14, paddingVertical: 10,
+    borderRadius: 12, overflow: 'hidden',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.09)',
+  },
+  fefoSearchInput: { flex: 1, color: '#fff', fontSize: 13 },
+
+  fefoLegend: { flexDirection: 'row', gap: 16, paddingHorizontal: 16, paddingBottom: 10, alignItems: 'center' },
+  fefoLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  fefoLegendDot:  { width: 8, height: 8, borderRadius: 4 },
+  fefoLegendText: { color: 'rgba(255,255,255,0.35)', fontSize: 11 },
+
+  fefoCard: {
+    borderRadius: 14, overflow: 'hidden',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
+    flexDirection: 'row', alignItems: 'stretch',
+  },
+  fefoCardAccent: { width: 4 },
+  fefoItemName:    { color: '#fff', fontSize: 13, fontWeight: '600', lineHeight: 18 },
+  fefoItemBarcode: { color: 'rgba(255,255,255,0.35)', fontSize: 11, marginTop: 2 },
+  fefoItemBatch:   { color: 'rgba(45,212,191,0.6)', fontSize: 11, marginTop: 1 },
+  fefoExpBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    borderRadius: 8, borderWidth: 1,
+    paddingHorizontal: 7, paddingVertical: 3,
+    alignSelf: 'flex-start',
+  },
+  fefoExpBadgeText: { fontSize: 11, fontWeight: '700' },
+  fefoExpDate:      { color: 'rgba(255,255,255,0.3)', fontSize: 11, marginTop: 6 },
+  fefoAddBtn: {
+    width: 48, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#0d9488',
+    borderLeftWidth: 1, borderLeftColor: 'rgba(255,255,255,0.06)',
+  },
 });
