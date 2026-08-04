@@ -1,7 +1,7 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 
 from fastapi import HTTPException
-from sqlalchemy import text
+from sqlalchemy import text, select, func, and_, cast, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.loading import LoadingItem, LoadingOrder, StatusLoading
@@ -23,12 +23,49 @@ async def _nomor_loading(db: AsyncSession) -> str:
     return f"LD-{today}-{count + 1:04d}"
 
 
+async def _check_one_loading_per_gerobak_today(
+    db: AsyncSession, gerobak_id: int
+) -> None:
+    """
+    Pastikan dalam satu hari kalender (UTC) hanya ada 1 loading order
+    per gerobak yang masih aktif (DRAFT / CONFIRMED / DISPATCHED).
+    RETURNED dianggap selesai sehingga tidak dihitung.
+    """
+    today_utc: date = datetime.now(timezone.utc).date()
+
+    result = await db.execute(
+        select(func.count(LoadingOrder.id)).where(
+            and_(
+                LoadingOrder.gerobak_id == gerobak_id,
+                LoadingOrder.status.in_([
+                    StatusLoading.DRAFT,
+                    StatusLoading.CONFIRMED,
+                    StatusLoading.DISPATCHED,
+                ]),
+                cast(LoadingOrder.created_at, Date) == today_utc,
+            )
+        )
+    )
+    count: int = result.scalar() or 0
+    if count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Gerobak ini sudah memiliki loading order aktif hari ini. "
+                "Selesaikan atau kembalikan loading sebelumnya terlebih dahulu."
+            ),
+        )
+
+
 class LoadingService:
     def __init__(self, repo: LoadingRepository, db: AsyncSession):
         self.repo = repo
         self.db = db
 
     async def create(self, data: LoadingOrderCreate, dibuat_oleh: int) -> LoadingOrderResponse:
+        # Validasi: 1 loading aktif per gerobak per hari
+        await _check_one_loading_per_gerobak_today(self.db, data.gerobak_id)
+
         nomor = await _nomor_loading(self.db)
         obj = LoadingOrder(
             nomor_loading=nomor,
